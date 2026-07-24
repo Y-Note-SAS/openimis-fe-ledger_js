@@ -28,10 +28,16 @@ const PartyPicker = ({ intl, value, onChange, results, fetchingResults, searchPa
         debouncedSearch(newInputValue);
       }}
       onChange={(_, newValue) => onChange(newValue)}
-      getOptionLabel={(option) => (option?.displayName ? `${option.displayName} (${option.partyType})` : "")}
+      getOptionLabel={(option) =>
+        option?.displayName
+          ? `${option.displayName} (${formatMessage(intl, "ledger", `ledger.picker.partyType.${option.partyType}`)})`
+          : ""
+      }
       isOptionEqualToValue={(option, val) => option?.analyticValueId === val?.analyticValueId}
+      noOptionsText={formatMessage(intl, "ledger", "ledger.picker.noOptions")}
+      loadingText={formatMessage(intl, "ledger", "ledger.picker.loading")}
       renderInput={(params) => (
-        <TextField {...params} label={formatMessage(intl, "ledger", "ledger.party")} variant="standard" />
+        <TextField {...params} label={formatMessage(intl, "ledger", "ledger.picker.party")} variant="standard" />
       )}
     />
   );

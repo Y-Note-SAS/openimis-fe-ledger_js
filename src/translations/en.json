@@ -10,8 +10,40 @@
       "periodExport": "Period Export",
       "deploymentConfiguration": "Deployment Configuration"
     },
+    "any": "Any",
+    "accountingPeriod": "Accounting Period",
+    "journal": "Journal",
+    "party": "Party",
+    "funder": "Funder",
+    "picker": {
+      "accountingPeriod": "Accounting Period",
+      "journal": "Journal",
+      "party": "Party",
+      "funder": "Funder",
+      "partyType": {
+        "insuree_family": "Insuree / Family",
+        "health_facility": "Health Facility",
+        "payment_point_manager": "Payment Point Manager"
+      },
+      "noOptions": "No results",
+      "loading": "Loading..."
+    },
+    "entry": {
+      "journal": "Journal",
+      "accountingPeriod": "Accounting Period",
+      "sourceEvent": "Source Event",
+      "postedAt": "Posted Date",
+      "debit": "Debit",
+      "credit": "Credit",
+      "balance": "Balance"
+    },
+    "sourceEventType": "Source Event Type",
     "entries": {
-      "pageTitle": "General Ledger"
+      "pageTitle": "General Ledger",
+      "empty": "No ledger entries match the current filters.",
+      "totalCount": "Entries",
+      "tableTitle": "Ledger entries ({count})",
+      "expandTooltip": "Open entry lines"
     },
     "partyLedgerPage": {
       "pageTitle": "Party Sub-Ledger"

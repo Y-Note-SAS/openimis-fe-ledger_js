@@ -3,7 +3,7 @@ import { injectIntl } from "react-intl";
 import { connect } from "react-redux";
 import { bindActionCreators } from "redux";
 import { SelectInput, formatMessage } from "@openimis/fe-core";
-import { fetchAccountingPeriods } from "../actions";
+import { fetchAccountingPeriodsMock } from "../actions";
 
 const AccountingPeriodPicker = ({
   intl,
@@ -16,11 +16,11 @@ const AccountingPeriodPicker = ({
   accountingPeriods,
   fetchingAccountingPeriods,
   fetchedAccountingPeriods,
-  fetchAccountingPeriods,
+  fetchAccountingPeriodsMock,
 }) => {
   useEffect(() => {
     if (!fetchedAccountingPeriods && !fetchingAccountingPeriods) {
-      fetchAccountingPeriods();
+      fetchAccountingPeriodsMock();
     }
   }, []);
 
@@ -36,7 +36,7 @@ const AccountingPeriodPicker = ({
   return (
     <SelectInput
       module="ledger"
-      label={label || formatMessage(intl, "ledger", "ledger.accountingPeriod")}
+      label={label || formatMessage(intl, "ledger", "ledger.picker.accountingPeriod")}
       options={options}
       value={value}
       onChange={onChange}
@@ -52,7 +52,7 @@ const mapStateToProps = (state) => ({
   fetchedAccountingPeriods: state.ledger.accountingPeriods.isFetched,
 });
 
-const mapDispatchToProps = (dispatch) => bindActionCreators({ fetchAccountingPeriods }, dispatch);
+const mapDispatchToProps = (dispatch) => bindActionCreators({ fetchAccountingPeriodsMock }, dispatch);
 
 export { AccountingPeriodPicker };
 export default injectIntl(connect(mapStateToProps, mapDispatchToProps)(AccountingPeriodPicker));

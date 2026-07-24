@@ -30,8 +30,10 @@ const FunderPicker = ({ intl, value, onChange, results, fetchingResults, searchF
       onChange={(_, newValue) => onChange(newValue)}
       getOptionLabel={(option) => option?.displayName || ""}
       isOptionEqualToValue={(option, val) => option?.analyticValueId === val?.analyticValueId}
+      noOptionsText={formatMessage(intl, "ledger", "ledger.picker.noOptions")}
+      loadingText={formatMessage(intl, "ledger", "ledger.picker.loading")}
       renderInput={(params) => (
-        <TextField {...params} label={formatMessage(intl, "ledger", "ledger.funder")} variant="standard" />
+        <TextField {...params} label={formatMessage(intl, "ledger", "ledger.picker.funder")} variant="standard" />
       )}
     />
   );

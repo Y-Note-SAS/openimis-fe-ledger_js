@@ -189,6 +189,84 @@ const CONFIGURE_DEPLOYMENT_MUTATION = `
   }
 `;
 
+const mockId = (type, id) => btoa(`${type}:${id}`);
+
+const MOCK_LEDGER_ENTRIES = [
+  {
+    id: mockId("LedgerEntry", 1),
+    journal: { code: "BANK", name: "Bank" },
+    accountingPeriod: { id: mockId("AccountingPeriod", 1), status: "open" },
+    sourceEventType: "claim_payment",
+    sourceEventReference: "CLM-2026-0001",
+    postedAt: "2026-07-20",
+    lines: [
+      { id: mockId("LedgerEntryLine", 1), account: { code: "4010", name: "Claims expense" }, debit: 12500, credit: null },
+      { id: mockId("LedgerEntryLine", 2), account: { code: "5120", name: "Bank account" }, debit: null, credit: 12500 },
+    ],
+  },
+  {
+    id: mockId("LedgerEntry", 2),
+    journal: { code: "SALES", name: "Sales" },
+    accountingPeriod: { id: mockId("AccountingPeriod", 1), status: "open" },
+    sourceEventType: "invoice",
+    sourceEventReference: "INV-2026-0007",
+    postedAt: "2026-07-21",
+    lines: [
+      { id: mockId("LedgerEntryLine", 3), account: { code: "4110", name: "Receivables" }, debit: 7800, credit: null },
+      { id: mockId("LedgerEntryLine", 4), account: { code: "7060", name: "Contribution revenue" }, debit: null, credit: 7800 },
+    ],
+  },
+];
+
+const MOCK_ACCOUNTING_PERIODS = [
+  {
+    id: mockId("AccountingPeriod", 1),
+    startDate: "2026-07-01",
+    endDate: "2026-07-31",
+    status: "open",
+  },
+  {
+    id: mockId("AccountingPeriod", 2),
+    startDate: "2026-06-01",
+    endDate: "2026-06-30",
+    status: "closed",
+  },
+];
+
+export function fetchLedgerEntriesMock(params = []) {
+  return (dispatch) => {
+    dispatch({ type: `${ACTION_TYPE.LEDGER_ENTRIES}_REQ`, meta: { filters: {} } });
+    dispatch({
+      type: `${ACTION_TYPE.LEDGER_ENTRIES}_RESP`,
+      payload: {
+        data: {
+          ledgerEntries: {
+            totalCount: MOCK_LEDGER_ENTRIES.length,
+            pageInfo: {
+              hasNextPage: false,
+              hasPreviousPage: false,
+              startCursor: null,
+              endCursor: null,
+            },
+            edges: MOCK_LEDGER_ENTRIES.map((node) => ({ node })),
+          },
+        },
+      },
+      meta: { params },
+    });
+  };
+}
+
+export function fetchAccountingPeriodsMock() {
+  return (dispatch) => {
+    dispatch({ type: `${ACTION_TYPE.ACCOUNTING_PERIODS}_REQ` });
+    dispatch({
+      type: `${ACTION_TYPE.ACCOUNTING_PERIODS}_RESP`,
+      payload: { data: { accountingPeriods: MOCK_ACCOUNTING_PERIODS } },
+    });
+  };
+}
+
 /**
  * Dispatches the LedgerEntries query (US1, FR-001). `filters` uses the
  * frontend view-model names from data-model.md's `LedgerEntryFilters`
