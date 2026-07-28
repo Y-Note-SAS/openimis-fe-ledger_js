@@ -190,32 +190,52 @@ const CONFIGURE_DEPLOYMENT_MUTATION = `
 `;
 
 const mockId = (type, id) => btoa(`${type}:${id}`);
+const OPEN_PERIOD_ID = mockId("AccountingPeriod", 1);
+const CLOSED_PERIOD_ID = mockId("AccountingPeriod", 2);
+
+const partyTag = (id, displayName) => ({ analyticValueId: id, displayName });
+const funderTag = (id, displayName) => ({ analyticValueId: id, displayName });
+const mockEntry = (id, journal, periodId, status, sourceEventType, sourceEventReference, postedAt, amount, party, funder) => ({
+  id: mockId("LedgerEntry", id),
+  journal: { code: journal, name: journal },
+  accountingPeriod: { id: periodId, status },
+  sourceEventType,
+  sourceEventReference,
+  postedAt,
+  lines: [
+    {
+      id: mockId("LedgerEntryLine", `${id}-d`),
+      account: { code: "4010", name: "Debit account" },
+      debit: amount,
+      credit: null,
+      partyTag: party,
+      funderTag: funder,
+    },
+    {
+      id: mockId("LedgerEntryLine", `${id}-c`),
+      account: { code: "5120", name: "Credit account" },
+      debit: null,
+      credit: amount,
+      partyTag: party,
+      funderTag: funder,
+    },
+  ],
+});
 
 const MOCK_LEDGER_ENTRIES = [
-  {
-    id: mockId("LedgerEntry", 1),
-    journal: { code: "BANK", name: "Bank" },
-    accountingPeriod: { id: mockId("AccountingPeriod", 1), status: "open" },
-    sourceEventType: "claim_payment",
-    sourceEventReference: "CLM-2026-0001",
-    postedAt: "2026-07-20",
-    lines: [
-      { id: mockId("LedgerEntryLine", 1), account: { code: "4010", name: "Claims expense" }, debit: 12500, credit: null },
-      { id: mockId("LedgerEntryLine", 2), account: { code: "5120", name: "Bank account" }, debit: null, credit: 12500 },
-    ],
-  },
-  {
-    id: mockId("LedgerEntry", 2),
-    journal: { code: "SALES", name: "Sales" },
-    accountingPeriod: { id: mockId("AccountingPeriod", 1), status: "open" },
-    sourceEventType: "invoice",
-    sourceEventReference: "INV-2026-0007",
-    postedAt: "2026-07-21",
-    lines: [
-      { id: mockId("LedgerEntryLine", 3), account: { code: "4110", name: "Receivables" }, debit: 7800, credit: null },
-      { id: mockId("LedgerEntryLine", 4), account: { code: "7060", name: "Contribution revenue" }, debit: null, credit: 7800 },
-    ],
-  },
+  mockEntry(1, "BANK", OPEN_PERIOD_ID, "open", "claim_payment", "CLM-2026-0001", "2026-07-24", 12500, partyTag("HF-1", "District Hospital"), funderTag("GIZ", "GIZ")),
+  mockEntry(2, "SALES", OPEN_PERIOD_ID, "open", "invoice", "INV-2026-0007", "2026-07-23", 7800, partyTag("FAM-1", "Family Doe"), funderTag("WB", "World Bank")),
+  mockEntry(3, "BANK", OPEN_PERIOD_ID, "open", "payroll_disbursement", "PAY-2026-0003", "2026-07-22", 9200, partyTag("PPM-1", "Payment Point Manager A"), funderTag("GIZ", "GIZ")),
+  mockEntry(4, "MISC", OPEN_PERIOD_ID, "open", "payment_point_reconciliation", "PPR-2026-0004", "2026-07-21", 4300, partyTag("PPM-2", "Payment Point Manager B"), funderTag("WB", "World Bank")),
+  mockEntry(5, "PURCHASES", OPEN_PERIOD_ID, "open", "correction", "COR-2026-0005", "2026-07-20", 2100, partyTag("HF-2", "Urban Clinic"), funderTag("GIZ", "GIZ")),
+  mockEntry(6, "MISC", OPEN_PERIOD_ID, "open", "closing_entry", "CLS-2026-0006", "2026-07-19", 500, null, null),
+  mockEntry(7, "BANK", CLOSED_PERIOD_ID, "closed", "claim_payment", "CLM-2026-0101", "2026-06-28", 6100, partyTag("HF-1", "District Hospital"), funderTag("GIZ", "GIZ")),
+  mockEntry(8, "SALES", CLOSED_PERIOD_ID, "closed", "invoice", "INV-2026-0102", "2026-06-27", 3200, partyTag("FAM-2", "Family Smith"), funderTag("WB", "World Bank")),
+  mockEntry(9, "BANK", OPEN_PERIOD_ID, "open", "claim_payment", "CLM-2026-0009", "2026-07-18", 1600, partyTag("HF-3", "Rural Health Center"), funderTag("UNICEF", "UNICEF")),
+  mockEntry(10, "SALES", OPEN_PERIOD_ID, "open", "invoice", "INV-2026-0010", "2026-07-17", 2700, partyTag("FAM-1", "Family Doe"), funderTag("GIZ", "GIZ")),
+  mockEntry(11, "BANK", OPEN_PERIOD_ID, "open", "claim_payment", "CLM-2026-0011", "2026-07-16", 3400, partyTag("HF-1", "District Hospital"), funderTag("WB", "World Bank")),
+  mockEntry(12, "PURCHASES", OPEN_PERIOD_ID, "open", "payroll_disbursement", "PAY-2026-0012", "2026-07-15", 1900, partyTag("PPM-1", "Payment Point Manager A"), funderTag("UNICEF", "UNICEF")),
+  mockEntry(13, "MISC", OPEN_PERIOD_ID, "open", "payment_point_reconciliation", "PPR-2026-0013", "2026-07-14", 800, partyTag("PPM-2", "Payment Point Manager B"), funderTag("GIZ", "GIZ")),
 ];
 
 const MOCK_ACCOUNTING_PERIODS = [
@@ -235,20 +255,49 @@ const MOCK_ACCOUNTING_PERIODS = [
 
 export function fetchLedgerEntriesMock(params = []) {
   return (dispatch) => {
+    const getParam = (name) => {
+      const match = params.find((p) => p.startsWith(`${name}:`))?.match(/:\s*"?([^"]+)"?/);
+      return match?.[1] ?? null;
+    };
+    const first = Number(getParam("first")) || 10;
+    const last = Number(getParam("last")) || first;
+    const after = getParam("after");
+    const before = getParam("before");
+    const explicitPeriod = getParam("accountingPeriod");
+    const matchesTag = (entry, tagType, value) =>
+      !value ||
+      entry.lines.some((line) => {
+        const tag = line[`${tagType}Tag`];
+        const search = value.toLowerCase();
+        return tag?.analyticValueId?.toLowerCase() === search || tag?.displayName?.toLowerCase().includes(search);
+      });
+
+    const filteredEntries = MOCK_LEDGER_ENTRIES
+      .filter((entry) => entry.accountingPeriod.id === (explicitPeriod ? mockId("AccountingPeriod", explicitPeriod) : OPEN_PERIOD_ID))
+      .filter((entry) => !getParam("journal") || entry.journal.code === getParam("journal"))
+      .filter((entry) => !getParam("sourceEventType") || entry.sourceEventType === getParam("sourceEventType"))
+      .filter((entry) => matchesTag(entry, "party", getParam("party")))
+      .filter((entry) => matchesTag(entry, "funder", getParam("funder")))
+      .sort((a, b) => b.postedAt.localeCompare(a.postedAt));
+    const start = before ? Math.max(Number(before) - last, 0) : after ? Number(after) + 1 : 0;
+    const pageSize = before ? last : first;
+    const pageEntries = filteredEntries.slice(start, start + pageSize);
+    const endCursor = pageEntries.length ? String(start + pageEntries.length - 1) : null;
+
     dispatch({ type: `${ACTION_TYPE.LEDGER_ENTRIES}_REQ`, meta: { filters: {} } });
     dispatch({
       type: `${ACTION_TYPE.LEDGER_ENTRIES}_RESP`,
       payload: {
         data: {
           ledgerEntries: {
-            totalCount: MOCK_LEDGER_ENTRIES.length,
+            totalCount: filteredEntries.length,
             pageInfo: {
-              hasNextPage: false,
-              hasPreviousPage: false,
-              startCursor: null,
-              endCursor: null,
+              hasNextPage: start + first < filteredEntries.length,
+              hasPreviousPage: start > 0,
+              startCursor: pageEntries.length ? String(start) : null,
+              endCursor,
             },
-            edges: MOCK_LEDGER_ENTRIES.map((node) => ({ node })),
+            edges: pageEntries.map((node) => ({ node })),
           },
         },
       },

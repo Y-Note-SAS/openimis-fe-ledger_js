@@ -35,7 +35,17 @@
       "postedAt": "Posted Date",
       "debit": "Debit",
       "credit": "Credit",
-      "balance": "Balance"
+      "balance": "Balance",
+      "subtotal": "Subtotal",
+      "balanced": "Balanced",
+      "debitEqualsCredit": "Debit equals credit"
+    },
+    "entryLine": {
+      "account": "Account",
+      "party": "Party",
+      "funder": "Funder",
+      "debit": "Debit",
+      "credit": "Credit"
     },
     "sourceEventType": "Source Event Type",
     "entries": {
