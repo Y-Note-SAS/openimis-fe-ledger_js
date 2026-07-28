@@ -1,0 +1,35 @@
+{
+  "ledger": {
+    "mainMenu": "Ledger",
+    "menu": {
+      "generalLedger": "General Ledger",
+      "partyLedger": "Party Sub-Ledger",
+      "funderActivity": "Funder Activity",
+      "accountingPeriods": "Accounting Periods",
+      "manualReviewQueue": "Review Queue",
+      "periodExport": "Period Export",
+      "deploymentConfiguration": "Deployment Configuration"
+    },
+    "entries": {
+      "pageTitle": "General Ledger"
+    },
+    "partyLedgerPage": {
+      "pageTitle": "Party Sub-Ledger"
+    },
+    "funderActivityPage": {
+      "pageTitle": "Funder Activity"
+    },
+    "periods": {
+      "pageTitle": "Accounting Periods"
+    },
+    "reviewQueue": {
+      "pageTitle": "Replication Review Queue"
+    },
+    "export": {
+      "pageTitle": "Period Export"
+    },
+    "deployment": {
+      "pageTitle": "Deployment Configuration"
+    }
+  }
+}
