@@ -114,30 +114,10 @@ and `research.md`.
   lock/close, newest-first for reopen) — a client-side hint only; the
   backend mutation response is always authoritative.
 
-## ⚠️ Ecosystem-version caveat (discovered during this build)
-
-The `openimis-fe-invoice_js`/`openimis-fe-core_js` GitHub repos (cloned from
-their default branch to derive conventions) are on **React 18 + Vite + MUI
-v7 + react-intl v7** — but the versions currently published to the public
-npm registry (`@openimis/fe-core@1.11.0`, `latest` tag) are still on
-**React 17 + Rollup + react-intl v5**, with no newer dist-tag available.
-This module is built to match the GitHub repos' (and this spec's own
-`research.md`/`plan.md` Technical Context's) newer generation, since that's
-what the Ledger spec itself was evidently written against. Practically, this
-means:
-- `npm install` against the public registry today will resolve an
-  incompatible (older) `@openimis/fe-core`; expect to need workspace-linking
-  against sibling repos on the same branch generation until that migration
-  is actually published, or to pin against whatever your organization's
-  private registry/fork currently serves.
-- `package.json`'s `@openimis/fe-core` peer is deliberately left as `"*"`
-  rather than a specific range, to avoid falsely implying npm-registry
-  compatibility either way.
-
 ## Build / test
 
 ```bash
 npm install
-npm run build   # vite build — verified clean in this sandbox
-npm test        # jest — verified 55/55 passing in this sandbox
+npm run build
+npm run test
 ```
