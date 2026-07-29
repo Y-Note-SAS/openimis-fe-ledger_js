@@ -1,5 +1,7 @@
 # @openimis/fe-ledger
 
+[![codecov](https://codecov.io/gh/openimis/openimis-fe-ledger_js/branch/develop/graph/badge.svg)](https://codecov.io/gh/openimis/openimis-fe-ledger_js)
+
 openIMIS frontend module for `openimis-be-ledger_py`'s double-entry
 accounting/ledger domain, built against the official specs shipped in this
 repository under `specs/001-ledger-double-entry-accounting/` (`spec.md`,
