@@ -48,6 +48,14 @@
       "credit": "Credit"
     },
     "sourceEventType": "Source Event Type",
+    "sourceEventTypeValue": {
+      "claim_payment": "Claim Payment",
+      "invoice": "Invoice",
+      "payroll_disbursement": "Payroll Disbursement",
+      "payment_point_reconciliation": "Payment Point Reconciliation",
+      "closing_entry": "Closing Entry",
+      "correction": "Correction"
+    },
     "entries": {
       "pageTitle": "General Ledger",
       "empty": "No ledger entries match the current filters.",

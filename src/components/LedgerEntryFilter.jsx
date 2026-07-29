@@ -4,14 +4,13 @@ import { Grid } from "@mui/material";
 import { styled } from "@mui/material/styles";
 import {
   ControlledField,
-  TextInput,
-  SelectInput,
-  formatMessage,
   GRID_RESPONSIVE_STANDARD,
 } from "@openimis/fe-core";
-import { SOURCE_EVENT_TYPE } from "../constants";
 import AccountingPeriodPicker from "../pickers/AccountingPeriodPicker";
 import LedgerJournalPicker from "../pickers/LedgerJournalPicker";
+import PartyPicker from "../pickers/PartyPicker";
+import FunderPicker from "../pickers/FunderPicker";
+import SourceEventTypePicker from "../pickers/SourceEventTypePicker";
 
 const StyledLedgerEntryFilter = styled("section")(({ theme }) => ({
   padding: 0,
@@ -20,8 +19,6 @@ const StyledLedgerEntryFilter = styled("section")(({ theme }) => ({
     padding: theme.spacing(1),
   },
 }));
-
-const SOURCE_EVENT_TYPE_OPTIONS = Object.values(SOURCE_EVENT_TYPE).map((value) => ({ value, label: value }));
 
 const LedgerEntryFilter = ({ intl, filters, onChangeFilters }) => {
   const filterValue = (key) => filters?.[key]?.value ?? null;
@@ -66,13 +63,8 @@ const LedgerEntryFilter = ({ intl, filters, onChangeFilters }) => {
           id="LedgerEntryFilter.sourceEventType"
           field={
             <Grid size={GRID_RESPONSIVE_STANDARD} className="item">
-              <SelectInput
-                module="ledger"
-                label={formatMessage(intl, "ledger", "ledger.sourceEventType")}
-                options={[
-                  { value: null, label: formatMessage(intl, "ledger", "ledger.any") },
-                  ...SOURCE_EVENT_TYPE_OPTIONS,
-                ]}
+              <SourceEventTypePicker
+                withNull
                 value={filterValue("sourceEventType")}
                 onChange={(value) =>
                   onChangeFilters([
@@ -90,12 +82,16 @@ const LedgerEntryFilter = ({ intl, filters, onChangeFilters }) => {
           id="LedgerEntryFilter.party"
           field={
             <Grid size={GRID_RESPONSIVE_STANDARD} className="item">
-              <TextInput
-                module="ledger"
-                label={formatMessage(intl, "ledger", "ledger.party")}
-                value={textFilterValue("partyAnalyticValueId")}
+              <PartyPicker
+                value={filterValue("partyAnalyticValueId")}
                 onChange={(value) =>
-                  onChangeFilters([{ id: "partyAnalyticValueId", value, filter: value ? `party: "${value}"` : null }])
+                  onChangeFilters([
+                    {
+                      id: "partyAnalyticValueId",
+                      value,
+                      filter: value?.analyticValueId ? `party: "${value.analyticValueId}"` : null,
+                    },
+                  ])
                 }
               />
             </Grid>
@@ -106,12 +102,16 @@ const LedgerEntryFilter = ({ intl, filters, onChangeFilters }) => {
           id="LedgerEntryFilter.funder"
           field={
             <Grid size={GRID_RESPONSIVE_STANDARD} className="item">
-              <TextInput
-                module="ledger"
-                label={formatMessage(intl, "ledger", "ledger.funder")}
-                value={textFilterValue("funderAnalyticValueId")}
+              <FunderPicker
+                value={filterValue("funderAnalyticValueId")}
                 onChange={(value) =>
-                  onChangeFilters([{ id: "funderAnalyticValueId", value, filter: value ? `funder: "${value}"` : null }])
+                  onChangeFilters([
+                    {
+                      id: "funderAnalyticValueId",
+                      value,
+                      filter: value?.analyticValueId ? `funder: "${value.analyticValueId}"` : null,
+                    },
+                  ])
                 }
               />
             </Grid>

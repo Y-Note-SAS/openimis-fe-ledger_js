@@ -192,6 +192,7 @@ const CONFIGURE_DEPLOYMENT_MUTATION = `
 const mockId = (type, id) => btoa(`${type}:${id}`);
 const OPEN_PERIOD_ID = mockId("AccountingPeriod", 1);
 const CLOSED_PERIOD_ID = mockId("AccountingPeriod", 2);
+const analyticId = (id) => mockId("AnalyticValue", id);
 
 const partyTag = (id, displayName) => ({ analyticValueId: id, displayName });
 const funderTag = (id, displayName) => ({ analyticValueId: id, displayName });
@@ -223,19 +224,19 @@ const mockEntry = (id, journal, periodId, status, sourceEventType, sourceEventRe
 });
 
 const MOCK_LEDGER_ENTRIES = [
-  mockEntry(1, "BANK", OPEN_PERIOD_ID, "open", "claim_payment", "CLM-2026-0001", "2026-07-24", 12500, partyTag("HF-1", "District Hospital"), funderTag("GIZ", "GIZ")),
-  mockEntry(2, "SALES", OPEN_PERIOD_ID, "open", "invoice", "INV-2026-0007", "2026-07-23", 7800, partyTag("FAM-1", "Family Doe"), funderTag("WB", "World Bank")),
-  mockEntry(3, "BANK", OPEN_PERIOD_ID, "open", "payroll_disbursement", "PAY-2026-0003", "2026-07-22", 9200, partyTag("PPM-1", "Payment Point Manager A"), funderTag("GIZ", "GIZ")),
-  mockEntry(4, "MISC", OPEN_PERIOD_ID, "open", "payment_point_reconciliation", "PPR-2026-0004", "2026-07-21", 4300, partyTag("PPM-2", "Payment Point Manager B"), funderTag("WB", "World Bank")),
-  mockEntry(5, "PURCHASES", OPEN_PERIOD_ID, "open", "correction", "COR-2026-0005", "2026-07-20", 2100, partyTag("HF-2", "Urban Clinic"), funderTag("GIZ", "GIZ")),
+  mockEntry(1, "BANK", OPEN_PERIOD_ID, "open", "claim_payment", "CLM-2026-0001", "2026-07-24", 12500, partyTag(analyticId("HF-1"), "District Hospital"), funderTag(analyticId("GIZ"), "GIZ")),
+  mockEntry(2, "SALES", OPEN_PERIOD_ID, "open", "invoice", "INV-2026-0007", "2026-07-23", 7800, partyTag(analyticId("FAM-1"), "Family Doe"), funderTag(analyticId("WB"), "World Bank")),
+  mockEntry(3, "BANK", OPEN_PERIOD_ID, "open", "payroll_disbursement", "PAY-2026-0003", "2026-07-22", 9200, partyTag(analyticId("PPM-1"), "Payment Point Manager A"), funderTag(analyticId("GIZ"), "GIZ")),
+  mockEntry(4, "MISC", OPEN_PERIOD_ID, "open", "payment_point_reconciliation", "PPR-2026-0004", "2026-07-21", 4300, partyTag(analyticId("PPM-2"), "Payment Point Manager B"), funderTag(analyticId("WB"), "World Bank")),
+  mockEntry(5, "PURCHASES", OPEN_PERIOD_ID, "open", "correction", "COR-2026-0005", "2026-07-20", 2100, partyTag(analyticId("HF-2"), "Urban Clinic"), funderTag(analyticId("GIZ"), "GIZ")),
   mockEntry(6, "MISC", OPEN_PERIOD_ID, "open", "closing_entry", "CLS-2026-0006", "2026-07-19", 500, null, null),
-  mockEntry(7, "BANK", CLOSED_PERIOD_ID, "closed", "claim_payment", "CLM-2026-0101", "2026-06-28", 6100, partyTag("HF-1", "District Hospital"), funderTag("GIZ", "GIZ")),
-  mockEntry(8, "SALES", CLOSED_PERIOD_ID, "closed", "invoice", "INV-2026-0102", "2026-06-27", 3200, partyTag("FAM-2", "Family Smith"), funderTag("WB", "World Bank")),
-  mockEntry(9, "BANK", OPEN_PERIOD_ID, "open", "claim_payment", "CLM-2026-0009", "2026-07-18", 1600, partyTag("HF-3", "Rural Health Center"), funderTag("UNICEF", "UNICEF")),
-  mockEntry(10, "SALES", OPEN_PERIOD_ID, "open", "invoice", "INV-2026-0010", "2026-07-17", 2700, partyTag("FAM-1", "Family Doe"), funderTag("GIZ", "GIZ")),
-  mockEntry(11, "BANK", OPEN_PERIOD_ID, "open", "claim_payment", "CLM-2026-0011", "2026-07-16", 3400, partyTag("HF-1", "District Hospital"), funderTag("WB", "World Bank")),
-  mockEntry(12, "PURCHASES", OPEN_PERIOD_ID, "open", "payroll_disbursement", "PAY-2026-0012", "2026-07-15", 1900, partyTag("PPM-1", "Payment Point Manager A"), funderTag("UNICEF", "UNICEF")),
-  mockEntry(13, "MISC", OPEN_PERIOD_ID, "open", "payment_point_reconciliation", "PPR-2026-0013", "2026-07-14", 800, partyTag("PPM-2", "Payment Point Manager B"), funderTag("GIZ", "GIZ")),
+  mockEntry(7, "BANK", CLOSED_PERIOD_ID, "closed", "claim_payment", "CLM-2026-0101", "2026-06-28", 6100, partyTag(analyticId("HF-1"), "District Hospital"), funderTag(analyticId("GIZ"), "GIZ")),
+  mockEntry(8, "SALES", CLOSED_PERIOD_ID, "closed", "invoice", "INV-2026-0102", "2026-06-27", 3200, partyTag(analyticId("FAM-2"), "Family Smith"), funderTag(analyticId("WB"), "World Bank")),
+  mockEntry(9, "BANK", OPEN_PERIOD_ID, "open", "claim_payment", "CLM-2026-0009", "2026-07-18", 1600, partyTag(analyticId("HF-3"), "Rural Health Center"), funderTag(analyticId("UNICEF"), "UNICEF")),
+  mockEntry(10, "SALES", OPEN_PERIOD_ID, "open", "invoice", "INV-2026-0010", "2026-07-17", 2700, partyTag(analyticId("FAM-1"), "Family Doe"), funderTag(analyticId("GIZ"), "GIZ")),
+  mockEntry(11, "BANK", OPEN_PERIOD_ID, "open", "claim_payment", "CLM-2026-0011", "2026-07-16", 3400, partyTag(analyticId("HF-1"), "District Hospital"), funderTag(analyticId("WB"), "World Bank")),
+  mockEntry(12, "PURCHASES", OPEN_PERIOD_ID, "open", "payroll_disbursement", "PAY-2026-0012", "2026-07-15", 1900, partyTag(analyticId("PPM-1"), "Payment Point Manager A"), funderTag(analyticId("UNICEF"), "UNICEF")),
+  mockEntry(13, "MISC", OPEN_PERIOD_ID, "open", "payment_point_reconciliation", "PPR-2026-0013", "2026-07-14", 800, partyTag(analyticId("PPM-2"), "Payment Point Manager B"), funderTag(analyticId("GIZ"), "GIZ")),
 ];
 
 const MOCK_ACCOUNTING_PERIODS = [
@@ -251,6 +252,57 @@ const MOCK_ACCOUNTING_PERIODS = [
     endDate: "2026-06-30",
     status: "closed",
   },
+];
+
+const MOCK_PARTIES = [
+  {
+    analyticValueId: analyticId("HF-1"),
+    partyType: "health_facility",
+    displayName: "District Hospital",
+    externalReference: "HF-1",
+  },
+  {
+    analyticValueId: analyticId("HF-2"),
+    partyType: "health_facility",
+    displayName: "Urban Clinic",
+    externalReference: "HF-2",
+  },
+  {
+    analyticValueId: analyticId("HF-3"),
+    partyType: "health_facility",
+    displayName: "Rural Health Center",
+    externalReference: "HF-3",
+  },
+  {
+    analyticValueId: analyticId("FAM-1"),
+    partyType: "insuree_family",
+    displayName: "Family Doe",
+    externalReference: "FAM-1",
+  },
+  {
+    analyticValueId: analyticId("FAM-2"),
+    partyType: "insuree_family",
+    displayName: "Family Smith",
+    externalReference: "FAM-2",
+  },
+  {
+    analyticValueId: analyticId("PPM-1"),
+    partyType: "payment_point_manager",
+    displayName: "Payment Point Manager A",
+    externalReference: "PPM-1",
+  },
+  {
+    analyticValueId: analyticId("PPM-2"),
+    partyType: "payment_point_manager",
+    displayName: "Payment Point Manager B",
+    externalReference: "PPM-2",
+  },
+];
+
+const MOCK_FUNDERS = [
+  { analyticValueId: analyticId("GIZ"), funderCode: "GIZ", displayName: "GIZ", externalReference: "GIZ" },
+  { analyticValueId: analyticId("WB"), funderCode: "WB", displayName: "World Bank", externalReference: "WB" },
+  { analyticValueId: analyticId("UNICEF"), funderCode: "UNICEF", displayName: "UNICEF", externalReference: "UNICEF" },
 ];
 
 export function fetchLedgerEntriesMock(params = []) {
@@ -269,7 +321,10 @@ export function fetchLedgerEntriesMock(params = []) {
       entry.lines.some((line) => {
         const tag = line[`${tagType}Tag`];
         const search = value.toLowerCase();
-        return tag?.analyticValueId?.toLowerCase() === search || tag?.displayName?.toLowerCase().includes(search);
+        return (
+          tag?.analyticValueId?.toLowerCase() === search ||
+          tag?.displayName?.toLowerCase().includes(search)
+        );
       });
 
     const filteredEntries = MOCK_LEDGER_ENTRIES
@@ -312,6 +367,44 @@ export function fetchAccountingPeriodsMock() {
     dispatch({
       type: `${ACTION_TYPE.ACCOUNTING_PERIODS}_RESP`,
       payload: { data: { accountingPeriods: MOCK_ACCOUNTING_PERIODS } },
+    });
+  };
+}
+
+export function searchPartyMock(searchTerm) {
+  return (dispatch) => {
+    const term = String(searchTerm || "").toLowerCase().trim();
+    const results = !term
+      ? MOCK_PARTIES
+      : MOCK_PARTIES.filter(
+          (party) =>
+            party.displayName.toLowerCase().includes(term) ||
+            party.analyticValueId.toLowerCase().includes(term) ||
+            party.externalReference.toLowerCase().includes(term),
+        );
+    dispatch({ type: `${ACTION_TYPE.PARTY_SEARCH}_REQ` });
+    dispatch({
+      type: `${ACTION_TYPE.PARTY_SEARCH}_RESP`,
+      payload: { data: { analyticValues: results } },
+    });
+  };
+}
+
+export function searchFunderMock(searchTerm) {
+  return (dispatch) => {
+    const term = String(searchTerm || "").toLowerCase().trim();
+    const results = !term
+      ? MOCK_FUNDERS
+      : MOCK_FUNDERS.filter(
+          (funder) =>
+            funder.displayName.toLowerCase().includes(term) ||
+            funder.analyticValueId.toLowerCase().includes(term) ||
+            funder.externalReference.toLowerCase().includes(term),
+        );
+    dispatch({ type: `${ACTION_TYPE.FUNDER_SEARCH}_REQ` });
+    dispatch({
+      type: `${ACTION_TYPE.FUNDER_SEARCH}_RESP`,
+      payload: { data: { analyticValues: results } },
     });
   };
 }

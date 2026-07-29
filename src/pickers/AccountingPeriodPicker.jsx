@@ -1,9 +1,12 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { injectIntl } from "react-intl";
 import { connect } from "react-redux";
 import { bindActionCreators } from "redux";
-import { SelectInput, formatMessage } from "@openimis/fe-core";
+import { Autocomplete, TextField } from "@mui/material";
+import { formatMessage } from "@openimis/fe-core";
 import { fetchAccountingPeriodsMock } from "../actions";
+
+const ANY_OPTION = "__any__";
 
 const AccountingPeriodPicker = ({
   intl,
@@ -18,30 +21,45 @@ const AccountingPeriodPicker = ({
   fetchedAccountingPeriods,
   fetchAccountingPeriodsMock,
 }) => {
+  const [inputValue, setInputValue] = useState("");
+
   useEffect(() => {
     if (!fetchedAccountingPeriods && !fetchingAccountingPeriods) {
       fetchAccountingPeriodsMock();
     }
   }, []);
 
-  const options = (accountingPeriods || []).map((period) => ({
-    value: period.id,
-    label: `${period.startDate} — ${period.endDate} (${period.status})`,
-  }));
+  const options = useMemo(() => {
+    const periodOptions = (accountingPeriods || []).map((period) => ({
+      value: period.id,
+      label: `${period.startDate} — ${period.endDate} (${period.status})`,
+    }));
+    return withNull
+      ? [{ value: ANY_OPTION, label: formatMessage(intl, "ledger", "ledger.any") }, ...periodOptions]
+      : periodOptions;
+  }, [accountingPeriods, intl, withNull]);
 
-  if (withNull) {
-    options.unshift({ value: null, label: formatMessage(intl, "ledger", "ledger.any") });
-  }
+  const selectedOption = options.find((option) => option.value === (value ?? ANY_OPTION)) || null;
 
   return (
-    <SelectInput
-      module="ledger"
-      label={label || formatMessage(intl, "ledger", "ledger.picker.accountingPeriod")}
+    <Autocomplete
       options={options}
-      value={value}
-      onChange={onChange}
+      value={selectedOption}
+      inputValue={inputValue}
+      onInputChange={(_, newInputValue) => setInputValue(newInputValue)}
+      onChange={(_, newValue) => onChange?.(newValue?.value === ANY_OPTION ? null : (newValue?.value ?? null))}
+      getOptionLabel={(option) => option?.label || ""}
+      isOptionEqualToValue={(option, currentValue) => option?.value === currentValue?.value}
+      noOptionsText={formatMessage(intl, "ledger", "ledger.picker.noOptions")}
       readOnly={readOnly}
-      required={required}
+      renderInput={(params) => (
+        <TextField
+          {...params}
+          label={label || formatMessage(intl, "ledger", "ledger.picker.accountingPeriod")}
+          required={required}
+          variant="standard"
+        />
+      )}
     />
   );
 };
