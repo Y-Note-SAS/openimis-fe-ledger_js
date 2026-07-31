@@ -21,7 +21,7 @@ describe("LedgerJournalPicker", () => {
 
     renderPicker({ value: "", onChange });
 
-    fireEvent.change(screen.getByLabelText("ledger.journal"), {
+    fireEvent.change(screen.getByLabelText("ledger.picker.journal"), {
       target: { value: "BANK" },
     });
 
@@ -31,6 +31,6 @@ describe("LedgerJournalPicker", () => {
   it("renders the field as read-only when requested", () => {
     renderPicker({ value: "BANK", onChange: vi.fn(), readOnly: true });
 
-    expect(screen.getByLabelText("ledger.journal")).toHaveAttribute("readonly");
+    expect(screen.getByLabelText("ledger.picker.journal")).toHaveAttribute("readonly");
   });
 });

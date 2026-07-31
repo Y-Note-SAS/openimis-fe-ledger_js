@@ -12,6 +12,8 @@ import PartyPicker from "../pickers/PartyPicker";
 import FunderPicker from "../pickers/FunderPicker";
 import SourceEventTypePicker from "../pickers/SourceEventTypePicker";
 
+const ALL_PERIODS_FILTER_VALUE = "__all__";
+
 const StyledLedgerEntryFilter = styled("section")(({ theme }) => ({
   padding: 0,
   width: "100%",
@@ -21,7 +23,10 @@ const StyledLedgerEntryFilter = styled("section")(({ theme }) => ({
 }));
 
 const LedgerEntryFilter = ({ intl, filters, onChangeFilters }) => {
-  const filterValue = (key) => filters?.[key]?.value ?? null;
+  const filterValue = (key) => {
+    const value = filters?.[key]?.value;
+    return value === ALL_PERIODS_FILTER_VALUE ? null : (value ?? null);
+  };
   const textFilterValue = (key) => filters?.[key]?.value ?? "";
 
   return (
@@ -51,7 +56,11 @@ const LedgerEntryFilter = ({ intl, filters, onChangeFilters }) => {
                 value={filterValue("accountingPeriodId")}
                 onChange={(value) =>
                   onChangeFilters([
-                    { id: "accountingPeriodId", value, filter: value ? `accountingPeriod: "${value}"` : null },
+                    {
+                      id: "accountingPeriodId",
+                      value: value ?? ALL_PERIODS_FILTER_VALUE,
+                      filter: `accountingPeriod: "${value ?? ALL_PERIODS_FILTER_VALUE}"`,
+                    },
                   ])
                 }
               />

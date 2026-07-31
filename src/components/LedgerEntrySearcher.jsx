@@ -13,13 +13,14 @@ import {
   withHistory,
   withModulesManager,
 } from "@openimis/fe-core";
-import { fetchLedgerEntriesMock } from "../actions";
+import { fetchAccountingPeriodsMock, fetchLedgerEntriesMock } from "../actions";
 import { DEFAULT_PAGE_SIZE, ROWS_PER_PAGE_OPTIONS } from "../constants";
 import LedgerEntryFilter from "./LedgerEntryFilter";
 
 const ExpandIcon = GetIconComponent("ExpandMore");
 
 const LEDGER_ENTRY_SEARCHER_CONTRIBUTION_KEY = "ledger.LedgerEntrySearcher";
+const ALL_PERIODS_FILTER_VALUE = "__all__";
 
 const StyledLedgerEntryDetails = styled("div")(({ theme }) => ({
   padding: theme.spacing(1.5, 2),
@@ -66,8 +67,28 @@ class LedgerEntrySearcher extends Component {
     expandedEntryId: null,
   };
 
+  componentDidMount() {
+    const { fetchedAccountingPeriods, fetchingAccountingPeriods, fetchAccountingPeriodsMock } = this.props;
+    if (!fetchedAccountingPeriods && !fetchingAccountingPeriods) {
+      fetchAccountingPeriodsMock();
+    }
+  }
+
   fetch = (params) => {
     this.props.fetchLedgerEntriesMock(params);
+  };
+
+  defaultFilters = () => {
+    const openPeriod = this.props.accountingPeriods.find((period) => period.status === "open");
+    if (!openPeriod) {
+      return {};
+    }
+    return {
+      accountingPeriodId: {
+        value: openPeriod.id,
+        filter: `accountingPeriod: "${openPeriod.id}"`,
+      },
+    };
   };
 
   rowIdentifier = (entry) => entry.id;
@@ -145,6 +166,8 @@ class LedgerEntrySearcher extends Component {
     const { intl } = this.props;
     if (!entry) return null;
 
+    const lines = entry.lines || [];
+
     return (
       <StyledLedgerEntryDetails className="ledger-entry-details">
         <div className="entry-summary">
@@ -163,7 +186,7 @@ class LedgerEntrySearcher extends Component {
             </tr>
           </thead>
           <tbody>
-            {entry.lines.map((line) => (
+            {lines.map((line) => (
               <tr key={line.id}>
                 <td>{`${line.account?.code || ""} ${line.account?.name || ""}`}</td>
                 <td>{line.partyTag?.displayName || ""}</td>
@@ -188,9 +211,13 @@ class LedgerEntrySearcher extends Component {
   };
 
   render() {
-    const { intl, ledgerEntries } = this.props;
+    const { intl, ledgerEntries, fetchedAccountingPeriods } = this.props;
     const count = ledgerEntries.pageInfo?.totalCount ?? 0;
     const items = this.displayItems();
+
+    if (!fetchedAccountingPeriods) {
+      return null;
+    }
 
     return (
       <Searcher
@@ -206,6 +233,7 @@ class LedgerEntrySearcher extends Component {
         tableTitle={formatMessageWithValues(intl, "ledger", "ledger.entries.tableTitle", { count })}
         rowsPerPageOptions={ROWS_PER_PAGE_OPTIONS}
         defaultPageSize={DEFAULT_PAGE_SIZE}
+        defaultFilters={this.defaultFilters()}
         fetch={this.fetch}
         rowIdentifier={this.rowIdentifier}
         filtersToQueryParams={this.filtersToQueryParams}
@@ -224,9 +252,12 @@ class LedgerEntrySearcher extends Component {
 
 const mapStateToProps = (state) => ({
   ledgerEntries: state.ledger.ledgerEntries,
+  accountingPeriods: state.ledger.accountingPeriods.items,
+  fetchingAccountingPeriods: state.ledger.accountingPeriods.isFetching,
+  fetchedAccountingPeriods: state.ledger.accountingPeriods.isFetched,
 });
 
-const mapDispatchToProps = (dispatch) => bindActionCreators({ fetchLedgerEntriesMock }, dispatch);
+const mapDispatchToProps = (dispatch) => bindActionCreators({ fetchLedgerEntriesMock, fetchAccountingPeriodsMock }, dispatch);
 
 export { LEDGER_ENTRY_SEARCHER_CONTRIBUTION_KEY };
 export default withModulesManager(withHistory(connect(mapStateToProps, mapDispatchToProps)(injectIntl(LedgerEntrySearcher))));

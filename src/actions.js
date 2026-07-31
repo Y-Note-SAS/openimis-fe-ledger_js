@@ -193,6 +193,7 @@ const mockId = (type, id) => btoa(`${type}:${id}`);
 const OPEN_PERIOD_ID = mockId("AccountingPeriod", 1);
 const CLOSED_PERIOD_ID = mockId("AccountingPeriod", 2);
 const analyticId = (id) => mockId("AnalyticValue", id);
+const ALL_PERIODS_FILTER_VALUE = "__all__";
 
 const partyTag = (id, displayName) => ({ analyticValueId: id, displayName });
 const funderTag = (id, displayName) => ({ analyticValueId: id, displayName });
@@ -327,8 +328,15 @@ export function fetchLedgerEntriesMock(params = []) {
         );
       });
 
+    const periodFilterId = explicitPeriod ?? OPEN_PERIOD_ID;
+    const scopedPeriodFilterId =
+      periodFilterId === ALL_PERIODS_FILTER_VALUE
+        ? null
+        : periodFilterId === OPEN_PERIOD_ID || periodFilterId === CLOSED_PERIOD_ID
+          ? periodFilterId
+          : mockId("AccountingPeriod", periodFilterId);
     const filteredEntries = MOCK_LEDGER_ENTRIES
-      .filter((entry) => entry.accountingPeriod.id === (explicitPeriod ? mockId("AccountingPeriod", explicitPeriod) : OPEN_PERIOD_ID))
+      .filter((entry) => !scopedPeriodFilterId || entry.accountingPeriod.id === scopedPeriodFilterId)
       .filter((entry) => !getParam("journal") || entry.journal.code === getParam("journal"))
       .filter((entry) => !getParam("sourceEventType") || entry.sourceEventType === getParam("sourceEventType"))
       .filter((entry) => matchesTag(entry, "party", getParam("party")))

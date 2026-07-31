@@ -60,6 +60,7 @@ export const SelectInput = ({ label, value, options, onChange }) => (
 export const PublishedComponent = () => null;
 
 export const Searcher = () => null;
+export const ControlledField = ({ field }) => field ?? null;
 
 export const GRID_RESPONSIVE_STANDARD = { xs: 12, sm: 6, md: 4, lg: 3 };
 
