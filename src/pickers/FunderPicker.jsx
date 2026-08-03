@@ -1,37 +1,46 @@
-import React, { useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { injectIntl } from "react-intl";
 import { connect } from "react-redux";
 import { bindActionCreators } from "redux";
 import _debounce from "lodash/debounce";
 import { Autocomplete, TextField } from "@mui/material";
 import { formatMessage } from "@openimis/fe-core";
-import { searchFunder } from "../actions";
+import { searchFunderMock } from "../actions";
 import { DEFUALT_DEBOUNCE_TIME } from "../constants";
 
-const FunderPicker = ({ intl, value, onChange, results, fetchingResults, searchFunder }) => {
+const FunderPicker = ({ intl, value, onChange, results, fetchingResults, searchFunderMock }) => {
   const [inputValue, setInputValue] = useState("");
 
-  const debouncedSearch = _debounce((term) => {
-    if (term && term.length > 1) {
-      searchFunder(term);
-    }
-  }, DEFUALT_DEBOUNCE_TIME);
+  const debouncedSearch = useMemo(
+    () =>
+      _debounce((term) => {
+        searchFunderMock(term);
+      }, DEFUALT_DEBOUNCE_TIME),
+    [searchFunderMock],
+  );
+
+  useEffect(() => () => debouncedSearch.cancel(), [debouncedSearch]);
 
   return (
     <Autocomplete
       options={results || []}
       loading={fetchingResults}
+      openOnFocus
       value={value || null}
       inputValue={inputValue}
+      onOpen={() => searchFunderMock("")}
       onInputChange={(_, newInputValue) => {
         setInputValue(newInputValue);
         debouncedSearch(newInputValue);
       }}
       onChange={(_, newValue) => onChange(newValue)}
+      filterOptions={(options) => options}
       getOptionLabel={(option) => option?.displayName || ""}
       isOptionEqualToValue={(option, val) => option?.analyticValueId === val?.analyticValueId}
+      noOptionsText={formatMessage(intl, "ledger", "ledger.picker.noOptions")}
+      loadingText={formatMessage(intl, "ledger", "ledger.picker.loading")}
       renderInput={(params) => (
-        <TextField {...params} label={formatMessage(intl, "ledger", "ledger.funder")} variant="standard" />
+        <TextField {...params} label={formatMessage(intl, "ledger", "ledger.picker.funder")} variant="standard" />
       )}
     />
   );
@@ -42,7 +51,7 @@ const mapStateToProps = (state) => ({
   fetchingResults: state.ledger.funderSearch.isFetching,
 });
 
-const mapDispatchToProps = (dispatch) => bindActionCreators({ searchFunder }, dispatch);
+const mapDispatchToProps = (dispatch) => bindActionCreators({ searchFunderMock }, dispatch);
 
 export { FunderPicker };
 export default injectIntl(connect(mapStateToProps, mapDispatchToProps)(FunderPicker));

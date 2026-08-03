@@ -10,7 +10,7 @@ import { TextInput, formatMessage } from "@openimis/fe-core";
 const LedgerJournalPicker = ({ intl, value, label, onChange, readOnly = false }) => (
   <TextInput
     module="ledger"
-    label={label || formatMessage(intl, "ledger", "ledger.journal")}
+    label={label || formatMessage(intl, "ledger", "ledger.picker.journal")}
     value={value || ""}
     onChange={onChange}
     readOnly={readOnly}

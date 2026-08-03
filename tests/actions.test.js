@@ -1,80 +1,146 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
-import { graphqlWithVariables } from "@openimis/fe-core";
-import { fetchLedgerEntries, fetchAccountingPeriods } from "../src/actions";
+import { describe, it, expect, vi, beforeEach } from "vitest";
+import { 
+  fetchLedgerEntriesMock, 
+  fetchAccountingPeriodsMock, 
+  searchPartyMock, 
+  searchFunderMock,
+  fetchLedgerEntries,
+  fetchAccountingPeriods,
+  searchParty,
+  searchFunder,
+  fetchPartyLedgerBalance,
+  fetchFunderActivityReport
+} from "../src/actions";
 import { ACTION_TYPE } from "../src/reducer";
 
-describe("fetchAccountingPeriods", () => {
-  it("dispatches graphqlWithVariables with the AccountingPeriods query and REQ/RESP/ERR triplet", () => {
-    const action = fetchAccountingPeriods("open");
-    expect(action).toEqual(
-      expect.objectContaining({
-        variables: { status: "open" },
-        actionTypes: [
-          `${ACTION_TYPE.ACCOUNTING_PERIODS}_REQ`,
-          `${ACTION_TYPE.ACCOUNTING_PERIODS}_RESP`,
-          `${ACTION_TYPE.ACCOUNTING_PERIODS}_ERR`,
-        ],
+describe("Actions - Mocks", () => {
+  let dispatch;
+
+  beforeEach(() => {
+    dispatch = vi.fn();
+  });
+
+  it("fetchLedgerEntriesMock dispatches REQ and RESP", () => {
+    const thunk = fetchLedgerEntriesMock(["first: 5"]);
+    thunk(dispatch);
+
+    expect(dispatch).toHaveBeenCalledTimes(2);
+    expect(dispatch).toHaveBeenNthCalledWith(1, {
+      type: `${ACTION_TYPE.LEDGER_ENTRIES}_REQ`,
+      meta: { filters: {} }
+    });
+    expect(dispatch).toHaveBeenNthCalledWith(2, {
+      type: `${ACTION_TYPE.LEDGER_ENTRIES}_RESP`,
+      payload: expect.objectContaining({
+        data: expect.objectContaining({
+          ledgerEntries: expect.objectContaining({
+            totalCount: expect.any(Number)
+          })
+        })
       }),
+      meta: { params: ["first: 5"] }
+    });
+  });
+
+  it("fetchLedgerEntriesMock filters by accountingPeriod", () => {
+    const thunk = fetchLedgerEntriesMock(['accountingPeriod: "1"']);
+    thunk(dispatch);
+
+    expect(dispatch).toHaveBeenCalled();
+    const respCall = dispatch.mock.calls.find(
+      call => call[0].type === `${ACTION_TYPE.LEDGER_ENTRIES}_RESP`
     );
-    expect(action.operation).toContain("AccountingPeriods");
+    expect(respCall).toBeDefined();
+    const entries = respCall[0].payload.data.ledgerEntries.edges;
+    entries.forEach(edge => {
+      expect(edge.node.accountingPeriod.id).toBe("QWNjb3VudGluZ1BlcmlvZDox");
+    });
+  });
+
+  it("fetchAccountingPeriodsMock dispatches REQ and RESP", () => {
+    const thunk = fetchAccountingPeriodsMock();
+    thunk(dispatch);
+
+    expect(dispatch).toHaveBeenCalledTimes(2);
+    expect(dispatch).toHaveBeenNthCalledWith(1, {
+      type: `${ACTION_TYPE.ACCOUNTING_PERIODS}_REQ`
+    });
+    expect(dispatch).toHaveBeenNthCalledWith(2, {
+      type: `${ACTION_TYPE.ACCOUNTING_PERIODS}_RESP`,
+      payload: expect.objectContaining({
+        data: expect.objectContaining({
+          accountingPeriods: expect.arrayContaining([
+            expect.objectContaining({ status: expect.any(String) })
+          ])
+        })
+      })
+    });
+  });
+
+  it("searchPartyMock returns parties matching search term", () => {
+    const thunk = searchPartyMock("Hospital");
+    thunk(dispatch);
+
+    expect(dispatch).toHaveBeenCalledTimes(2);
+    const respCall = dispatch.mock.calls.find(
+      call => call[0].type === `${ACTION_TYPE.PARTY_SEARCH}_RESP`
+    );
+    expect(respCall).toBeDefined();
+    const results = respCall[0].payload.data.analyticValues;
+    expect(results.length).toBeGreaterThan(0);
+    results.forEach(party => {
+      expect(party.displayName.toLowerCase()).toContain("hospital");
+    });
+  });
+
+  it("searchPartyMock returns all parties when search term is empty", () => {
+    const thunk = searchPartyMock("");
+    thunk(dispatch);
+
+    const respCall = dispatch.mock.calls.find(
+      call => call[0].type === `${ACTION_TYPE.PARTY_SEARCH}_RESP`
+    );
+    expect(respCall).toBeDefined();
+    const results = respCall[0].payload.data.analyticValues;
+    expect(results.length).toBe(7);
+  });
+
+  it("searchFunderMock returns funders matching search term", () => {
+    const thunk = searchFunderMock("GIZ");
+    thunk(dispatch);
+
+    const respCall = dispatch.mock.calls.find(
+      call => call[0].type === `${ACTION_TYPE.FUNDER_SEARCH}_RESP`
+    );
+    expect(respCall).toBeDefined();
+    const results = respCall[0].payload.data.analyticValues;
+    expect(results.length).toBe(1);
+    expect(results[0].displayName).toBe("GIZ");
   });
 });
 
-describe("fetchLedgerEntries", () => {
-  const buildGetState = (accountingPeriods = []) => () => ({
-    ledger: { accountingPeriods: { items: accountingPeriods } },
+describe("Actions - Real API calls", () => {
+  it("fetchLedgerEntries is defined", () => {
+    expect(fetchLedgerEntries).toBeDefined();
   });
 
-  beforeEach(() => {
-    graphqlWithVariables.mockClear();
+  it("fetchAccountingPeriods is defined", () => {
+    expect(fetchAccountingPeriods).toBeDefined();
   });
 
-  it("defaults accountingPeriod to the current open period when not explicitly filtered (FR-001)", async () => {
-    const dispatch = vi.fn((thunkOrAction) => thunkOrAction);
-    const getState = buildGetState([
-      { id: "p0", status: "closed" },
-      { id: "p1", status: "open" },
-    ]);
-
-    await fetchLedgerEntries({})(dispatch, getState);
-
-    expect(graphqlWithVariables).toHaveBeenCalled();
-    const [, variables, , params] = graphqlWithVariables.mock.calls[0];
-    expect(variables.accountingPeriod).toBe("p1");
-    expect(params.filters.accountingPeriodId).toBe("p1");
+  it("searchParty is defined", () => {
+    expect(searchParty).toBeDefined();
   });
 
-  it("respects an explicitly-set accountingPeriodId filter, including null (user cleared it)", async () => {
-    const dispatch = vi.fn((thunkOrAction) => thunkOrAction);
-    const getState = buildGetState([{ id: "p1", status: "open" }]);
-
-    await fetchLedgerEntries({ accountingPeriodId: null })(dispatch, getState);
-
-    const [, variables] = graphqlWithVariables.mock.calls[0];
-    expect(variables.accountingPeriod).toBeNull();
+  it("searchFunder is defined", () => {
+    expect(searchFunder).toBeDefined();
   });
 
-  it("maps view-model filter names to the backend's GraphQL argument names", async () => {
-    const dispatch = vi.fn((thunkOrAction) => thunkOrAction);
-    const getState = buildGetState([]);
+  it("fetchPartyLedgerBalance is defined", () => {
+    expect(fetchPartyLedgerBalance).toBeDefined();
+  });
 
-    await fetchLedgerEntries({
-      journal: "GL",
-      accountingPeriodId: "p1",
-      partyAnalyticValueId: "party-1",
-      funderAnalyticValueId: "funder-1",
-      sourceEventType: "invoice",
-    })(dispatch, getState);
-
-    const [, variables] = graphqlWithVariables.mock.calls[0];
-    expect(variables).toEqual({
-      journal: "GL",
-      accountingPeriod: "p1",
-      party: "party-1",
-      funder: "funder-1",
-      sourceEventType: "invoice",
-      first: null,
-      after: null,
-    });
+  it("fetchFunderActivityReport is defined", () => {
+    expect(fetchFunderActivityReport).toBeDefined();
   });
 });

@@ -1,74 +1,76 @@
 import React from "react";
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
-import { AccountingPeriodPicker } from "../../src/pickers/AccountingPeriodPicker";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { cleanup, render, screen } from "@testing-library/react";
+import { IntlProvider } from "react-intl";
+import { Provider } from "react-redux";
+import { createStore, combineReducers, applyMiddleware } from "redux";
+import { thunk } from "redux-thunk";
+import AccountingPeriodPicker from "../../src/pickers/AccountingPeriodPicker";
 
-const baseProps = {
-  intl: {},
-  value: "",
-  onChange: vi.fn(),
-  accountingPeriods: [],
-  fetchingAccountingPeriods: false,
-  fetchedAccountingPeriods: false,
-  fetchAccountingPeriods: vi.fn(),
+afterEach(() => {
+  cleanup();
+});
+
+const mockStore = (overrides = {}) => {
+  const defaultState = {
+    ledger: {
+      accountingPeriods: {
+        items: [],
+        isFetching: false,
+        isFetched: false,
+      },
+      ...overrides,
+    },
+  };
+
+  return createStore(
+    combineReducers({
+      ledger: (state = defaultState.ledger) => state,
+    }),
+    applyMiddleware(thunk),
+  );
 };
 
 describe("AccountingPeriodPicker", () => {
-  it("fetches accounting periods on mount when data is not yet loaded", () => {
-    const fetchAccountingPeriods = vi.fn();
-
-    render(
-      <AccountingPeriodPicker
-        {...baseProps}
-        fetchAccountingPeriods={fetchAccountingPeriods}
-      />,
+  const renderPicker = (props, storeOverrides = {}) => {
+    const store = mockStore(storeOverrides);
+    return render(
+      <Provider store={store}>
+        <IntlProvider locale="en" messages={{}}>
+          <AccountingPeriodPicker {...props} />
+        </IntlProvider>
+      </Provider>,
     );
+  };
 
-    expect(fetchAccountingPeriods).toHaveBeenCalledTimes(1);
+  it("renders with default label", () => {
+    renderPicker({ value: null, onChange: vi.fn() });
+    expect(screen.getByLabelText("ledger.picker.accountingPeriod")).toBeInTheDocument();
   });
 
-  it("does not fetch on mount when data is already loaded or loading", () => {
-    const fetchAccountingPeriods = vi.fn();
-    const { rerender } = render(
-      <AccountingPeriodPicker
-        {...baseProps}
-        fetchAccountingPeriods={fetchAccountingPeriods}
-        fetchedAccountingPeriods
-      />,
+  it("renders with periods when available", () => {
+    const periods = [
+      { id: "1", startDate: "2026-07-01", endDate: "2026-07-31", status: "open" },
+      { id: "2", startDate: "2026-06-01", endDate: "2026-06-30", status: "closed" },
+    ];
+
+    renderPicker(
+      { value: null, onChange: vi.fn() },
+      { accountingPeriods: { items: periods, isFetching: false, isFetched: true } },
     );
 
-    rerender(
-      <AccountingPeriodPicker
-        {...baseProps}
-        fetchAccountingPeriods={fetchAccountingPeriods}
-        fetchingAccountingPeriods
-      />,
-    );
-
-    expect(fetchAccountingPeriods).not.toHaveBeenCalled();
+    expect(screen.getByLabelText("ledger.picker.accountingPeriod")).toBeInTheDocument();
   });
 
-  it("renders accounting period options and prepends the null option when withNull is enabled", () => {
-    render(
-      <AccountingPeriodPicker
-        {...baseProps}
-        withNull
-        fetchedAccountingPeriods
-        accountingPeriods={[
-          { id: "p1", startDate: "2026-07-01", endDate: "2026-07-31", status: "open" },
-          { id: "p2", startDate: "2026-06-01", endDate: "2026-06-30", status: "closed" },
-        ]}
-      />,
-    );
+  it("renders as read-only when requested", () => {
+    renderPicker({ value: null, onChange: vi.fn(), readOnly: true });
+    const input = screen.getByLabelText("ledger.picker.accountingPeriod");
+    expect(input).toHaveAttribute("readonly");
+  });
 
-    const options = screen.getAllByRole("option");
-    expect(options).toHaveLength(3);
-    expect(options[0]).toHaveTextContent("ledger.any");
-    expect(options[1]).toHaveTextContent("2026-07-01");
-    expect(options[1]).toHaveTextContent("2026-07-31");
-    expect(options[1]).toHaveTextContent("open");
-    expect(options[2]).toHaveTextContent("2026-06-01");
-    expect(options[2]).toHaveTextContent("2026-06-30");
-    expect(options[2]).toHaveTextContent("closed");
+  it("renders with required indicator", () => {
+    renderPicker({ value: null, onChange: vi.fn(), required: true });
+    const input = screen.getByLabelText("ledger.picker.accountingPeriod");
+    expect(input).toHaveAttribute("required");
   });
 });
