@@ -37,7 +37,6 @@
       "credit": "Credit",
       "balance": "Balance",
       "subtotal": "Subtotal",
-      "balanced": "Balanced",
       "debitEqualsCredit": "Debit equals credit"
     },
     "entryLine": {

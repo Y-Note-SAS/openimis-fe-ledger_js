@@ -10,6 +10,7 @@ import {
   formatMessage,
   formatMessageWithValues,
   GetIconComponent,
+  historyPush,
   withHistory,
   withModulesManager,
 } from "@openimis/fe-core";
@@ -18,6 +19,7 @@ import { DEFAULT_PAGE_SIZE, ROWS_PER_PAGE_OPTIONS } from "../constants";
 import LedgerEntryFilter from "./LedgerEntryFilter";
 
 const ExpandIcon = GetIconComponent("ExpandMore");
+const CheckCircleIcon = GetIconComponent("CheckCircle");
 
 const LEDGER_ENTRY_SEARCHER_CONTRIBUTION_KEY = "ledger.LedgerEntrySearcher";
 const ALL_PERIODS_FILTER_VALUE = "__all__";
@@ -35,19 +37,25 @@ const StyledLedgerEntryDetails = styled("div")(({ theme }) => ({
     verticalAlign: "top",
   },
   "& th:nth-of-type(1), & td:nth-of-type(1)": {
-    width: "auto",
+    width: "30%",
   },
   "& th:nth-of-type(2), & td:nth-of-type(2)": {
-    width: "auto",
+    width: "25%",
   },
   "& th:nth-of-type(3), & td:nth-of-type(3)": {
-    width: "auto",
+    width: "25%",
   },
-  "& th:nth-of-type(4), & th:nth-of-type(5), & td:nth-of-type(4), & td:nth-of-type(5)": {
-    textAlign: "right",
+  "& th:nth-of-type(4), & td:nth-of-type(4)": {
+    width: "10%",
+    textAlign: "left",
     fontVariantNumeric: "tabular-nums",
     whiteSpace: "nowrap",
-    width: "1%",
+  },
+  "& th:nth-of-type(5), & td:nth-of-type(5)": {
+    width: "10%",
+    textAlign: "left",
+    fontVariantNumeric: "tabular-nums",
+    whiteSpace: "nowrap",
   },
   "& tfoot td": {
     borderTop: `1px solid ${theme.palette.divider}`,
@@ -57,8 +65,34 @@ const StyledLedgerEntryDetails = styled("div")(({ theme }) => ({
     marginBottom: theme.spacing(0.5),
   },
   "& .detail-source-link": {
-    display: "inline-block",
+    display: "inline-flex",
+    alignItems: "center",
     marginBottom: theme.spacing(0.25),
+    padding: 0,
+    border: 0,
+    background: "transparent",
+    color: theme.palette.primary.main,
+    cursor: "pointer",
+    textDecoration: "underline",
+    font: "inherit",
+  },
+  "& .detail-source-link:disabled": {
+    color: theme.palette.text.secondary,
+    cursor: "default",
+    textDecoration: "none",
+  },
+  "& .subtotal-label": {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: theme.spacing(1),
+  },
+  "& .balanced-indicator": {
+    display: "inline-flex",
+    alignItems: "center",
+    gap: theme.spacing(0.5),
+    color: theme.palette.success.main,
+    fontWeight: 500,
+    whiteSpace: "nowrap",
   },
 }));
 
@@ -150,7 +184,6 @@ class LedgerEntrySearcher extends Component {
       (entry) => entry.totals?.debit,
       (entry) => entry.totals?.credit,
       (entry) => entry.totals?.balance,
-      (entry) => <ExpandIcon fontSize="small" />,
     ];
   };
 
@@ -162,18 +195,46 @@ class LedgerEntrySearcher extends Component {
     return this.props.ledgerEntries.items || [];
   };
 
+  sourceEventRouteRef = (entry) => {
+    switch (entry?.sourceEventType) {
+      case "claim_payment":
+        return "claim.route.claimEdit";
+      case "invoice":
+        return "invoice.route.invoice";
+      case "payroll_disbursement":
+        return "payroll.route.payroll";
+      case "payment_point_reconciliation":
+        return "payroll.route.paymentPoint";
+      default:
+        return null;
+    }
+  };
+
+  navigateToSourceEvent = (entry) => {
+    const routeRef = this.sourceEventRouteRef(entry);
+    if (!routeRef || !entry?.sourceEventReference) return;
+    historyPush(this.props.modulesManager, this.props.history, routeRef, [entry.sourceEventReference]);
+  };
+
   renderEntryDetails = (entry) => {
     const { intl } = this.props;
     if (!entry) return null;
 
     const lines = entry.lines || [];
+    const isBalanced = entry.totals?.balance === 0 && entry.totals?.debit === entry.totals?.credit;
+    const sourceRouteRef = this.sourceEventRouteRef(entry);
 
     return (
       <StyledLedgerEntryDetails className="ledger-entry-details">
         <div className="entry-summary">
-          <a className="detail-source-link" href={`#/${entry.sourceEventType}/${entry.sourceEventReference}`}>
+          <button
+            type="button"
+            className="detail-source-link"
+            onClick={() => this.navigateToSourceEvent(entry)}
+            disabled={!sourceRouteRef}
+          >
             {entry.sourceEventType} - {entry.sourceEventReference}
-          </a>
+          </button>
         </div>
         <table>
           <thead>
@@ -198,7 +259,17 @@ class LedgerEntrySearcher extends Component {
           </tbody>
           <tfoot>
             <tr>
-              <td>{formatMessage(intl, "ledger", "ledger.entry.subtotal")}</td>
+              <td>
+                <span className="subtotal-label">
+                  {formatMessage(intl, "ledger", "ledger.entry.subtotal")}
+                  {isBalanced && (
+                    <span className="balanced-indicator">
+                      <CheckCircleIcon fontSize="small" />
+                      {formatMessage(intl, "ledger", "ledger.entry.debitEqualsCredit")}
+                    </span>
+                  )}
+                </span>
+              </td>
               <td></td>
               <td></td>
               <td>{entry.totals?.debit}</td>
