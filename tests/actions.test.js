@@ -1,15 +1,15 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
-import { 
-  fetchLedgerEntriesMock, 
-  fetchAccountingPeriodsMock, 
-  searchPartyMock, 
+import {
+  fetchLedgerEntriesMock,
+  fetchAccountingPeriodsMock,
+  searchPartyMock,
   searchFunderMock,
   fetchLedgerEntries,
   fetchAccountingPeriods,
   searchParty,
   searchFunder,
   fetchPartyLedgerBalance,
-  fetchFunderActivityReport
+  fetchFunderActivityReport,
 } from "../src/actions";
 import { ACTION_TYPE } from "../src/reducer";
 
@@ -27,18 +27,18 @@ describe("Actions - Mocks", () => {
     expect(dispatch).toHaveBeenCalledTimes(2);
     expect(dispatch).toHaveBeenNthCalledWith(1, {
       type: `${ACTION_TYPE.LEDGER_ENTRIES}_REQ`,
-      meta: { filters: {} }
+      meta: { filters: {} },
     });
     expect(dispatch).toHaveBeenNthCalledWith(2, {
       type: `${ACTION_TYPE.LEDGER_ENTRIES}_RESP`,
       payload: expect.objectContaining({
         data: expect.objectContaining({
           ledgerEntries: expect.objectContaining({
-            totalCount: expect.any(Number)
-          })
-        })
+            totalCount: expect.any(Number),
+          }),
+        }),
       }),
-      meta: { params: ["first: 5"] }
+      meta: { params: ["first: 5"] },
     });
   });
 
@@ -47,12 +47,10 @@ describe("Actions - Mocks", () => {
     thunk(dispatch);
 
     expect(dispatch).toHaveBeenCalled();
-    const respCall = dispatch.mock.calls.find(
-      call => call[0].type === `${ACTION_TYPE.LEDGER_ENTRIES}_RESP`
-    );
+    const respCall = dispatch.mock.calls.find((call) => call[0].type === `${ACTION_TYPE.LEDGER_ENTRIES}_RESP`);
     expect(respCall).toBeDefined();
     const entries = respCall[0].payload.data.ledgerEntries.edges;
-    entries.forEach(edge => {
+    entries.forEach((edge) => {
       expect(edge.node.accountingPeriod.id).toBe("QWNjb3VudGluZ1BlcmlvZDox");
     });
   });
@@ -63,17 +61,15 @@ describe("Actions - Mocks", () => {
 
     expect(dispatch).toHaveBeenCalledTimes(2);
     expect(dispatch).toHaveBeenNthCalledWith(1, {
-      type: `${ACTION_TYPE.ACCOUNTING_PERIODS}_REQ`
+      type: `${ACTION_TYPE.ACCOUNTING_PERIODS}_REQ`,
     });
     expect(dispatch).toHaveBeenNthCalledWith(2, {
       type: `${ACTION_TYPE.ACCOUNTING_PERIODS}_RESP`,
       payload: expect.objectContaining({
         data: expect.objectContaining({
-          accountingPeriods: expect.arrayContaining([
-            expect.objectContaining({ status: expect.any(String) })
-          ])
-        })
-      })
+          accountingPeriods: expect.arrayContaining([expect.objectContaining({ status: expect.any(String) })]),
+        }),
+      }),
     });
   });
 
@@ -82,13 +78,11 @@ describe("Actions - Mocks", () => {
     thunk(dispatch);
 
     expect(dispatch).toHaveBeenCalledTimes(2);
-    const respCall = dispatch.mock.calls.find(
-      call => call[0].type === `${ACTION_TYPE.PARTY_SEARCH}_RESP`
-    );
+    const respCall = dispatch.mock.calls.find((call) => call[0].type === `${ACTION_TYPE.PARTY_SEARCH}_RESP`);
     expect(respCall).toBeDefined();
     const results = respCall[0].payload.data.analyticValues;
     expect(results.length).toBeGreaterThan(0);
-    results.forEach(party => {
+    results.forEach((party) => {
       expect(party.displayName.toLowerCase()).toContain("hospital");
     });
   });
@@ -97,9 +91,7 @@ describe("Actions - Mocks", () => {
     const thunk = searchPartyMock("");
     thunk(dispatch);
 
-    const respCall = dispatch.mock.calls.find(
-      call => call[0].type === `${ACTION_TYPE.PARTY_SEARCH}_RESP`
-    );
+    const respCall = dispatch.mock.calls.find((call) => call[0].type === `${ACTION_TYPE.PARTY_SEARCH}_RESP`);
     expect(respCall).toBeDefined();
     const results = respCall[0].payload.data.analyticValues;
     expect(results.length).toBe(7);
@@ -109,9 +101,7 @@ describe("Actions - Mocks", () => {
     const thunk = searchFunderMock("GIZ");
     thunk(dispatch);
 
-    const respCall = dispatch.mock.calls.find(
-      call => call[0].type === `${ACTION_TYPE.FUNDER_SEARCH}_RESP`
-    );
+    const respCall = dispatch.mock.calls.find((call) => call[0].type === `${ACTION_TYPE.FUNDER_SEARCH}_RESP`);
     expect(respCall).toBeDefined();
     const results = respCall[0].payload.data.analyticValues;
     expect(results.length).toBe(1);
@@ -120,6 +110,28 @@ describe("Actions - Mocks", () => {
 });
 
 describe("Actions - Real API calls", () => {
+  it("searchParty delegates to the analyticValues query", () => {
+    const action = searchParty("Family");
+    expect(action.operation).toContain("AnalyticValues");
+    expect(action.variables).toEqual({ search: "Family", tagType: "party" });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.PARTY_SEARCH}_REQ`,
+      `${ACTION_TYPE.PARTY_SEARCH}_RESP`,
+      `${ACTION_TYPE.PARTY_SEARCH}_ERR`,
+    ]);
+  });
+
+  it("fetchPartyLedgerBalance delegates to the PartyLedgerBalance query", () => {
+    const action = fetchPartyLedgerBalance("analytic-1", "period-1");
+    expect(action.operation).toContain("PartyLedgerBalance");
+    expect(action.variables).toEqual({ analyticValueId: "analytic-1", accountingPeriod: "period-1" });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.PARTY_LEDGER_BALANCE}_REQ`,
+      `${ACTION_TYPE.PARTY_LEDGER_BALANCE}_RESP`,
+      `${ACTION_TYPE.PARTY_LEDGER_BALANCE}_ERR`,
+    ]);
+  });
+
   it("fetchLedgerEntries is defined", () => {
     expect(fetchLedgerEntries).toBeDefined();
   });
@@ -128,16 +140,8 @@ describe("Actions - Real API calls", () => {
     expect(fetchAccountingPeriods).toBeDefined();
   });
 
-  it("searchParty is defined", () => {
-    expect(searchParty).toBeDefined();
-  });
-
   it("searchFunder is defined", () => {
     expect(searchFunder).toBeDefined();
-  });
-
-  it("fetchPartyLedgerBalance is defined", () => {
-    expect(fetchPartyLedgerBalance).toBeDefined();
   });
 
   it("fetchFunderActivityReport is defined", () => {
