@@ -140,11 +140,39 @@ describe("Actions - Real API calls", () => {
     expect(fetchAccountingPeriods).toBeDefined();
   });
 
-  it("searchFunder is defined", () => {
-    expect(searchFunder).toBeDefined();
+  it("searchFunder builds the analyticValues query with tagType funder", () => {
+    const action = searchFunder("GIZ");
+    expect(action.operation).toContain("analyticValues");
+    expect(action.operation).toContain("tagType");
+    expect(action.variables).toEqual({ search: "GIZ", tagType: "funder" });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.FUNDER_SEARCH}_REQ`,
+      `${ACTION_TYPE.FUNDER_SEARCH}_RESP`,
+      `${ACTION_TYPE.FUNDER_SEARCH}_ERR`,
+    ]);
   });
 
-  it("fetchFunderActivityReport is defined", () => {
-    expect(fetchFunderActivityReport).toBeDefined();
+  it("fetchFunderActivityReport builds the FunderActivityReport query with period range", () => {
+    const action = fetchFunderActivityReport("analytic-1", { start: "period-1", end: "period-2" });
+    expect(action.operation).toContain("funderActivityReport");
+    expect(action.variables).toEqual({
+      analyticValueId: "analytic-1",
+      accountingPeriodStart: "period-1",
+      accountingPeriodEnd: "period-2",
+    });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.FUNDER_ACTIVITY_REPORT}_REQ`,
+      `${ACTION_TYPE.FUNDER_ACTIVITY_REPORT}_RESP`,
+      `${ACTION_TYPE.FUNDER_ACTIVITY_REPORT}_ERR`,
+    ]);
+  });
+
+  it("fetchFunderActivityReport defaults the period range to null", () => {
+    const action = fetchFunderActivityReport("analytic-1");
+    expect(action.variables).toEqual({
+      analyticValueId: "analytic-1",
+      accountingPeriodStart: null,
+      accountingPeriodEnd: null,
+    });
   });
 });
