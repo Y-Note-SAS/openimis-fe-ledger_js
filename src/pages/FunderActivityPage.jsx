@@ -1,7 +1,6 @@
 import React, { useEffect, useState } from "react";
 import { injectIntl } from "react-intl";
 import { connect } from "react-redux";
-import { bindActionCreators } from "redux";
 import {
   Alert,
   Box,
@@ -26,19 +25,7 @@ import {
 import FunderPicker from "../pickers/FunderPicker";
 import AccountingPeriodPicker from "../pickers/AccountingPeriodPicker";
 import { hasLedgerReportingRight } from "../utils/permissions";
-import { fetchFunderActivityReport } from "../actions";
-
-const MOCK_FUNDER_ACTIVITY = {
-  analyticValueId: "GIZ",
-  accountingPeriodRange: { start: "2026-07-01", end: "2026-07-31" },
-  debitTotal: 12500,
-  creditTotal: 7800,
-  balance: 4700,
-  byCategory: [
-    { category: "claim_payment", debit: 12500, credit: 0, balance: 12500 },
-    { category: "invoice", debit: 0, credit: 7800, balance: -7800 },
-  ],
-};
+import { fetchFunderActivityReportMock } from "../actions";
 
 const StyledPage = styled("div")(({ theme }) => ({
   "& .page": theme.page ?? {},
@@ -78,29 +65,44 @@ const StyledPaper = styled(Paper)(({ theme }) => ({
   "& .item": theme.paper?.item ?? {},
 }));
 
-const FunderActivityPage = ({ intl, rights, funderActivityReport, fetchFunderActivityReport }) => {
+const FunderActivityPage = ({ intl, rights, funderActivityReport, accountingPeriods, fetchFunderActivityReportMock }) => {
   const [selectedFunder, setSelectedFunder] = useState(null);
   const [periodStartId, setPeriodStartId] = useState(null);
   const [periodEndId, setPeriodEndId] = useState(null);
 
   useEffect(() => {
     if (selectedFunder?.analyticValueId) {
-      fetchFunderActivityReport(selectedFunder.analyticValueId, {
+      fetchFunderActivityReportMock(selectedFunder.analyticValueId, {
         start: periodStartId,
         end: periodEndId,
       });
     }
-  }, [fetchFunderActivityReport, selectedFunder?.analyticValueId, periodStartId, periodEndId]);
+  }, [fetchFunderActivityReportMock, selectedFunder?.analyticValueId, periodStartId, periodEndId]);
 
   if (!hasLedgerReportingRight(rights)) {
     return null;
   }
 
   const reportData = funderActivityReport?.data || null;
-  const useMockReport =
-    !!selectedFunder?.analyticValueId && (!reportData || (reportData.byCategory || []).length === 0);
-  const displayReport = useMockReport ? MOCK_FUNDER_ACTIVITY : reportData;
+  const showMockDataNotice = !!selectedFunder?.analyticValueId;
+  const displayReport = reportData;
   const byCategory = displayReport?.byCategory || [];
+
+  const periodCaption = () => {
+    if (!periodStartId && !periodEndId) {
+      return formatMessage(intl, "ledger", "ledger.funderActivityPage.allPeriods");
+    }
+    const startPeriod = accountingPeriods.find((p) => p.id === periodStartId);
+    const endPeriod = accountingPeriods.find((p) => p.id === periodEndId);
+    if (startPeriod && endPeriod) {
+      const [earlier, later] =
+        startPeriod.startDate <= endPeriod.startDate ? [startPeriod, endPeriod] : [endPeriod, startPeriod];
+      return `${earlier.startDate} — ${later.endDate}`;
+    }
+    if (startPeriod) return `${startPeriod.startDate} — ${startPeriod.endDate}`;
+    if (endPeriod) return `${endPeriod.startDate} — ${endPeriod.endDate}`;
+    return `${periodStartId ?? "-"} — ${periodEndId ?? "-"}`;
+  };
 
   return (
     <StyledPage>
@@ -149,7 +151,7 @@ const FunderActivityPage = ({ intl, rights, funderActivityReport, fetchFunderAct
             </Grid>
           ) : (
             <>
-              {useMockReport ? (
+              {showMockDataNotice ? (
                 <Grid size={12}>
                   <Box className="paperBody">
                     <Alert severity="info">
@@ -237,9 +239,7 @@ const FunderActivityPage = ({ intl, rights, funderActivityReport, fetchFunderAct
                     funder: selectedFunder.displayName,
                   })}
                   {" · "}
-                  {periodStartId || periodEndId
-                    ? `${periodStartId ?? "-"} — ${periodEndId ?? "-"}`
-                    : formatMessage(intl, "ledger", "ledger.funderActivityPage.allPeriods")}
+                  {periodCaption()}
                 </Typography>
               </Grid>
             </>
@@ -253,8 +253,9 @@ const FunderActivityPage = ({ intl, rights, funderActivityReport, fetchFunderAct
 const mapStateToProps = (state) => ({
   rights: state.core?.user?.i_user?.rights || [],
   funderActivityReport: state.ledger.funderActivityReport,
+  accountingPeriods: state.ledger.accountingPeriods?.items || [],
 });
 
-const mapDispatchToProps = (dispatch) => bindActionCreators({ fetchFunderActivityReport }, dispatch);
+const mapDispatchToProps = { fetchFunderActivityReportMock };
 
 export default withModulesManager(injectIntl(connect(mapStateToProps, mapDispatchToProps)(FunderActivityPage)));

@@ -5,6 +5,7 @@ import {
   fetchPartyLedgerBalanceMock,
   searchPartyMock,
   searchFunderMock,
+  fetchFunderActivityReportMock,
   fetchLedgerEntries,
   fetchAccountingPeriods,
   searchParty,
@@ -109,6 +110,7 @@ describe("Actions - Mocks", () => {
     expect(results[0].displayName).toBe("GIZ");
   });
 
+  // Test pour fetchPartyLedgerBalanceMock (version "Updated upstream")
   it("fetchPartyLedgerBalanceMock dispatches REQ and RESP with the party/period statement", () => {
     // period id is the DECODED id the picker sends (the reducer decodes ids)
     const thunk = fetchPartyLedgerBalanceMock(btoa("AnalyticValue:HF-1"), "1");
@@ -145,6 +147,51 @@ describe("Actions - Mocks", () => {
     expect(hf2OpenLedger.balance).toBe(-8400);
     expect(fam1ClosedLedger.transactions.length).toBe(0);
     expect(fam1ClosedLedger.carriedForwardBalance).toBe(500);
+  });
+
+  // Test pour fetchFunderActivityReportMock (version "Stashed changes")
+  it("fetchFunderActivityReportMock dispatches REQ and RESP with the funder report", () => {
+    const thunk = fetchFunderActivityReportMock(btoa("AnalyticValue:GIZ"), {});
+    thunk(dispatch);
+
+    expect(dispatch).toHaveBeenCalledTimes(2);
+    expect(dispatch).toHaveBeenNthCalledWith(1, {
+      type: `${ACTION_TYPE.FUNDER_ACTIVITY_REPORT}_REQ`,
+    });
+    const resp = dispatch.mock.calls[1][0];
+    expect(resp.type).toBe(`${ACTION_TYPE.FUNDER_ACTIVITY_REPORT}_RESP`);
+    const report = resp.payload.data.funderActivityReport;
+    expect(report.debitTotal).toBe(33400);
+    expect(report.creditTotal).toBe(33400);
+    expect(report.balance).toBe(4700);
+    expect(report.byCategory).toEqual([
+      expect.objectContaining({ category: "claim_payment", debit: 18600 }),
+      expect.objectContaining({ category: "correction", debit: 2100 }),
+      expect.objectContaining({ category: "invoice", debit: 2700 }),
+      expect.objectContaining({ category: "payment_point_reconciliation", debit: 800 }),
+      expect.objectContaining({ category: "payroll_disbursement", debit: 9200 }),
+    ]);
+  });
+
+  it("fetchFunderActivityReportMock varies by funder and period range", () => {
+    const wb = fetchFunderActivityReportMock(btoa("AnalyticValue:WB"), {});
+    wb(dispatch);
+    const wbReport = dispatch.mock.calls[1][0].payload.data.funderActivityReport;
+    expect(wbReport.debitTotal).toBe(18700);
+    expect(wbReport.balance).toBe(-1200);
+
+    const gizJune = fetchFunderActivityReportMock(btoa("AnalyticValue:GIZ"), { end: "2" });
+    gizJune(dispatch);
+    const gizJuneReport = dispatch.mock.calls[3][0].payload.data.funderActivityReport;
+    expect(gizJuneReport.debitTotal).toBe(6100);
+    expect(gizJuneReport.byCategory).toEqual([expect.objectContaining({ category: "claim_payment", debit: 6100 })]);
+
+    // start=July ("1") / end=June ("2") spans the whole range: every combination returns data.
+    const gizAll = fetchFunderActivityReportMock(btoa("AnalyticValue:GIZ"), { start: "1", end: "2" });
+    gizAll(dispatch);
+    const gizAllReport = dispatch.mock.calls[5][0].payload.data.funderActivityReport;
+    expect(gizAllReport.debitTotal).toBe(33400);
+    expect(gizAllReport.creditTotal).toBe(33400);
   });
 });
 
