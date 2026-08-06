@@ -65,6 +65,7 @@
     "partyLedgerPage": {
       "pageTitle": "Party Sub-Ledger",
       "balanceTitle": "Signed balance",
+      "selectFiltersPrompt": "Select a party and an accounting period to view the period statement.",
       "statementTitle": "Period statement",
       "emptyState": "No activity for the selected period. Carried-forward balance: {carriedForwardBalance}.",
       "selectedParty": "Selected party: {party}",

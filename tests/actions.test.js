@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach } from "vitest";
 import {
   fetchLedgerEntriesMock,
   fetchAccountingPeriodsMock,
+  fetchPartyLedgerBalanceMock,
   searchPartyMock,
   searchFunderMock,
   fetchLedgerEntries,
@@ -106,6 +107,44 @@ describe("Actions - Mocks", () => {
     const results = respCall[0].payload.data.analyticValues;
     expect(results.length).toBe(1);
     expect(results[0].displayName).toBe("GIZ");
+  });
+
+  it("fetchPartyLedgerBalanceMock dispatches REQ and RESP with the party/period statement", () => {
+    // period id is the DECODED id the picker sends (the reducer decodes ids)
+    const thunk = fetchPartyLedgerBalanceMock(btoa("AnalyticValue:HF-1"), "1");
+    thunk(dispatch);
+
+    expect(dispatch).toHaveBeenCalledTimes(2);
+    expect(dispatch).toHaveBeenNthCalledWith(1, {
+      type: `${ACTION_TYPE.PARTY_LEDGER_BALANCE}_REQ`,
+    });
+    const resp = dispatch.mock.calls[1][0];
+    expect(resp.type).toBe(`${ACTION_TYPE.PARTY_LEDGER_BALANCE}_RESP`);
+    const ledger = resp.payload.data.partyLedgerBalance;
+    expect(ledger.transactions.length).toBe(2);
+    expect(ledger.balance).toBe(12000);
+    expect(ledger.carriedForwardBalance).toBe(12000);
+  });
+
+  it("fetchPartyLedgerBalanceMock varies the statement by party and period", () => {
+    const hf1Open = fetchPartyLedgerBalanceMock(btoa("AnalyticValue:HF-1"), "1");
+    hf1Open(dispatch);
+    const hf1OpenLedger = dispatch.mock.calls[1][0].payload.data.partyLedgerBalance;
+
+    const hf2Open = fetchPartyLedgerBalanceMock(btoa("AnalyticValue:HF-2"), "1");
+    hf2Open(dispatch);
+    const hf2OpenLedger = dispatch.mock.calls[3][0].payload.data.partyLedgerBalance;
+
+    const fam1Closed = fetchPartyLedgerBalanceMock(btoa("AnalyticValue:FAM-1"), "2");
+    fam1Closed(dispatch);
+    const fam1ClosedLedger = dispatch.mock.calls[5][0].payload.data.partyLedgerBalance;
+
+    expect(hf1OpenLedger.transactions.length).toBe(2);
+    expect(hf1OpenLedger.balance).toBe(12000);
+    expect(hf2OpenLedger.transactions.length).toBe(1);
+    expect(hf2OpenLedger.balance).toBe(-8400);
+    expect(fam1ClosedLedger.transactions.length).toBe(0);
+    expect(fam1ClosedLedger.carriedForwardBalance).toBe(500);
   });
 });
 

@@ -1,7 +1,6 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { injectIntl } from "react-intl";
 import { connect } from "react-redux";
-import { bindActionCreators } from "redux";
 import {
   Alert,
   Box,
@@ -27,32 +26,7 @@ import PartyPicker from "../pickers/PartyPicker";
 import AccountingPeriodPicker from "../pickers/AccountingPeriodPicker";
 import { hasLedgerReportingRight } from "../utils/permissions";
 import { formatSignedBalance } from "../utils/balance";
-import { fetchPartyLedgerBalance } from "../actions";
-
-const MOCK_PARTY_LEDGER = {
-  balance: 18500,
-  carriedForwardBalance: 12000,
-  transactions: [
-    {
-      id: "mock-tx-1",
-      journal: { code: "BANK", name: "Bank journal" },
-      postedAt: "2026-07-03",
-      totals: { debit: 12500, credit: 12500, balance: 0 },
-    },
-    {
-      id: "mock-tx-2",
-      journal: { code: "SALES", name: "Sales journal" },
-      postedAt: "2026-07-11",
-      totals: { debit: 7800, credit: 7800, balance: 0 },
-    },
-    {
-      id: "mock-tx-3",
-      journal: { code: "ADJ", name: "Adjustment journal" },
-      postedAt: "2026-07-24",
-      totals: { debit: 8700, credit: 8700, balance: 0 },
-    },
-  ],
-};
+import { fetchPartyLedgerBalanceMock } from "../actions";
 
 const StyledPage = styled("div")(({ theme }) => ({
   "& .page": theme.page ?? {},
@@ -92,7 +66,7 @@ const StyledPaper = styled(Paper)(({ theme }) => ({
   "& .item": theme.paper?.item ?? {},
 }));
 
-const PartyLedgerPage = ({ intl, rights, partyLedgerBalance, fetchPartyLedgerBalance }) => {
+const PartyLedgerPage = ({ intl, rights, partyLedgerBalance, fetchPartyLedgerBalanceMock }) => {
   const [selectedParty, setSelectedParty] = useState(null);
   const [selectedPeriodId, setSelectedPeriodId] = useState(null);
 
@@ -101,21 +75,17 @@ const PartyLedgerPage = ({ intl, rights, partyLedgerBalance, fetchPartyLedgerBal
   }
 
   const ledgerData = partyLedgerBalance?.data || null;
-  const useMockLedger =
-    !!selectedParty?.analyticValueId &&
-    !!selectedPeriodId &&
-    (!ledgerData || (ledgerData.transactions || []).length === 0);
-  const displayLedger = useMockLedger ? MOCK_PARTY_LEDGER : ledgerData;
-  const balanceInfo = useMemo(() => formatSignedBalance(displayLedger?.balance ?? 0), [displayLedger?.balance]);
+  const showMockDataNotice = !!selectedParty?.analyticValueId && !!selectedPeriodId;
+  const balanceInfo = useMemo(() => formatSignedBalance(ledgerData?.balance ?? 0), [ledgerData?.balance]);
 
-  const transactions = displayLedger?.transactions || [];
-  const carriedForwardBalance = displayLedger?.carriedForwardBalance ?? 0;
+  const transactions = ledgerData?.transactions || [];
+  const carriedForwardBalance = ledgerData?.carriedForwardBalance ?? 0;
 
   useEffect(() => {
     if (selectedParty?.analyticValueId && selectedPeriodId) {
-      fetchPartyLedgerBalance(selectedParty.analyticValueId, selectedPeriodId);
+      fetchPartyLedgerBalanceMock(selectedParty.analyticValueId, selectedPeriodId);
     }
-  }, [fetchPartyLedgerBalance, selectedParty?.analyticValueId, selectedPeriodId]);
+  }, [fetchPartyLedgerBalanceMock, selectedParty?.analyticValueId, selectedPeriodId]);
 
   return (
     <StyledPage>
@@ -158,7 +128,7 @@ const PartyLedgerPage = ({ intl, rights, partyLedgerBalance, fetchPartyLedgerBal
             </StyledPaper>
           </Grid>
 
-          {useMockLedger ? (
+          {showMockDataNotice ? (
             <Grid size={12}>
               <Box className="paperBody">
                 <Alert severity="info">
@@ -168,7 +138,15 @@ const PartyLedgerPage = ({ intl, rights, partyLedgerBalance, fetchPartyLedgerBal
             </Grid>
           ) : null}
 
-          {transactions.length === 0 ? (
+          {!ledgerData ? (
+            <Grid size={12}>
+              <Box className="paperBody">
+                <Alert severity="info">
+                  {formatMessage(intl, "ledger", "ledger.partyLedgerPage.selectFiltersPrompt")}
+                </Alert>
+              </Box>
+            </Grid>
+          ) : transactions.length === 0 ? (
             <Grid size={12}>
               <Box className="paperBody">
                 <Alert severity="info">
@@ -241,6 +219,6 @@ const mapStateToProps = (state) => ({
   partyLedgerBalance: state.ledger.partyLedgerBalance,
 });
 
-const mapDispatchToProps = (dispatch) => bindActionCreators({ fetchPartyLedgerBalance }, dispatch);
+const mapDispatchToProps = { fetchPartyLedgerBalanceMock };
 
 export default withModulesManager(injectIntl(connect(mapStateToProps, mapDispatchToProps)(PartyLedgerPage)));
