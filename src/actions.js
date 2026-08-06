@@ -195,6 +195,35 @@ const CLOSED_PERIOD_ID = mockId("AccountingPeriod", 2);
 const analyticId = (id) => mockId("AnalyticValue", id);
 const ALL_PERIODS_FILTER_VALUE = "__all__";
 
+const decodeMockId = (encoded) => {
+  try {
+    const decoded = atob(encoded);
+    const separatorIndex = decoded.indexOf(":");
+    return separatorIndex >= 0 ? decoded.slice(separatorIndex + 1) : decoded;
+  } catch {
+    return encoded;
+  }
+};
+
+const MOCK_LEDGER_PERIOD_KEYS = {
+  [OPEN_PERIOD_ID]: "open",
+  [CLOSED_PERIOD_ID]: "closed",
+};
+
+// Carried-forward (opening) balances per party and period, tuned so the
+// Party Sub-Ledger screen exposes every acceptance scenario to a manual
+// tester: debtor (positive), creditor (negative), settled (zero) and
+// empty periods showing only the carried-forward balance.
+const MOCK_PARTY_OPENING_BALANCES = {
+  "HF-1": { open: 12000, closed: 3000 },
+  "HF-2": { open: -8400, closed: 0 },
+  "HF-3": { open: 0, closed: 1000 },
+  "FAM-1": { open: 800, closed: 500 },
+  "FAM-2": { open: 0, closed: 0 },
+  "PPM-1": { open: 0, closed: 4000 },
+  "PPM-2": { open: -500, closed: 200 },
+};
+
 const partyTag = (id, displayName) => ({ analyticValueId: id, displayName });
 const funderTag = (id, displayName) => ({ analyticValueId: id, displayName });
 const mockEntry = (id, journal, periodId, status, sourceEventType, sourceEventReference, postedAt, amount, party, funder) => ({
@@ -375,6 +404,66 @@ export function fetchAccountingPeriodsMock() {
     dispatch({
       type: `${ACTION_TYPE.ACCOUNTING_PERIODS}_RESP`,
       payload: { data: { accountingPeriods: MOCK_ACCOUNTING_PERIODS } },
+    });
+  };
+}
+
+/**
+ * User Story 2 — mock counterpart of `fetchPartyLedgerBalance`. The
+ * statement is derived from `MOCK_LEDGER_ENTRIES` filtered by the selected
+ * party and accounting period, so changing either filter changes the data
+ * (transactions, balance, carried-forward balance) exactly like the real
+ * backend would.
+ */
+export function fetchPartyLedgerBalanceMock(analyticValueId, accountingPeriodId) {
+  return (dispatch) => {
+    // The picker hands the DECODED period id (e.g. "1"); re-encode it like
+    // fetchLedgerEntriesMock does so it matches MOCK_LEDGER_ENTRIES ids.
+    const scopedPeriodId =
+      accountingPeriodId === OPEN_PERIOD_ID || accountingPeriodId === CLOSED_PERIOD_ID
+        ? accountingPeriodId
+        : mockId("AccountingPeriod", accountingPeriodId);
+    const periodEntries = MOCK_LEDGER_ENTRIES.filter(
+      (entry) =>
+        entry.accountingPeriod.id === scopedPeriodId &&
+        entry.lines.some((line) => line.partyTag?.analyticValueId === analyticValueId),
+    );
+    const debitTotal = periodEntries.reduce(
+      (sum, entry) => sum + entry.lines.reduce((lineSum, line) => lineSum + (Number(line.debit) || 0), 0),
+      0,
+    );
+    const creditTotal = periodEntries.reduce(
+      (sum, entry) => sum + entry.lines.reduce((lineSum, line) => lineSum + (Number(line.credit) || 0), 0),
+      0,
+    );
+    const partyKey = decodeMockId(analyticValueId);
+    const periodKey = MOCK_LEDGER_PERIOD_KEYS[scopedPeriodId] ?? "other";
+    const carriedForwardBalance = MOCK_PARTY_OPENING_BALANCES[partyKey]?.[periodKey] ?? 0;
+
+    dispatch({ type: `${ACTION_TYPE.PARTY_LEDGER_BALANCE}_REQ` });
+    dispatch({
+      type: `${ACTION_TYPE.PARTY_LEDGER_BALANCE}_RESP`,
+      payload: {
+        data: {
+          partyLedgerBalance: {
+            analyticValueId,
+            accountingPeriodId: scopedPeriodId,
+            debitTotal,
+            creditTotal,
+            balance: carriedForwardBalance + debitTotal - creditTotal,
+            carriedForwardBalance,
+            transactions: periodEntries.map((entry) => ({
+              id: entry.id,
+              journal: entry.journal,
+              accountingPeriod: entry.accountingPeriod,
+              sourceEventType: entry.sourceEventType,
+              sourceEventReference: entry.sourceEventReference,
+              postedAt: entry.postedAt,
+              lines: entry.lines,
+            })),
+          },
+        },
+      },
     });
   };
 }
