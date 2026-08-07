@@ -58,7 +58,7 @@ const StyledLedgerEntryDetails = styled("div")(({ theme }) => ({
     whiteSpace: "nowrap",
   },
   "& tfoot td": {
-    borderTop: `1px solid ${theme.palette.divider}`,
+    borderTop: `1px solid ${theme.palette?.divider || "#e0e0e0"}`,
     fontWeight: 600,
   },
   "& .entry-summary": {
@@ -71,13 +71,13 @@ const StyledLedgerEntryDetails = styled("div")(({ theme }) => ({
     padding: 0,
     border: 0,
     background: "transparent",
-    color: theme.palette.primary.main,
+    color: theme.palette?.primary?.main || "#1976d2",
     cursor: "pointer",
     textDecoration: "underline",
     font: "inherit",
   },
   "& .detail-source-link:disabled": {
-    color: theme.palette.text.secondary,
+    color: theme.palette?.text?.secondary || "#757575",
     cursor: "default",
     textDecoration: "none",
   },
@@ -90,7 +90,7 @@ const StyledLedgerEntryDetails = styled("div")(({ theme }) => ({
     display: "inline-flex",
     alignItems: "center",
     gap: theme.spacing(0.5),
-    color: theme.palette.success.main,
+    color: theme.palette?.success?.main || "#2e7d32",
     fontWeight: 500,
     whiteSpace: "nowrap",
   },

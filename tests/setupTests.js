@@ -11,7 +11,13 @@ afterEach(() => {
 vi.mock("@mui/material/styles", () => ({
   styled: (Component) => (styles) => {
     if (typeof styles === "function") {
-      styles({ theme: { spacing: (...values) => values.join(" "), palette: {}, shadows: [] } });
+      styles({
+        theme: {
+          spacing: (...values) => values.join(" "),
+          palette: { primary: { main: "#006273", light: "#b7d4d8" } },
+          shadows: [],
+        },
+      });
     }
     return Component;
   },
@@ -63,4 +69,13 @@ vi.mock("@mui/material", () => ({
     ),
   TextField: ({ label, inputProps = {}, ...props }) =>
     React.createElement("input", { "aria-label": label, ...inputProps, ...props }),
+  Paper: ({ children }) => React.createElement("div", null, children),
+  Box: ({ children }) => React.createElement("div", null, children),
+  Alert: ({ children }) => React.createElement("div", null, children),
+  Divider: () => React.createElement("div"),
+  Table: ({ children }) => React.createElement("table", null, children),
+  TableHead: ({ children }) => React.createElement("thead", null, children),
+  TableBody: ({ children }) => React.createElement("tbody", null, children),
+  TableRow: ({ children }) => React.createElement("tr", null, children),
+  TableCell: ({ children }) => React.createElement("td", null, children),
 }));

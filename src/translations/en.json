@@ -63,7 +63,20 @@
       "expandTooltip": "Open entry lines"
     },
     "partyLedgerPage": {
-      "pageTitle": "Party Sub-Ledger"
+      "pageTitle": "Party Sub-Ledger",
+      "balanceTitle": "Signed balance",
+      "selectFiltersPrompt": "Select a party and an accounting period to view the period statement.",
+      "statementTitle": "Period statement",
+      "emptyState": "No activity for the selected period. Carried-forward balance: {carriedForwardBalance}.",
+      "selectedParty": "Selected party: {party}",
+      "selectedPeriod": "Selected period: {period}",
+      "noPartySelected": "No party selected",
+      "noPeriodSelected": "No period selected"
+    },
+    "balance": {
+      "owedByParty": "Positive balance: owed by the party",
+      "owedToParty": "Negative balance: owed to the party",
+      "settled": "Settled"
     },
     "funderActivityPage": {
       "pageTitle": "Funder Activity"
