@@ -79,7 +79,16 @@
       "settled": "Settled"
     },
     "funderActivityPage": {
-      "pageTitle": "Funder Activity"
+      "pageTitle": "Funder Activity",
+      "periodStart": "Period start",
+      "periodEnd": "Period end",
+      "noFunderSelected": "No funder selected",
+      "selectedFunder": "Selected funder: {funder}",
+      "totalsTitle": "Aggregated activity",
+      "byCategoryTitle": "Breakdown by category",
+      "category": "Category",
+      "emptyByCategory": "No activity for the selected funder and period range.",
+      "allPeriods": "All periods"
     },
     "periods": {
       "pageTitle": "Accounting Periods"
