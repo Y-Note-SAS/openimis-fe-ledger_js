@@ -126,17 +126,17 @@ Single-package frontend module (plan.md "Structure Decision"): `src/` and `tests
 
 ### Tests for User Story 3
 
-- [ ] T041 [P] [US3] Unit test for `funderSearch`/`funderActivityReport` action creators in `tests/actions.test.js`
-- [ ] T042 [P] [US3] Unit test for corresponding reducer cases in `tests/reducer.test.js`
+- [x] T041 [P] [US3] Unit test for `funderSearch`/`funderActivityReport` action creators in `tests/actions.test.js` _(DEV REVIEW: tests ajoutés — structure de la query, variables, types d'action REQ/RESP/ERR)_
+- [x] T042 [P] [US3] Unit test for corresponding reducer cases in `tests/reducer.test.js` _(DEV REVIEW: cas REQ/ERR ajoutés en plus des RESP existants)_
 
 ### Implementation for User Story 3
 
 - [x] T043 [US3] Implement `searchFunder(searchTerm)` action creator and `FUNDER_SEARCH_*` reducer cases in `src/actions.js` / `src/reducer.js` _(DEV REVIEW: action creator + reducer implémentés mais non testés)_
 - [x] T044 [US3] Implement `fetchFunderActivityReport(analyticValueId, periodRange)` action creator (contracts/graphql-operations.md `FunderActivityReport` query) and `FUNDER_ACTIVITY_REPORT_*` reducer cases in `src/actions.js` / `src/reducer.js` _(DEV REVIEW: action creator + reducer implémentés mais non testés)_
-- [x] T045 [P] [US3] Implement `FunderPicker` in `src/pickers/FunderPicker.jsx` _(DEV REVIEW: ⚠️ aucun test dédié (0% coverage))_
-- [ ] T046 [US3] Implement `FunderActivityPage` wiring `FunderPicker` + period-range controls + `byCategory` breakdown table, gated by `hasLedgerReportingRight`, in `src/pages/FunderActivityPage.jsx`
+- [x] T045 [P] [US3] Implement `FunderPicker` in `src/pickers/FunderPicker.jsx` _(DEV REVIEW: test dédié ajouté dans `tests/pickers/FunderPicker.test.jsx`)_
+- [x] T046 [US3] Implement `FunderActivityPage` wiring `FunderPicker` + period-range controls + `byCategory` breakdown table, gated by `hasLedgerReportingRight`, in `src/pages/FunderActivityPage.jsx` _(DEV REVIEW: implémenté avec fallback mock (pattern PartyLedgerPage); couvert par `tests/pages/FunderActivityPage.test.jsx`)_
 - [x] T047 [US3] Register the `/ledger/funder` route and menu entry in `src/index.jsx`
-- [ ] T048 [US3] Add US3-specific translation keys to `src/translations/en.json`
+- [x] T048 [US3] Add US3-specific translation keys to `src/translations/en.json` _(DEV REVIEW: clés totals/byCategory/période ajoutées sous `ledger.funderActivityPage`)_
 
 **Checkpoint**: User Stories 1, 2, AND 3 independently functional
 

@@ -60,4 +60,10 @@ describe("FunderPicker", () => {
 
     expect(screen.getByLabelText("ledger.picker.funder")).toBeInTheDocument();
   });
+
+  it("handles empty results", () => {
+    renderPicker({ value: null, onChange: vi.fn() });
+
+    expect(screen.getByLabelText("ledger.picker.funder")).toBeInTheDocument();
+  });
 });

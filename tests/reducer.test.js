@@ -177,6 +177,42 @@ describe("Reducer", () => {
     expect(state.funderActivityReport.data).toBeDefined();
   });
 
+  it("handles LEDGER_FUNDER_SEARCH_REQ", () => {
+    const action = { type: `${ACTION_TYPE.FUNDER_SEARCH}_REQ` };
+    const state = reducer(initialState, action);
+    expect(state.funderSearch.isFetching).toBe(true);
+    expect(state.funderSearch.isFetched).toBe(false);
+    expect(state.funderSearch.error).toBe(null);
+  });
+
+  it("handles LEDGER_FUNDER_SEARCH_ERR", () => {
+    const action = {
+      type: `${ACTION_TYPE.FUNDER_SEARCH}_ERR`,
+      payload: { message: "Search failed" }
+    };
+    const state = reducer(initialState, action);
+    expect(state.funderSearch.isFetching).toBe(false);
+    expect(state.funderSearch.error.message).toBe("Search failed");
+  });
+
+  it("handles LEDGER_FUNDER_ACTIVITY_REPORT_REQ", () => {
+    const action = { type: `${ACTION_TYPE.FUNDER_ACTIVITY_REPORT}_REQ` };
+    const state = reducer(initialState, action);
+    expect(state.funderActivityReport.isFetching).toBe(true);
+    expect(state.funderActivityReport.isFetched).toBe(false);
+    expect(state.funderActivityReport.error).toBe(null);
+  });
+
+  it("handles LEDGER_FUNDER_ACTIVITY_REPORT_ERR", () => {
+    const action = {
+      type: `${ACTION_TYPE.FUNDER_ACTIVITY_REPORT}_ERR`,
+      payload: { message: "Report failed" }
+    };
+    const state = reducer(initialState, action);
+    expect(state.funderActivityReport.isFetching).toBe(false);
+    expect(state.funderActivityReport.error.message).toBe("Report failed");
+  });
+
   it("handles LEDGER_OPEN_ACCOUNTING_PERIOD_REQ", () => {
     const action = { type: `${ACTION_TYPE.OPEN_ACCOUNTING_PERIOD}_REQ` };
     const state = reducer(initialState, action);

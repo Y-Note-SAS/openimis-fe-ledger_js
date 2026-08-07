@@ -335,6 +335,14 @@ const MOCK_FUNDERS = [
   { analyticValueId: analyticId("UNICEF"), funderCode: "UNICEF", displayName: "UNICEF", externalReference: "UNICEF" },
 ];
 
+// Carried-forward balances per funder so the aggregated totals and the
+// signed balance vary from one funder to the next during manual testing.
+const MOCK_FUNDER_OPENING_BALANCES = {
+  GIZ: 4700,
+  WB: -1200,
+  UNICEF: 300,
+};
+
 export function fetchLedgerEntriesMock(params = []) {
   return (dispatch) => {
     const getParam = (name) => {
@@ -502,6 +510,83 @@ export function searchFunderMock(searchTerm) {
     dispatch({
       type: `${ACTION_TYPE.FUNDER_SEARCH}_RESP`,
       payload: { data: { analyticValues: results } },
+    });
+  };
+}
+
+/**
+ * User Story 3 — mock counterpart of `fetchFunderActivityReport`. The
+ * report is derived from `MOCK_LEDGER_ENTRIES` filtered by the selected
+ * funder and period range, so changing either filter changes the totals
+ * and the category breakdown exactly like the real backend would.
+ */
+export function fetchFunderActivityReportMock(analyticValueId, periodRange = {}) {
+  return (dispatch) => {
+    // The period pickers hand DECODED ids (e.g. "1"); re-encode them like
+    // fetchLedgerEntriesMock does so they match MOCK_LEDGER_ENTRIES ids.
+    const normalizedPeriodId = (id) =>
+      id === OPEN_PERIOD_ID || id === CLOSED_PERIOD_ID ? id : mockId("AccountingPeriod", id);
+    // Chronological order for range filtering: closed period (June) = 1, open period (July) = 2.
+    const periodIndex = (id) => {
+      const normalized = normalizedPeriodId(id);
+      return normalized === CLOSED_PERIOD_ID ? 1 : normalized === OPEN_PERIOD_ID ? 2 : null;
+    };
+    const startIndex = periodRange?.start ? periodIndex(periodRange.start) : null;
+    const endIndex = periodRange?.end ? periodIndex(periodRange.end) : null;
+    // The selection is treated as the inclusive span between the two bounds
+    // regardless of picker order, so every start/end combination returns data.
+    const minIndex = startIndex !== null && endIndex !== null ? Math.min(startIndex, endIndex) : startIndex ?? endIndex;
+    const maxIndex = startIndex !== null && endIndex !== null ? Math.max(startIndex, endIndex) : startIndex ?? endIndex;
+    const inRange = (entry) => {
+      const idx = periodIndex(entry.accountingPeriod.id);
+      if (idx === null) return false;
+      if (minIndex !== null && idx < minIndex) return false;
+      if (maxIndex !== null && idx > maxIndex) return false;
+      return true;
+    };
+
+    const periodEntries = MOCK_LEDGER_ENTRIES.filter(
+      (entry) =>
+        inRange(entry) && entry.lines.some((line) => line.funderTag?.analyticValueId === analyticValueId),
+    );
+
+    const totalsFor = (entries) => {
+      const debit = entries.reduce(
+        (sum, entry) => sum + entry.lines.reduce((lineSum, line) => lineSum + (Number(line.debit) || 0), 0),
+        0,
+      );
+      const credit = entries.reduce(
+        (sum, entry) => sum + entry.lines.reduce((lineSum, line) => lineSum + (Number(line.credit) || 0), 0),
+        0,
+      );
+      return { debit, credit, balance: debit - credit };
+    };
+
+    const totals = totalsFor(periodEntries);
+    const categories = [...new Set(periodEntries.map((entry) => entry.sourceEventType))].sort();
+    const byCategory = categories.map((category) => ({
+      category,
+      ...totalsFor(periodEntries.filter((entry) => entry.sourceEventType === category)),
+    }));
+    const funderKey = decodeMockId(analyticValueId);
+    const openingBalance = MOCK_FUNDER_OPENING_BALANCES[funderKey] ?? 0;
+
+    dispatch({ type: `${ACTION_TYPE.FUNDER_ACTIVITY_REPORT}_REQ` });
+    dispatch({
+      type: `${ACTION_TYPE.FUNDER_ACTIVITY_REPORT}_RESP`,
+      payload: {
+        data: {
+          funderActivityReport: {
+            analyticValueId,
+            accountingPeriodStart: periodRange.start ?? null,
+            accountingPeriodEnd: periodRange.end ?? null,
+            debitTotal: totals.debit,
+            creditTotal: totals.credit,
+            balance: openingBalance + totals.balance,
+            byCategory,
+          },
+        },
+      },
     });
   };
 }
