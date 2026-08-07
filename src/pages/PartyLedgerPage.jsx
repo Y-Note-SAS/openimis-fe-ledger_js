@@ -21,6 +21,7 @@ import {
   withModulesManager,
   formatMessage,
   formatMessageWithValues,
+  formatAmount,
 } from "@openimis/fe-core";
 import PartyPicker from "../pickers/PartyPicker";
 import AccountingPeriodPicker from "../pickers/AccountingPeriodPicker";
@@ -66,12 +67,12 @@ const StyledPaper = styled(Paper)(({ theme }) => ({
   "& .item": theme.paper?.item ?? {},
 }));
 
-const PartyLedgerPage = ({ intl, rights, partyLedgerBalance, fetchPartyLedgerBalanceMock }) => {
+const PartyLedgerPage = ({ intl, modulesManager, rights, partyLedgerBalance, fetchPartyLedgerBalanceMock }) => {
   const [selectedParty, setSelectedParty] = useState(null);
   const [selectedPeriodId, setSelectedPeriodId] = useState(null);
 
   if (!hasLedgerReportingRight(rights)) {
-    return null;
+    return <Alert severity="error">{formatMessage(intl, "ledger", "ledger.accessDenied")}</Alert>;
   }
 
   const ledgerData = partyLedgerBalance?.data || null;
@@ -120,7 +121,9 @@ const PartyLedgerPage = ({ intl, rights, partyLedgerBalance, fetchPartyLedgerBal
               </Grid>
               <Divider />
               <Box className="paperBody">
-                <Typography variant="h4">{balanceInfo.label}</Typography>
+                <Typography variant="h4">
+                  {formatAmount(modulesManager, intl, Math.abs(Number(ledgerData?.balance) || 0))}
+                </Typography>
                 <Typography variant="body2" color="text.secondary">
                   {formatMessage(intl, "ledger", `ledger.balance.${balanceInfo.legend}`)}
                 </Typography>
@@ -151,7 +154,7 @@ const PartyLedgerPage = ({ intl, rights, partyLedgerBalance, fetchPartyLedgerBal
               <Box className="paperBody">
                 <Alert severity="info">
                   {formatMessageWithValues(intl, "ledger", "ledger.partyLedgerPage.emptyState", {
-                    carriedForwardBalance,
+                    carriedForwardBalance: formatAmount(modulesManager, intl, carriedForwardBalance),
                   })}
                 </Alert>
               </Box>
@@ -181,9 +184,9 @@ const PartyLedgerPage = ({ intl, rights, partyLedgerBalance, fetchPartyLedgerBal
                         <TableRow key={transaction.id}>
                           <TableCell>{transaction.journal?.code || transaction.journal?.name || "-"}</TableCell>
                           <TableCell>{transaction.postedAt || "-"}</TableCell>
-                          <TableCell>{transaction.totals?.debit ?? 0}</TableCell>
-                          <TableCell>{transaction.totals?.credit ?? 0}</TableCell>
-                          <TableCell>{transaction.totals?.balance ?? 0}</TableCell>
+                          <TableCell>{formatAmount(modulesManager, intl, transaction.totals?.debit ?? 0)}</TableCell>
+                          <TableCell>{formatAmount(modulesManager, intl, transaction.totals?.credit ?? 0)}</TableCell>
+                          <TableCell>{formatAmount(modulesManager, intl, transaction.totals?.balance ?? 0)}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>

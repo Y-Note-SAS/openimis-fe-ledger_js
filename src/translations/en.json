@@ -11,6 +11,7 @@
       "deploymentConfiguration": "Deployment Configuration"
     },
     "any": "Any",
+    "accessDenied": "Access denied. You are not authorized to view this page.",
     "accountingPeriod": "Accounting Period",
     "journal": "Journal",
     "party": "Party",
