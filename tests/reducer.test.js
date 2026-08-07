@@ -96,6 +96,16 @@ describe("Reducer", () => {
     expect(state.partySearch.results.length).toBe(1);
   });
 
+  it("handles LEDGER_PARTY_SEARCH_ERR", () => {
+    const action = {
+      type: `${ACTION_TYPE.PARTY_SEARCH}_ERR`,
+      payload: { message: "Search failed" }
+    };
+    const state = reducer(initialState, action);
+    expect(state.partySearch.isFetching).toBe(false);
+    expect(state.partySearch.error.message).toBe("Search failed");
+  });
+
   it("handles LEDGER_PARTY_LEDGER_BALANCE_RESP", () => {
     const action = {
       type: `${ACTION_TYPE.PARTY_LEDGER_BALANCE}_RESP`,
@@ -118,6 +128,16 @@ describe("Reducer", () => {
     expect(state.partyLedgerBalance.isFetched).toBe(true);
     expect(state.partyLedgerBalance.data).toBeDefined();
     expect(state.partyLedgerBalance.data.debitTotal).toBe(1000);
+  });
+
+  it("handles LEDGER_PARTY_LEDGER_BALANCE_ERR", () => {
+    const action = {
+      type: `${ACTION_TYPE.PARTY_LEDGER_BALANCE}_ERR`,
+      payload: { message: "Balance failed" }
+    };
+    const state = reducer(initialState, action);
+    expect(state.partyLedgerBalance.isFetching).toBe(false);
+    expect(state.partyLedgerBalance.error.message).toBe("Balance failed");
   });
 
   it("handles LEDGER_FUNDER_SEARCH_RESP", () => {
