@@ -122,10 +122,10 @@ describe("FunderActivityPage", () => {
     expect(screen.getByText("4700")).toBeInTheDocument();
   });
 
-  it("returns null without the reporting right", () => {
+  it("shows an access denied message without the reporting right", () => {
     const store = buildStore({ rights: [] });
-    const { container } = renderPage(store);
+    renderPage(store);
 
-    expect(container).toBeEmptyDOMElement();
+    expect(screen.getByText("ledger.accessDenied")).toBeInTheDocument();
   });
 });

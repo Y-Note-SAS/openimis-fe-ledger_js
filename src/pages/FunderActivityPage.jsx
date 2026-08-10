@@ -21,6 +21,7 @@ import {
   withModulesManager,
   formatMessage,
   formatMessageWithValues,
+  formatAmount,
 } from "@openimis/fe-core";
 import FunderPicker from "../pickers/FunderPicker";
 import AccountingPeriodPicker from "../pickers/AccountingPeriodPicker";
@@ -65,7 +66,14 @@ const StyledPaper = styled(Paper)(({ theme }) => ({
   "& .item": theme.paper?.item ?? {},
 }));
 
-const FunderActivityPage = ({ intl, rights, funderActivityReport, accountingPeriods, fetchFunderActivityReportMock }) => {
+const FunderActivityPage = ({
+  intl,
+  modulesManager,
+  rights,
+  funderActivityReport,
+  accountingPeriods,
+  fetchFunderActivityReportMock,
+}) => {
   const [selectedFunder, setSelectedFunder] = useState(null);
   const [periodStartId, setPeriodStartId] = useState(null);
   const [periodEndId, setPeriodEndId] = useState(null);
@@ -80,7 +88,7 @@ const FunderActivityPage = ({ intl, rights, funderActivityReport, accountingPeri
   }, [fetchFunderActivityReportMock, selectedFunder?.analyticValueId, periodStartId, periodEndId]);
 
   if (!hasLedgerReportingRight(rights)) {
-    return null;
+    return <Alert severity="error">{formatMessage(intl, "ledger", "ledger.accessDenied")}</Alert>;
   }
 
   const reportData = funderActivityReport?.data || null;
@@ -180,9 +188,9 @@ const FunderActivityPage = ({ intl, rights, funderActivityReport, accountingPeri
                       </TableHead>
                       <TableBody>
                         <TableRow>
-                          <TableCell>{displayReport?.debitTotal ?? 0}</TableCell>
-                          <TableCell>{displayReport?.creditTotal ?? 0}</TableCell>
-                          <TableCell>{displayReport?.balance ?? 0}</TableCell>
+                          <TableCell>{formatAmount(modulesManager, intl, displayReport?.debitTotal ?? 0)}</TableCell>
+                          <TableCell>{formatAmount(modulesManager, intl, displayReport?.creditTotal ?? 0)}</TableCell>
+                          <TableCell>{formatAmount(modulesManager, intl, displayReport?.balance ?? 0)}</TableCell>
                         </TableRow>
                       </TableBody>
                     </Table>
@@ -221,9 +229,9 @@ const FunderActivityPage = ({ intl, rights, funderActivityReport, accountingPeri
                           byCategory.map((row) => (
                             <TableRow key={row.category}>
                               <TableCell>{row.category}</TableCell>
-                              <TableCell>{row.debit ?? 0}</TableCell>
-                              <TableCell>{row.credit ?? 0}</TableCell>
-                              <TableCell>{row.balance ?? 0}</TableCell>
+                              <TableCell>{formatAmount(modulesManager, intl, row.debit ?? 0)}</TableCell>
+                              <TableCell>{formatAmount(modulesManager, intl, row.credit ?? 0)}</TableCell>
+                              <TableCell>{formatAmount(modulesManager, intl, row.balance ?? 0)}</TableCell>
                             </TableRow>
                           ))
                         )}
