@@ -8,6 +8,7 @@ export const ACTION_TYPE = {
   ACCOUNTING_PERIODS: "LEDGER_ACCOUNTING_PERIODS",
   PARTY_SEARCH: "LEDGER_PARTY_SEARCH",
   PARTY_LEDGER_BALANCE: "LEDGER_PARTY_LEDGER_BALANCE",
+  PARTY_LEDGER_BALANCE_RESET: "LEDGER_PARTY_LEDGER_BALANCE_RESET",
   FUNDER_SEARCH: "LEDGER_FUNDER_SEARCH",
   FUNDER_ACTIVITY_REPORT: "LEDGER_FUNDER_ACTIVITY_REPORT",
   MANUAL_REVIEW_QUEUE: "LEDGER_MANUAL_REVIEW_QUEUE",
@@ -207,6 +208,12 @@ function reducer(state = initialState, action) {
       };
     case err(ACTION_TYPE.PARTY_SEARCH):
       return { ...state, partySearch: { ...state.partySearch, isFetching: false, error: formatServerError(action.payload) } };
+
+    case ACTION_TYPE.PARTY_LEDGER_BALANCE_RESET:
+      return {
+        ...state,
+        partyLedgerBalance: { isFetching: false, isFetched: false, error: null, data: null },
+      };
 
     case req(ACTION_TYPE.PARTY_LEDGER_BALANCE):
       return {

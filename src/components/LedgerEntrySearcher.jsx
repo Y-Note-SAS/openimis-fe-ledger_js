@@ -1,5 +1,4 @@
-import React, { Component, Fragment } from "react";
-import { bindActionCreators } from "redux";
+import React, { useState, useEffect, useCallback } from "react";
 import { connect } from "react-redux";
 import { injectIntl } from "react-intl";
 import { Chip } from "@mui/material";
@@ -97,24 +96,31 @@ const StyledLedgerEntryDetails = styled("div")(({ theme }) => ({
   },
 }));
 
-class LedgerEntrySearcher extends Component {
-  state = {
-    expandedEntryId: null,
-  };
+const LedgerEntrySearcher = ({
+  intl,
+  modulesManager,
+  history,
+  ledgerEntries,
+  accountingPeriods,
+  fetchingAccountingPeriods,
+  fetchedAccountingPeriods,
+  fetchLedgerEntriesMock,
+  fetchAccountingPeriodsMock,
+}) => {
+  const [expandedEntryId, setExpandedEntryId] = useState(null);
 
-  componentDidMount() {
-    const { fetchedAccountingPeriods, fetchingAccountingPeriods, fetchAccountingPeriodsMock } = this.props;
+  useEffect(() => {
     if (!fetchedAccountingPeriods && !fetchingAccountingPeriods) {
       fetchAccountingPeriodsMock();
     }
-  }
+  }, [fetchedAccountingPeriods, fetchingAccountingPeriods, fetchAccountingPeriodsMock]);
 
-  fetch = (params) => {
-    this.props.fetchLedgerEntriesMock(params);
+  const fetch = (params) => {
+    fetchLedgerEntriesMock(params);
   };
 
-  defaultFilters = () => {
-    const openPeriod = this.props.accountingPeriods.find((period) => period.status === "open");
+  const defaultFilters = () => {
+    const openPeriod = accountingPeriods.find((period) => period.status === "open");
     if (!openPeriod) {
       return {};
     }
@@ -126,9 +132,9 @@ class LedgerEntrySearcher extends Component {
     };
   };
 
-  rowIdentifier = (entry) => entry.id;
+  const rowIdentifier = (entry) => entry.id;
 
-  filtersToQueryParams = (state) => {
+  const filtersToQueryParams = (state) => {
     const params = Object.keys(state.filters)
       .filter((key) => !!state.filters[key]?.filter)
       .map((key) => state.filters[key].filter);
@@ -149,7 +155,7 @@ class LedgerEntrySearcher extends Component {
     return params;
   };
 
-  headers = () => [
+  const headers = () => [
     "ledger.entry.journal",
     "ledger.entry.accountingPeriod",
     "ledger.entry.sourceEvent",
@@ -160,7 +166,7 @@ class LedgerEntrySearcher extends Component {
     "",
   ];
 
-  sorts = () => [
+  const sorts = () => [
     ["journal", true],
     ["accountingPeriod", true],
     ["sourceEventType", true],
@@ -171,14 +177,13 @@ class LedgerEntrySearcher extends Component {
     null,
   ];
 
-  itemFormatters = () => {
-    const { intl, modulesManager } = this.props;
+  const itemFormatters = () => {
     return [
       (entry) => entry.journal?.code,
       (entry) => (
-        <Fragment>
+        <>
           {entry.accountingPeriod?.id} <Chip size="small" label={entry.accountingPeriod?.status} />
-        </Fragment>
+        </>
       ),
       (entry) => `${entry.sourceEventType || ""} ${entry.sourceEventReference || ""}`,
       (entry) => formatDateFromISO(modulesManager, intl, entry.postedAt),
@@ -188,15 +193,15 @@ class LedgerEntrySearcher extends Component {
     ];
   };
 
-  toggleEntry = (entry) => {
-    this.setState((state) => ({ expandedEntryId: state.expandedEntryId === entry.id ? null : entry.id }));
+  const toggleEntry = (entry) => {
+    setExpandedEntryId((prevId) => prevId === entry.id ? null : entry.id);
   };
 
-  displayItems = () => {
-    return this.props.ledgerEntries.items || [];
+  const displayItems = () => {
+    return ledgerEntries.items || [];
   };
 
-  sourceEventRouteRef = (entry) => {
+  const sourceEventRouteRef = (entry) => {
     switch (entry?.sourceEventType) {
       case "claim_payment":
         return "claim.route.claimEdit";
@@ -211,19 +216,18 @@ class LedgerEntrySearcher extends Component {
     }
   };
 
-  navigateToSourceEvent = (entry) => {
-    const routeRef = this.sourceEventRouteRef(entry);
+  const navigateToSourceEvent = (entry) => {
+    const routeRef = sourceEventRouteRef(entry);
     if (!routeRef || !entry?.sourceEventReference) return;
-    historyPush(this.props.modulesManager, this.props.history, routeRef, [entry.sourceEventReference]);
+    historyPush(modulesManager, history, routeRef, [entry.sourceEventReference]);
   };
 
-  renderEntryDetails = (entry) => {
-    const { intl, modulesManager } = this.props;
+  const renderEntryDetails = (entry) => {
     if (!entry) return null;
 
     const lines = entry.lines || [];
     const isBalanced = entry.totals?.balance === 0 && entry.totals?.debit === entry.totals?.credit;
-    const sourceRouteRef = this.sourceEventRouteRef(entry);
+    const sourceRouteRef = sourceEventRouteRef(entry);
 
     return (
       <StyledLedgerEntryDetails className="ledger-entry-details">
@@ -231,7 +235,7 @@ class LedgerEntrySearcher extends Component {
           <button
             type="button"
             className="detail-source-link"
-            onClick={() => this.navigateToSourceEvent(entry)}
+            onClick={() => navigateToSourceEvent(entry)}
             disabled={!sourceRouteRef}
           >
             {entry.sourceEventType} - {entry.sourceEventReference}
@@ -282,45 +286,42 @@ class LedgerEntrySearcher extends Component {
     );
   };
 
-  render() {
-    const { intl, ledgerEntries, fetchedAccountingPeriods } = this.props;
-    const count = ledgerEntries.pageInfo?.totalCount ?? 0;
-    const items = this.displayItems();
+  const items = displayItems();
+  const count = ledgerEntries.pageInfo?.totalCount ?? 0;
 
-    if (!fetchedAccountingPeriods) {
-      return null;
-    }
-
-    return (
-      <Searcher
-        module="ledger"
-        cacheFiltersKey="ledgerEntriesPageFiltersCache"
-        FilterPane={LedgerEntryFilter}
-        items={items}
-        itemsPageInfo={ledgerEntries.pageInfo}
-        fetchingItems={ledgerEntries.isFetching}
-        fetchedItems={ledgerEntries.isFetched}
-        errorItems={ledgerEntries.error}
-        contributionKey={LEDGER_ENTRY_SEARCHER_CONTRIBUTION_KEY}
-        tableTitle={formatMessageWithValues(intl, "ledger", "ledger.entries.tableTitle", { count })}
-        rowsPerPageOptions={ROWS_PER_PAGE_OPTIONS}
-        defaultPageSize={DEFAULT_PAGE_SIZE}
-        defaultFilters={this.defaultFilters()}
-        fetch={this.fetch}
-        rowIdentifier={this.rowIdentifier}
-        filtersToQueryParams={this.filtersToQueryParams}
-        defaultOrderBy="-postedAt"
-        headers={this.headers}
-        itemFormatters={this.itemFormatters}
-        detailRowFormatter={(entry) =>
-          entry.id === this.state.expandedEntryId ? this.renderEntryDetails(entry) : null
-        }
-        onRowClick={(entry) => this.toggleEntry(entry)}
-        sorts={this.sorts}
-      />
-    );
+  if (!fetchedAccountingPeriods) {
+    return null;
   }
-}
+
+  return (
+    <Searcher
+      module="ledger"
+      cacheFiltersKey="ledgerEntriesPageFiltersCache"
+      FilterPane={LedgerEntryFilter}
+      items={items}
+      itemsPageInfo={ledgerEntries.pageInfo}
+      fetchingItems={ledgerEntries.isFetching}
+      fetchedItems={ledgerEntries.isFetched}
+      errorItems={ledgerEntries.error}
+      contributionKey={LEDGER_ENTRY_SEARCHER_CONTRIBUTION_KEY}
+      tableTitle={formatMessageWithValues(intl, "ledger", "ledger.entries.tableTitle", { count })}
+      rowsPerPageOptions={ROWS_PER_PAGE_OPTIONS}
+      defaultPageSize={DEFAULT_PAGE_SIZE}
+      defaultFilters={defaultFilters()}
+      fetch={fetch}
+      rowIdentifier={rowIdentifier}
+      filtersToQueryParams={filtersToQueryParams}
+      defaultOrderBy="-postedAt"
+      headers={headers}
+      itemFormatters={itemFormatters}
+      detailRowFormatter={(entry) =>
+        entry.id === expandedEntryId ? renderEntryDetails(entry) : null
+      }
+      onRowClick={toggleEntry}
+      sorts={sorts}
+    />
+  );
+};
 
 const mapStateToProps = (state) => ({
   ledgerEntries: state.ledger.ledgerEntries,
@@ -329,7 +330,14 @@ const mapStateToProps = (state) => ({
   fetchedAccountingPeriods: state.ledger.accountingPeriods.isFetched,
 });
 
-const mapDispatchToProps = (dispatch) => bindActionCreators({ fetchLedgerEntriesMock, fetchAccountingPeriodsMock }, dispatch);
+const mapDispatchToProps = {
+  fetchLedgerEntriesMock,
+  fetchAccountingPeriodsMock,
+};
 
 export { LEDGER_ENTRY_SEARCHER_CONTRIBUTION_KEY };
-export default withModulesManager(withHistory(connect(mapStateToProps, mapDispatchToProps)(injectIntl(LedgerEntrySearcher))));
+export default withModulesManager(
+  withHistory(
+    connect(mapStateToProps, mapDispatchToProps)(injectIntl(LedgerEntrySearcher))
+  )
+);

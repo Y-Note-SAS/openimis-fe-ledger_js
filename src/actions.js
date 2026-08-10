@@ -284,6 +284,17 @@ const MOCK_ACCOUNTING_PERIODS = [
   },
 ];
 
+// Mutable "server-side" copy of the accounting periods (DECODED ids, matching
+// the view-model ids the pickers and pages consume after the reducer's
+// decodeId pass). The US4 mock mutations below update it, and
+// fetchAccountingPeriodsMock returns the current snapshot so the UI reflects
+// every successful lifecycle action.
+let mockAccountingPeriods = MOCK_ACCOUNTING_PERIODS.map((period) => ({ ...period, id: decodeMockId(period.id) }));
+
+export const resetAccountingPeriodsMock = () => {
+  mockAccountingPeriods = MOCK_ACCOUNTING_PERIODS.map((period) => ({ ...period, id: decodeMockId(period.id) }));
+};
+
 const MOCK_PARTIES = [
   {
     analyticValueId: analyticId("HF-1"),
@@ -411,7 +422,7 @@ export function fetchAccountingPeriodsMock() {
     dispatch({ type: `${ACTION_TYPE.ACCOUNTING_PERIODS}_REQ` });
     dispatch({
       type: `${ACTION_TYPE.ACCOUNTING_PERIODS}_RESP`,
-      payload: { data: { accountingPeriods: MOCK_ACCOUNTING_PERIODS } },
+      payload: { data: { accountingPeriods: mockAccountingPeriods } },
     });
   };
 }
@@ -591,6 +602,170 @@ export function fetchFunderActivityReportMock(analyticValueId, periodRange = {})
   };
 }
 
+// --- User Story 4: Accounting period lifecycle mocks ----------------------
+// Stand-ins for the backend mutations. They enforce the chronological rules
+// (oldest-open-first lock, oldest-locked-first close, newest-closed-first
+// reopen, no new period while an unclosed one exists) and return the
+// rejection reason in `errors[].message` exactly like the backend would, so
+// FR-009's verbatim display can be exercised without a real server.
+const findMockPeriod = (id) =>
+  mockAccountingPeriods.find((period) => period.id === id || decodeMockId(period.id) === id);
+
+function dispatchMockPeriodTransition({
+  dispatch,
+  accountingPeriodId,
+  actionType,
+  payloadKey,
+  actionLabel,
+  expectedStatus,
+  blockers,
+  updatedPeriod,
+}) {
+  const period = findMockPeriod(accountingPeriodId);
+  const errors = [];
+  if (!period) {
+    errors.push({ field: "accountingPeriodId", message: "Accounting period not found." });
+  } else if (period.status !== expectedStatus) {
+    errors.push({
+      field: "accountingPeriodId",
+      message: `Cannot ${actionLabel} period ${period.startDate} — ${period.endDate}: it is ${period.status}, not ${expectedStatus}.`,
+    });
+  } else if (blockers.length) {
+    errors.push({
+      field: "accountingPeriodId",
+      message: `Cannot ${actionLabel} period ${period.startDate} — ${period.endDate} while period ${blockers[0].startDate} — ${blockers[0].endDate} is ${blockers[0].status}.`,
+    });
+  }
+
+  dispatch({ type: `${actionType}_REQ` });
+  if (errors.length) {
+    dispatch({
+      type: `${actionType}_RESP`,
+      payload: { data: { [payloadKey]: { clientMutationId: null, accountingPeriod: null, errors } } },
+    });
+    return;
+  }
+  mockAccountingPeriods = mockAccountingPeriods.map((p) => (p.id === period.id ? updatedPeriod : p));
+  dispatch({
+    type: `${actionType}_RESP`,
+    payload: {
+      data: {
+        [payloadKey]: { clientMutationId: "mock-period-transition", accountingPeriod: updatedPeriod, errors: [] },
+      },
+    },
+  });
+}
+
+export function openAccountingPeriodMock(startDate, endDate) {
+  return (dispatch) => {
+    const errors = [];
+    const blocker = mockAccountingPeriods.find((period) => period.status === "open" || period.status === "locked");
+    if (blocker) {
+      errors.push({
+        field: "startDate",
+        message: `Cannot open a new period while ${blocker.startDate} — ${blocker.endDate} is still ${blocker.status}. Lock and close it first.`,
+      });
+    } else {
+      const sorted = [...mockAccountingPeriods].sort((a, b) => a.startDate.localeCompare(b.startDate));
+      const latest = sorted[sorted.length - 1];
+      if (latest && startDate <= latest.endDate) {
+        errors.push({
+          field: "startDate",
+          message: `A new period must start after the end of the latest period (${latest.endDate}).`,
+        });
+      }
+    }
+    if (!startDate || !endDate) {
+      errors.push({ field: "startDate", message: "Both start and end dates are required." });
+    } else if (startDate >= endDate) {
+      errors.push({ field: "endDate", message: "The period end date must be after its start date." });
+    }
+
+    dispatch({ type: `${ACTION_TYPE.OPEN_ACCOUNTING_PERIOD}_REQ` });
+    if (errors.length) {
+      dispatch({
+        type: `${ACTION_TYPE.OPEN_ACCOUNTING_PERIOD}_RESP`,
+        payload: {
+          data: { openAccountingPeriod: { clientMutationId: null, accountingPeriod: null, errors } },
+        },
+      });
+      return;
+    }
+    const nextId = String(
+      mockAccountingPeriods.reduce((max, period) => Math.max(max, Number(decodeMockId(period.id)) || 0), 0) + 1,
+    );
+    const created = { id: nextId, startDate, endDate, status: "open" };
+    mockAccountingPeriods = [...mockAccountingPeriods, created];
+    dispatch({
+      type: `${ACTION_TYPE.OPEN_ACCOUNTING_PERIOD}_RESP`,
+      payload: {
+        data: { openAccountingPeriod: { clientMutationId: "mock-open-period", accountingPeriod: created, errors: [] } },
+      },
+    });
+  };
+}
+
+export function lockAccountingPeriodMock(accountingPeriodId) {
+  return (dispatch) => {
+    const period = findMockPeriod(accountingPeriodId);
+    const earliestOpen = [...mockAccountingPeriods]
+      .filter((p) => p.status === "open")
+      .sort((a, b) => a.startDate.localeCompare(b.startDate))[0];
+    const blockers = period && earliestOpen && earliestOpen.id !== period.id ? [earliestOpen] : [];
+    dispatchMockPeriodTransition({
+      dispatch,
+      accountingPeriodId,
+      actionType: ACTION_TYPE.LOCK_ACCOUNTING_PERIOD,
+      payloadKey: "lockAccountingPeriod",
+      actionLabel: "lock",
+      expectedStatus: "open",
+      blockers,
+      updatedPeriod: period ? { ...period, status: "locked", lockedAt: new Date().toISOString() } : null,
+    });
+  };
+}
+
+export function closeAccountingPeriodMock(accountingPeriodId) {
+  return (dispatch) => {
+    const period = findMockPeriod(accountingPeriodId);
+    const earliestLocked = [...mockAccountingPeriods]
+      .filter((p) => p.status === "locked")
+      .sort((a, b) => a.startDate.localeCompare(b.startDate))[0];
+    const blockers = period && earliestLocked && earliestLocked.id !== period.id ? [earliestLocked] : [];
+    dispatchMockPeriodTransition({
+      dispatch,
+      accountingPeriodId,
+      actionType: ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD,
+      payloadKey: "closeAccountingPeriod",
+      actionLabel: "close",
+      expectedStatus: "locked",
+      blockers,
+      updatedPeriod: period ? { ...period, status: "closed", closedAt: new Date().toISOString() } : null,
+    });
+  };
+}
+
+export function reopenAccountingPeriodMock(accountingPeriodId) {
+  return (dispatch) => {
+    const period = findMockPeriod(accountingPeriodId);
+    const closedPeriods = [...mockAccountingPeriods]
+      .filter((p) => p.status === "closed")
+      .sort((a, b) => a.startDate.localeCompare(b.startDate));
+    const latestClosed = closedPeriods[closedPeriods.length - 1];
+    const blockers = period && latestClosed && latestClosed.id !== period.id ? [latestClosed] : [];
+    dispatchMockPeriodTransition({
+      dispatch,
+      accountingPeriodId,
+      actionType: ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD,
+      payloadKey: "reopenAccountingPeriod",
+      actionLabel: "reopen",
+      expectedStatus: "closed",
+      blockers,
+      updatedPeriod: period ? { ...period, status: "open" } : null,
+    });
+  };
+}
+
 /**
  * Dispatches the LedgerEntries query (US1, FR-001). `filters` uses the
  * frontend view-model names from data-model.md's `LedgerEntryFilters`
@@ -658,6 +833,10 @@ export function searchParty(searchTerm) {
 }
 
 /** User Story 2 — signed running balance + period statement for one party. */
+export function resetPartyLedgerBalance() {
+  return { type: `${ACTION_TYPE.PARTY_LEDGER_BALANCE_RESET}` };
+}
+
 export function fetchPartyLedgerBalance(analyticValueId, accountingPeriodId) {
   const variables = { analyticValueId, accountingPeriod: accountingPeriodId };
   return graphqlWithVariables(PARTY_LEDGER_BALANCE_QUERY, variables, [
