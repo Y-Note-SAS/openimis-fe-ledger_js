@@ -9,6 +9,7 @@ import {
   formatDateFromISO,
   formatMessage,
   formatMessageWithValues,
+  formatAmount,
   GetIconComponent,
   historyPush,
   withHistory,
@@ -181,9 +182,9 @@ class LedgerEntrySearcher extends Component {
       ),
       (entry) => `${entry.sourceEventType || ""} ${entry.sourceEventReference || ""}`,
       (entry) => formatDateFromISO(modulesManager, intl, entry.postedAt),
-      (entry) => entry.totals?.debit,
-      (entry) => entry.totals?.credit,
-      (entry) => entry.totals?.balance,
+      (entry) => formatAmount(modulesManager, intl, entry.totals?.debit ?? 0),
+      (entry) => formatAmount(modulesManager, intl, entry.totals?.credit ?? 0),
+      (entry) => formatAmount(modulesManager, intl, entry.totals?.balance ?? 0),
     ];
   };
 
@@ -217,7 +218,7 @@ class LedgerEntrySearcher extends Component {
   };
 
   renderEntryDetails = (entry) => {
-    const { intl } = this.props;
+    const { intl, modulesManager } = this.props;
     if (!entry) return null;
 
     const lines = entry.lines || [];
@@ -252,8 +253,8 @@ class LedgerEntrySearcher extends Component {
                 <td>{`${line.account?.code || ""} ${line.account?.name || ""}`}</td>
                 <td>{line.partyTag?.displayName || ""}</td>
                 <td>{line.funderTag?.displayName || ""}</td>
-                <td>{line.debit ?? ""}</td>
-                <td>{line.credit ?? ""}</td>
+                <td>{line.debit == null ? "" : formatAmount(modulesManager, intl, line.debit)}</td>
+                <td>{line.credit == null ? "" : formatAmount(modulesManager, intl, line.credit)}</td>
               </tr>
             ))}
           </tbody>
@@ -272,8 +273,8 @@ class LedgerEntrySearcher extends Component {
               </td>
               <td></td>
               <td></td>
-              <td>{entry.totals?.debit}</td>
-              <td>{entry.totals?.credit}</td>
+              <td>{formatAmount(modulesManager, intl, entry.totals?.debit ?? 0)}</td>
+              <td>{formatAmount(modulesManager, intl, entry.totals?.credit ?? 0)}</td>
             </tr>
           </tfoot>
         </table>

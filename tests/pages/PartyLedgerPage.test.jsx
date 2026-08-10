@@ -14,10 +14,10 @@ const coreReducer = (state = { user: { i_user: { rights: [RIGHT_LEDGER_REPORTING
 
 const buildStore = () => createStore(combineReducers({ core: coreReducer, ledger: reducer }), applyMiddleware(thunk));
 
-const renderPage = (store) =>
+const renderPage = (store, messages = {}) =>
   render(
     <Provider store={store}>
-      <IntlProvider locale="en" messages={{}}>
+      <IntlProvider locale="en" messages={messages}>
         <PartyLedgerPage />
       </IntlProvider>
     </Provider>,
@@ -46,7 +46,7 @@ describe("PartyLedgerPage", () => {
     expect(screen.getByText("500")).toBeInTheDocument();
   });
 
-  it("returns null without the reporting right", () => {
+  it("shows an access denied message without the reporting right", () => {
     const store = createStore(
       combineReducers({
         core: () => ({ user: { i_user: { rights: [] } } }),
@@ -55,7 +55,7 @@ describe("PartyLedgerPage", () => {
       applyMiddleware(thunk),
     );
 
-    const { container } = renderPage(store);
-    expect(container).toBeEmptyDOMElement();
+    renderPage(store);
+    expect(screen.getByText("ledger.accessDenied")).toBeInTheDocument();
   });
 });
