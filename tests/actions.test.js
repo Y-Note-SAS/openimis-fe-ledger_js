@@ -8,6 +8,9 @@ import {
   searchPartyMock,
   searchFunderMock,
   fetchFunderActivityReportMock,
+  fetchManualReviewQueueMock,
+  resolveManualReviewItemMock,
+  resetManualReviewQueueMock,
   resetAccountingPeriodsMock,
   openAccountingPeriodMock,
   lockAccountingPeriodMock,
@@ -20,6 +23,8 @@ import {
   fetchPartyLedgerBalance,
   resetPartyLedgerBalance,
   fetchFunderActivityReport,
+  fetchManualReviewQueue,
+  resolveManualReviewItem,
   openAccountingPeriod,
   lockAccountingPeriod,
   closeAccountingPeriod,
@@ -432,5 +437,60 @@ describe("Actions - Real API calls (US4)", () => {
       `${ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD}_RESP`,
       `${ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD}_ERR`,
     ]);
+  });
+});
+
+describe("Actions - Manual review queue (US5)", () => {
+  let dispatch;
+
+  beforeEach(() => {
+    dispatch = vi.fn();
+    resetManualReviewQueueMock();
+  });
+
+  it("fetchManualReviewQueue builds the queue query with an optional status", () => {
+    const action = fetchManualReviewQueue("pending");
+
+    expect(action.operation).toContain("ManualReviewQueue");
+    expect(action.variables).toEqual({ status: "pending" });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.MANUAL_REVIEW_QUEUE}_REQ`,
+      `${ACTION_TYPE.MANUAL_REVIEW_QUEUE}_RESP`,
+      `${ACTION_TYPE.MANUAL_REVIEW_QUEUE}_ERR`,
+    ]);
+  });
+
+  it("resolveManualReviewItem builds the resolution mutation", () => {
+    const action = resolveManualReviewItem("review-1", "entry-2", "Corrected manually");
+
+    expect(action.operation).toContain("ResolveManualReviewItem");
+    expect(action.variables).toEqual({
+      reviewItemId: "review-1",
+      correctingTransactionId: "entry-2",
+      resolutionNote: "Corrected manually",
+    });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_REQ`,
+      `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_RESP`,
+      `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_ERR`,
+    ]);
+  });
+
+  it("mock queue and resolution update the item from pending to resolved", () => {
+    fetchManualReviewQueueMock("pending")(dispatch);
+    const queueResponse = dispatch.mock.calls[1][0].payload.data.manualReviewQueue;
+    expect(queueResponse).toHaveLength(4);
+    expect(queueResponse[0]).toMatchObject({ id: "review-1", status: "pending" });
+
+    dispatch.mockClear();
+    resolveManualReviewItemMock("review-1", "11", "Correction linked")(dispatch);
+    const resolutionResponse = dispatch.mock.calls[1][0].payload.data.resolveManualReviewItem;
+    expect(resolutionResponse.errors).toEqual([]);
+    expect(resolutionResponse.manualReviewQueueItem).toMatchObject({
+      id: "review-1",
+      status: "resolved",
+      correctingEntryId: "11",
+      resolutionNote: "Correction linked",
+    });
   });
 });

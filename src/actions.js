@@ -354,6 +354,141 @@ const MOCK_FUNDER_OPENING_BALANCES = {
   UNICEF: 300,
 };
 
+const MOCK_MANUAL_REVIEW_QUEUE = [
+  {
+    id: "review-1",
+    status: "pending",
+    createdAt: "2026-07-25T08:30:00Z",
+    rejectionReason: "Replication rejected by Odoo",
+    targetSystem: "odoo",
+    originalEntry: {
+      id: "1",
+      partyAnalyticValueId: analyticId("HF-1"),
+      accountingPeriodId: "1",
+    },
+    resolvedAt: null,
+    resolutionNote: null,
+    correctingEntryId: null,
+  },
+  {
+    id: "review-2",
+    status: "resolved",
+    createdAt: "2026-07-02T09:15:00Z",
+    rejectionReason: "Unconfirmed posting in Sage",
+    targetSystem: "sage",
+    originalEntry: {
+      id: "7",
+      partyAnalyticValueId: analyticId("HF-1"),
+      accountingPeriodId: "2",
+    },
+    resolvedAt: "2026-07-01T10:00:00Z",
+    resolutionNote: "Correction linked during month-end review",
+    correctingEntryId: "7",
+  },
+  {
+    id: "review-3",
+    status: "pending",
+    createdAt: "2026-07-28T14:20:00Z",
+    rejectionReason: "Replication rejected by Odoo",
+    targetSystem: "odoo",
+    originalEntry: {
+      id: "9",
+      partyAnalyticValueId: analyticId("HF-1"),
+      accountingPeriodId: "1",
+    },
+    resolvedAt: null,
+    resolutionNote: null,
+    correctingEntryId: null,
+  },
+  {
+    id: "review-4",
+    status: "resolved",
+    createdAt: "2026-07-20T11:45:00Z",
+    rejectionReason: "Unconfirmed posting in Sage",
+    targetSystem: "sage",
+    originalEntry: {
+      id: "15",
+      partyAnalyticValueId: analyticId("HF-1"),
+      accountingPeriodId: "2",
+    },
+    resolvedAt: null,
+    resolutionNote: "Awaiting manager approval",
+    correctingEntryId: null,
+  },
+  {
+    id: "review-5",
+    status: "pending",
+    createdAt: "2026-07-15T16:00:00Z",
+    rejectionReason: "Replication rejected by Odoo",
+    targetSystem: "odoo",
+    originalEntry: {
+      id: "23",
+      partyAnalyticValueId: analyticId("HF-1"),
+      accountingPeriodId: "1",
+    },
+    resolvedAt: null,
+    resolutionNote: null,
+    correctingEntryId: null,
+  },
+  {
+    id: "review-6",
+    status: "resolved",
+    createdAt: "2026-06-28T13:20:00Z",
+    rejectionReason: "Unconfirmed posting in Sage",
+    targetSystem: "sage",
+    originalEntry: {
+      id: "96",
+      partyAnalyticValueId: analyticId("HF-1"),
+      accountingPeriodId: "2",
+    },
+    resolvedAt: "2026-06-30T14:00:00Z",
+    resolutionNote: "Correction linked during month-end review",
+    correctingEntryId: "7",
+  },
+  {
+    id: "review-7",
+    status: "pending",
+    createdAt: "2026-08-01T07:30:00Z",
+    rejectionReason: "Replication rejected by Odoo",
+    targetSystem: "odoo",
+    originalEntry: {
+      id: "47",
+      partyAnalyticValueId: analyticId("HF-1"),
+      accountingPeriodId: "1",
+    },
+    resolvedAt: null,
+    resolutionNote: null,
+    correctingEntryId: null,
+  },
+  {
+    id: "review-8",
+    status: "resolved",
+    createdAt: "2026-07-10T10:15:00Z",
+    rejectionReason: "Unconfirmed posting in Sage",
+    targetSystem: "sage",
+    originalEntry: {
+      id: "102",
+      partyAnalyticValueId: analyticId("HF-1"),
+      accountingPeriodId: "2",
+    },
+    resolvedAt: "2026-07-12T09:00:00Z",
+    resolutionNote: "Correction linked during month-end review",
+    correctingEntryId: "7",
+  },
+];
+
+let mockManualReviewQueue = MOCK_MANUAL_REVIEW_QUEUE.map((item) => ({
+  ...item,
+  originalEntry: { ...item.originalEntry },
+}));
+
+export const resetManualReviewQueueMock = () => {
+  mockManualReviewQueue = MOCK_MANUAL_REVIEW_QUEUE.map((item) => ({
+    ...item,
+    originalEntry: { ...item.originalEntry },
+  }));
+};
+
 export function fetchLedgerEntriesMock(params = []) {
   return (dispatch) => {
     const getParam = (name) => {
@@ -423,6 +558,62 @@ export function fetchAccountingPeriodsMock() {
     dispatch({
       type: `${ACTION_TYPE.ACCOUNTING_PERIODS}_RESP`,
       payload: { data: { accountingPeriods: mockAccountingPeriods } },
+    });
+  };
+}
+
+export function fetchManualReviewQueueMock(status = null) {
+  return (dispatch) => {
+    dispatch({ type: `${ACTION_TYPE.MANUAL_REVIEW_QUEUE}_REQ` });
+    dispatch({
+      type: `${ACTION_TYPE.MANUAL_REVIEW_QUEUE}_RESP`,
+      payload: {
+        data: {
+          manualReviewQueue: status ? mockManualReviewQueue.filter((item) => item.status === status) : mockManualReviewQueue,
+        },
+      },
+    });
+  };
+}
+
+export function resolveManualReviewItemMock(reviewItemId, correctingTransactionId, resolutionNote) {
+  return (dispatch) => {
+    dispatch({ type: `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_REQ` });
+    const item = mockManualReviewQueue.find((candidate) => candidate.id === reviewItemId);
+    const candidate = MOCK_LEDGER_ENTRIES.find(
+      (entry) =>
+        decodeMockId(entry.id) === correctingTransactionId &&
+        entry.accountingPeriod.id === mockId("AccountingPeriod", item?.originalEntry?.accountingPeriodId) &&
+        entry.lines.some((line) => line.partyTag?.analyticValueId === item?.originalEntry?.partyAnalyticValueId),
+    );
+
+    if (!item || item.status !== "pending" || !candidate || !String(resolutionNote || "").trim()) {
+      dispatch({
+        type: `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_RESP`,
+        payload: {
+          data: {
+            resolveManualReviewItem: {
+              errors: [{ message: "A pending item requires a valid same-party, same-period correction and a note." }],
+            },
+          },
+        },
+      });
+      return;
+    }
+
+    const updated = {
+      ...item,
+      status: "resolved",
+      resolvedAt: "2026-08-10T10:00:00Z",
+      resolutionNote: String(resolutionNote).trim(),
+      correctingEntryId: correctingTransactionId,
+    };
+    mockManualReviewQueue = mockManualReviewQueue.map((candidateItem) =>
+      candidateItem.id === reviewItemId ? updated : candidateItem,
+    );
+    dispatch({
+      type: `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_RESP`,
+      payload: { data: { resolveManualReviewItem: { manualReviewQueueItem: updated, errors: [] } } },
     });
   };
 }

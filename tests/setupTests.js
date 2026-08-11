@@ -99,4 +99,10 @@ vi.mock("@mui/material", () => ({
   TableBody: ({ children }) => React.createElement("tbody", null, children),
   TableRow: ({ children }) => React.createElement("tr", null, children),
   TableCell: ({ children }) => React.createElement("td", null, children),
+  Dialog: ({ children, open }) => (open ? React.createElement("div", { role: "dialog" }, children) : null),
+  DialogTitle: ({ children }) => React.createElement("h2", null, children),
+  DialogContent: ({ children }) => React.createElement("div", null, children),
+  DialogActions: ({ children }) => React.createElement("div", null, children),
+  FormControl: ({ children }) => React.createElement("div", null, children),
+  InputLabel: ({ children }) => React.createElement("label", null, children),
 }));
