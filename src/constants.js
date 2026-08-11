@@ -74,3 +74,8 @@ export const PERIOD_ACTION = {
 
 // Export job polling interval in ms (research.md §5)
 export const EXPORT_JOB_POLL_INTERVAL_MS = 3000;
+
+// Set to false when the ledger backend export API is available. The page keeps
+// the real export actions untouched and only swaps the demo process here.
+export const USE_MOCK_EXPORT = true;
+export const MOCK_EXPORT_POLL_INTERVAL_MS = 1000;

@@ -1,6 +1,6 @@
 import { graphqlWithVariables } from "@openimis/fe-core";
 import { ACTION_TYPE } from "./reducer";
-import { EXPORT_JOB_POLL_INTERVAL_MS } from "./constants";
+import { EXPORT_JOB_POLL_INTERVAL_MS, MOCK_EXPORT_POLL_INTERVAL_MS } from "./constants";
 
 // GraphQL operation strings mirror contracts/graphql-operations.md verbatim
 // (variable names, field aliases, and nesting) since that document is the
@@ -1146,16 +1146,73 @@ function fetchExportSequences(accountingPeriodId, journal = null) {
  */
 export function pollExportJob(accountingPeriodId, intervalMs = EXPORT_JOB_POLL_INTERVAL_MS) {
   return (dispatch, getState) => {
+    let intervalId;
+    let stopped = false;
     const tick = async () => {
+      if (stopped) return;
       await dispatch(fetchExportSequences(accountingPeriodId));
+      if (stopped) return;
       const status = getState().ledger?.exportJobs?.byPeriodId?.[accountingPeriodId]?.status;
       if (status === "complete" || status === "failed") {
         clearInterval(intervalId);
       }
     };
+    intervalId = setInterval(tick, intervalMs);
     tick();
+    return () => {
+      stopped = true;
+      clearInterval(intervalId);
+    };
+  };
+}
+
+/** Demo-only export flow. The real actions above remain unchanged. */
+export function exportAccountingPeriodMock(accountingPeriodId, format, provisional = true) {
+  return (dispatch) => {
+    const job = { accountingPeriodId, format, status: "in_progress", provisional };
+    dispatch({ type: `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_REQ` });
+    dispatch({
+      type: `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_RESP`,
+      payload: { data: { exportAccountingPeriod: { exportJob: job } } },
+    });
+  };
+}
+
+/** Demo-only polling flow: complete the job after two visible progress ticks. */
+export function pollExportJobMock(
+  accountingPeriodId,
+  format = "generic",
+  provisional = true,
+  intervalMs = MOCK_EXPORT_POLL_INTERVAL_MS,
+) {
+  return (dispatch) => {
+    let ticks = 0;
+    let stopped = false;
+    const tick = () => {
+      if (stopped) return;
+      ticks += 1;
+      if (ticks < 3) return;
+      dispatch({
+        type: `${ACTION_TYPE.EXPORT_SEQUENCES}_RESP`,
+        payload: {
+          data: {
+            exportSequences: {
+              accountingPeriodId,
+              format,
+              status: "complete",
+              provisional,
+              downloadUrl: `data:text/csv;charset=utf-8,accountingPeriodId%2Cstatus%0A${accountingPeriodId}%2Ccomplete`,
+            },
+          },
+        },
+      });
+      clearInterval(intervalId);
+    };
     const intervalId = setInterval(tick, intervalMs);
-    return () => clearInterval(intervalId);
+    return () => {
+      stopped = true;
+      clearInterval(intervalId);
+    };
   };
 }
 
