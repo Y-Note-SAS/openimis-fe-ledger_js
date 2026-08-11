@@ -79,3 +79,6 @@ export const EXPORT_JOB_POLL_INTERVAL_MS = 3000;
 // the real export actions untouched and only swaps the demo process here.
 export const USE_MOCK_EXPORT = true;
 export const MOCK_EXPORT_POLL_INTERVAL_MS = 1000;
+
+// Set to false when the deployment configuration backend is connected.
+export const USE_MOCK_DEPLOYMENT = true;

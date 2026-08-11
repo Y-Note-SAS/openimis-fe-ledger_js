@@ -192,6 +192,8 @@ const CONFIGURE_DEPLOYMENT_MUTATION = `
 const mockId = (type, id) => btoa(`${type}:${id}`);
 const OPEN_PERIOD_ID = mockId("AccountingPeriod", 1);
 const CLOSED_PERIOD_ID = mockId("AccountingPeriod", 2);
+const MOCK_RETAINED_EARNINGS_ACCOUNT_ID = mockId("ChartOfAccounts", 105);
+const MOCK_CAPITAL_RESERVE_ACCOUNT_ID = mockId("ChartOfAccounts", 110);
 const analyticId = (id) => mockId("AnalyticValue", id);
 const ALL_PERIODS_FILTER_VALUE = "__all__";
 
@@ -1233,4 +1235,68 @@ export function configureDeployment(operatingMode, externalSystem, currencyCode,
     `${ACTION_TYPE.CONFIGURE_DEPLOYMENT}_RESP`,
     `${ACTION_TYPE.CONFIGURE_DEPLOYMENT}_ERR`,
   ]);
+}
+
+/** Demo-only deployment reference data. The GraphQL action above remains the production path. */
+export function fetchLedgerDeploymentReferenceDataMock() {
+  return (dispatch) => {
+    dispatch({ type: `${ACTION_TYPE.DEPLOYMENT_CONFIGURATION}_REQ` });
+    dispatch({
+      type: `${ACTION_TYPE.DEPLOYMENT_CONFIGURATION}_RESP`,
+      payload: {
+        data: {
+          externalSystems: [
+            { code: "odoo", label: "Odoo" },
+            { code: "sage", label: "Sage" },
+          ],
+          currencyCodes: [
+            { code: "XAF", label: "Central African CFA franc" },
+            { code: "EUR", label: "Euro" },
+            { code: "USD", label: "US dollar" },
+          ],
+          chartOfAccounts: [
+            { id: MOCK_RETAINED_EARNINGS_ACCOUNT_ID, code: "105000", name: "Retained earnings" },
+            { id: MOCK_CAPITAL_RESERVE_ACCOUNT_ID, code: "110000", name: "Capital reserve" },
+          ],
+          deploymentConfiguration: {
+            operatingMode: "local_only",
+            externalSystem: null,
+            currencyCode: "XAF",
+            retainedEarningsAccount: {
+              id: MOCK_RETAINED_EARNINGS_ACCOUNT_ID,
+              code: "105000",
+              name: "Retained earnings",
+            },
+          },
+        },
+      },
+    });
+  };
+}
+
+/** Demo-only save action; reducer handling is identical to the backend response shape. */
+export function configureDeploymentMock(operatingMode, externalSystem, currencyCode, retainedEarningsAccountId) {
+  return (dispatch) => {
+    dispatch({ type: `${ACTION_TYPE.CONFIGURE_DEPLOYMENT}_REQ` });
+    dispatch({
+      type: `${ACTION_TYPE.CONFIGURE_DEPLOYMENT}_RESP`,
+      payload: {
+        data: {
+          configureDeployment: {
+            errors: [],
+            deploymentConfiguration: {
+              operatingMode,
+              externalSystem,
+              currencyCode,
+              retainedEarningsAccount: {
+                id: retainedEarningsAccountId,
+                code: retainedEarningsAccountId === "110" ? "110000" : "105000",
+                name: retainedEarningsAccountId === "110" ? "Capital reserve" : "Retained earnings",
+              },
+            },
+          },
+        },
+      },
+    });
+  };
 }

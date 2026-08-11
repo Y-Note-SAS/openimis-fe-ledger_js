@@ -31,6 +31,8 @@ import {
   reopenAccountingPeriod,
   exportAccountingPeriod,
   pollExportJob,
+  fetchLedgerDeploymentReferenceData,
+  configureDeployment,
 } from "../src/actions";
 import reducer, { ACTION_TYPE } from "../src/reducer";
 import { EXPORT_FORMAT } from "../src/constants";
@@ -273,6 +275,37 @@ describe("Actions - Period export", () => {
     await Promise.resolve();
 
     expect(dispatch.mock.calls.length).toBe(callsBeforeStop);
+  });
+});
+
+describe("Actions - Deployment configuration", () => {
+  it("builds the deployment reference-data query action", () => {
+    const action = fetchLedgerDeploymentReferenceData();
+
+    expect(action.operation).toContain("LedgerDeploymentReferenceData");
+    expect(action.variables).toEqual({});
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.DEPLOYMENT_CONFIGURATION}_REQ`,
+      `${ACTION_TYPE.DEPLOYMENT_CONFIGURATION}_RESP`,
+      `${ACTION_TYPE.DEPLOYMENT_CONFIGURATION}_ERR`,
+    ]);
+  });
+
+  it("builds the deployment configuration mutation action", () => {
+    const action = configureDeployment("replicated", "odoo", "XAF", "account-1");
+
+    expect(action.operation).toContain("ConfigureDeployment");
+    expect(action.variables).toEqual({
+      operatingMode: "replicated",
+      externalSystem: "odoo",
+      currencyCode: "XAF",
+      retainedEarningsAccountId: "account-1",
+    });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.CONFIGURE_DEPLOYMENT}_REQ`,
+      `${ACTION_TYPE.CONFIGURE_DEPLOYMENT}_RESP`,
+      `${ACTION_TYPE.CONFIGURE_DEPLOYMENT}_ERR`,
+    ]);
   });
 });
 
