@@ -150,19 +150,19 @@ Single-package frontend module (plan.md "Structure Decision"): `src/` and `tests
 
 ### Tests for User Story 4
 
-- [ ] T049 [P] [US4] Unit test for `openAccountingPeriod`/`lockAccountingPeriod`/`closeAccountingPeriod`/`reopenAccountingPeriod` action creators (incl. rejection-reason propagation) in `tests/actions.test.js`
+- [x] T049 [P] [US4] Unit test for `openAccountingPeriod`/`lockAccountingPeriod`/`closeAccountingPeriod`/`reopenAccountingPeriod` action creators (incl. rejection-reason propagation) in `tests/actions.test.js`
 - [x] T050 [P] [US4] Unit test for `AccountingPeriodViewModel.availableActions` derivation logic (earliest-open/locked-period rule) in `tests/utils/periodActions.test.js`
-- [ ] T051 [P] [US4] Component test for `AccountingPeriodStatusBadge` rendering each status in `tests/components/AccountingPeriodStatusBadge.test.js`
+- [x] T051 [P] [US4] Component test for `AccountingPeriodStatusBadge` rendering each status in `tests/components/AccountingPeriodStatusBadge.test.js`
 
 ### Implementation for User Story 4
 
 - [x] T052 [US4] Implement `src/utils/periodActions.js` exporting `availableActionsForPeriod(period, allPeriods)` → `Array<"lock"|"close"|"reopen">` per data-model.md's derived field
 - [x] T053 [US4] Implement `openAccountingPeriod(startDate, endDate)` mutation action creator (contracts/graphql-operations.md) and `OPEN_ACCOUNTING_PERIOD_*` reducer cases (updating `periodMutation` + appending to `accountingPeriods.items` on success) in `src/actions.js` / `src/reducer.js` _(DEV REVIEW: action creator + reducer implémentés mais non testés)_
 - [x] T054 [US4] Implement `lockAccountingPeriod(id)` / `closeAccountingPeriod(id)` / `reopenAccountingPeriod(id)` mutation action creators and their reducer cases (each surfacing `errors[].message` verbatim into `periodMutation.lastRejectionReason` per FR-009) in `src/actions.js` / `src/reducer.js` _(DEV REVIEW: action creator + reducer implémentés mais non testés)_
-- [ ] T055 [P] [US4] Implement `AccountingPeriodStatusBadge` component (open/locked/closed visual states) in `src/components/AccountingPeriodStatusBadge.jsx`
-- [ ] T056 [US4] Implement `AccountingPeriodsPage` — period list with status badges, open-period form, lock/close/reopen action buttons driven by `availableActionsForPeriod`, and a rejection-reason alert display; lifecycle controls gated by `hasLedgerAdminRight`, list itself visible under `hasLedgerReportingRight` per FR-020's read/write split, in `src/pages/AccountingPeriodsPage.jsx`
+- [x] T055 [P] [US4] Implement `AccountingPeriodStatusBadge` component (open/locked/closed visual states) in `src/components/AccountingPeriodStatusBadge.jsx`
+- [x] T056 [US4] Implement `AccountingPeriodsPage` — period list with status badges, open-period form, lock/close/reopen action buttons driven by `availableActionsForPeriod`, and a rejection-reason alert display; lifecycle controls gated by `hasLedgerAdminRight`, list itself visible under `hasLedgerReportingRight` per FR-020's read/write split, in `src/pages/AccountingPeriodsPage.jsx`
 - [x] T057 [US4] Register the `/ledger/periods` route and menu entry (list visible to reporting right, admin actions additionally gated in-page) in `src/index.jsx`
-- [ ] T058 [US4] Add US4-specific translation keys (status labels, action labels, generic "action unavailable" copy) to `src/translations/en.json`
+- [x] T058 [US4] Add US4-specific translation keys (status labels, action labels, generic "action unavailable" copy) to `src/translations/en.json`
 
 **Checkpoint**: User Stories 1, 2, 3, AND 4 independently functional
 
