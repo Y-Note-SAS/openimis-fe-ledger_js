@@ -14,6 +14,8 @@ export const formatMessage = (intl, module, id) => id;
 
 export const formatMessageWithValues = (intl, module, id, values) => id;
 
+export const formatAmount = (mm, intl, amount) => String(amount ?? 0);
+
 export const graphqlWithVariables = vi.fn((operation, variables, type, params) => ({
   type: "MOCK_THUNK",
   operation,
@@ -57,7 +59,20 @@ export const SelectInput = ({ label, value, options, onChange }) => (
   </select>
 );
 
-export const PublishedComponent = () => null;
+export const PublishedComponent = ({ pubRef, ...props }) => {
+  if (pubRef === "core.DatePicker") {
+    // Minimal stand-in for CoreModule's DatePicker: a text input that emits
+    // ISO date strings through onChange (the real picker does the same).
+    return (
+      <input
+        aria-label={props.label}
+        value={props.value ?? ""}
+        onChange={(event) => props.onChange?.(event.target.value)}
+      />
+    );
+  }
+  return null;
+};
 
 export const Searcher = () => null;
 export const ControlledField = ({ field }) => field ?? null;

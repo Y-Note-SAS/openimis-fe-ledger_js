@@ -2,12 +2,12 @@ import { describe, expect, it } from "vitest";
 import { formatSignedBalance } from "../../src/utils/balance";
 
 describe("formatSignedBalance", () => {
-  it("labels a positive balance as owed by the party", () => {
-    expect(formatSignedBalance(150)).toEqual({ label: "150", legend: "owedByParty" });
+  it("labels a positive balance as owed by the party, with an explicit plus sign", () => {
+    expect(formatSignedBalance(150)).toEqual({ label: "+150", legend: "owedByParty" });
   });
 
-  it("labels a negative balance as owed to the party, with an absolute-value label", () => {
-    expect(formatSignedBalance(-150)).toEqual({ label: "150", legend: "owedToParty" });
+  it("labels a negative balance as owed to the party, with an explicit minus sign", () => {
+    expect(formatSignedBalance(-150)).toEqual({ label: "-150", legend: "owedToParty" });
   });
 
   it("labels a zero balance as settled", () => {

@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useEffect, useMemo, useRef, useState } from "react";
 import { injectIntl } from "react-intl";
 import { connect } from "react-redux";
 import {
@@ -21,12 +21,13 @@ import {
   withModulesManager,
   formatMessage,
   formatMessageWithValues,
+  formatAmount,
 } from "@openimis/fe-core";
 import PartyPicker from "../pickers/PartyPicker";
 import AccountingPeriodPicker from "../pickers/AccountingPeriodPicker";
 import { hasLedgerReportingRight } from "../utils/permissions";
 import { formatSignedBalance } from "../utils/balance";
-import { fetchPartyLedgerBalanceMock } from "../actions";
+import { fetchPartyLedgerBalanceMock, resetPartyLedgerBalance } from "../actions";
 
 const StyledPage = styled("div")(({ theme }) => ({
   "& .page": theme.page ?? {},
@@ -66,26 +67,31 @@ const StyledPaper = styled(Paper)(({ theme }) => ({
   "& .item": theme.paper?.item ?? {},
 }));
 
-const PartyLedgerPage = ({ intl, rights, partyLedgerBalance, fetchPartyLedgerBalanceMock }) => {
+const PartyLedgerPage = ({ intl, modulesManager, rights, partyLedgerBalance, fetchPartyLedgerBalanceMock, resetPartyLedgerBalance }) => {
   const [selectedParty, setSelectedParty] = useState(null);
   const [selectedPeriodId, setSelectedPeriodId] = useState(null);
-
-  if (!hasLedgerReportingRight(rights)) {
-    return null;
-  }
-
+  const hasSelectedFilters = useRef(false);
   const ledgerData = partyLedgerBalance?.data || null;
-  const showMockDataNotice = !!selectedParty?.analyticValueId && !!selectedPeriodId;
   const balanceInfo = useMemo(() => formatSignedBalance(ledgerData?.balance ?? 0), [ledgerData?.balance]);
-
-  const transactions = ledgerData?.transactions || [];
-  const carriedForwardBalance = ledgerData?.carriedForwardBalance ?? 0;
 
   useEffect(() => {
     if (selectedParty?.analyticValueId && selectedPeriodId) {
+      hasSelectedFilters.current = true;
       fetchPartyLedgerBalanceMock(selectedParty.analyticValueId, selectedPeriodId);
+    } else if (hasSelectedFilters.current) {
+      // Clear any previously fetched statement as soon as one of the two
+      // filters is removed, so a cleared filter never shows stale data.
+      resetPartyLedgerBalance();
     }
-  }, [fetchPartyLedgerBalanceMock, selectedParty?.analyticValueId, selectedPeriodId]);
+  }, [fetchPartyLedgerBalanceMock, resetPartyLedgerBalance, selectedParty?.analyticValueId, selectedPeriodId]);
+
+  if (!hasLedgerReportingRight(rights)) {
+    return <Alert severity="error">{formatMessage(intl, "ledger", "ledger.accessDenied")}</Alert>;
+  }
+
+  const showMockDataNotice = !!selectedParty?.analyticValueId && !!selectedPeriodId;
+  const transactions = ledgerData?.transactions || [];
+  const carriedForwardBalance = ledgerData?.carriedForwardBalance ?? 0;
 
   return (
     <StyledPage>
@@ -111,22 +117,26 @@ const PartyLedgerPage = ({ intl, rights, partyLedgerBalance, fetchPartyLedgerBal
             </StyledPaper>
           </Grid>
 
-          <Grid size={12}>
-            <StyledPaper className="paper">
-              <Grid container alignItems="center" direction="row" className="paperHeader">
-                <Grid className="paperHeaderTitle">
-                  <Typography>{formatMessage(intl, "ledger", "ledger.partyLedgerPage.balanceTitle")}</Typography>
+          {ledgerData ? (
+            <Grid size={12}>
+              <StyledPaper className="paper">
+                <Grid container alignItems="center" direction="row" className="paperHeader">
+                  <Grid className="paperHeaderTitle">
+                    <Typography>{formatMessage(intl, "ledger", "ledger.partyLedgerPage.balanceTitle")}</Typography>
+                  </Grid>
                 </Grid>
-              </Grid>
-              <Divider />
-              <Box className="paperBody">
-                <Typography variant="h4">{balanceInfo.label}</Typography>
-                <Typography variant="body2" color="text.secondary">
-                  {formatMessage(intl, "ledger", `ledger.balance.${balanceInfo.legend}`)}
-                </Typography>
-              </Box>
-            </StyledPaper>
-          </Grid>
+                <Divider />
+                <Box className="paperBody">
+                  <Typography variant="h4">
+                    {formatAmount(modulesManager, intl, ledgerData?.balance)}
+                  </Typography>
+                  <Typography variant="body2" color="text.secondary">
+                    {formatMessage(intl, "ledger", `ledger.balance.${balanceInfo.legend}`)}
+                  </Typography>
+                </Box>
+              </StyledPaper>
+            </Grid>
+          ) : null}
 
           {showMockDataNotice ? (
             <Grid size={12}>
@@ -151,7 +161,7 @@ const PartyLedgerPage = ({ intl, rights, partyLedgerBalance, fetchPartyLedgerBal
               <Box className="paperBody">
                 <Alert severity="info">
                   {formatMessageWithValues(intl, "ledger", "ledger.partyLedgerPage.emptyState", {
-                    carriedForwardBalance,
+                    carriedForwardBalance: formatAmount(modulesManager, intl, carriedForwardBalance),
                   })}
                 </Alert>
               </Box>
@@ -181,9 +191,9 @@ const PartyLedgerPage = ({ intl, rights, partyLedgerBalance, fetchPartyLedgerBal
                         <TableRow key={transaction.id}>
                           <TableCell>{transaction.journal?.code || transaction.journal?.name || "-"}</TableCell>
                           <TableCell>{transaction.postedAt || "-"}</TableCell>
-                          <TableCell>{transaction.totals?.debit ?? 0}</TableCell>
-                          <TableCell>{transaction.totals?.credit ?? 0}</TableCell>
-                          <TableCell>{transaction.totals?.balance ?? 0}</TableCell>
+                          <TableCell>{formatAmount(modulesManager, intl, transaction.totals?.debit ?? 0)}</TableCell>
+                          <TableCell>{formatAmount(modulesManager, intl, transaction.totals?.credit ?? 0)}</TableCell>
+                          <TableCell>{formatAmount(modulesManager, intl, transaction.totals?.balance ?? 0)}</TableCell>
                         </TableRow>
                       ))}
                     </TableBody>
@@ -219,6 +229,6 @@ const mapStateToProps = (state) => ({
   partyLedgerBalance: state.ledger.partyLedgerBalance,
 });
 
-const mapDispatchToProps = { fetchPartyLedgerBalanceMock };
+const mapDispatchToProps = { fetchPartyLedgerBalanceMock, resetPartyLedgerBalance };
 
 export default withModulesManager(injectIntl(connect(mapStateToProps, mapDispatchToProps)(PartyLedgerPage)));
