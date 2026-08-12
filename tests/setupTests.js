@@ -25,6 +25,27 @@ vi.mock("@mui/material/styles", () => ({
 
 vi.mock("@mui/material", () => ({
   Typography: ({ children }) => React.createElement("span", null, children),
+  Button: ({ children, onClick, disabled, type }) =>
+    React.createElement("button", { type: type ?? "button", onClick, disabled }, children),
+  MenuItem: ({ value, children }) => React.createElement("option", { value: value ?? "" }, children),
+  Select: ({ value, children, onChange, inputProps = {} }) => {
+    const options = React.Children.toArray(children);
+    return React.createElement(
+      "select",
+      {
+        "aria-label": inputProps?.["aria-label"],
+        value: value ?? "",
+        onChange: (event) => onChange?.({ target: { value: event.target.value } }),
+      },
+      options.map((option) =>
+        React.createElement(
+          "option",
+          { key: String(option?.props?.value ?? ""), value: option?.props?.value ?? "" },
+          option?.props?.children,
+        ),
+      ),
+    );
+  },
   Chip: ({ label }) => React.createElement("span", null, label),
   Grid: ({ children }) => React.createElement("div", null, children),
   Autocomplete: ({

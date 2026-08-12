@@ -140,6 +140,15 @@ describe("Reducer", () => {
     expect(state.partyLedgerBalance.error.message).toBe("Balance failed");
   });
 
+  it("handles LEDGER_PARTY_LEDGER_BALANCE_RESET", () => {
+    const withData = reducer(initialState, {
+      type: `${ACTION_TYPE.PARTY_LEDGER_BALANCE}_RESP`,
+      payload: { data: { partyLedgerBalance: { balance: 500, transactions: [] } } },
+    });
+    const state = reducer(withData, { type: `${ACTION_TYPE.PARTY_LEDGER_BALANCE_RESET}` });
+    expect(state.partyLedgerBalance).toEqual({ isFetching: false, isFetched: false, error: null, data: null });
+  });
+
   it("handles LEDGER_FUNDER_SEARCH_RESP", () => {
     const action = {
       type: `${ACTION_TYPE.FUNDER_SEARCH}_RESP`,

@@ -1,4 +1,6 @@
 import { describe, it, expect, vi, beforeEach } from "vitest";
+import { createStore, combineReducers, applyMiddleware } from "redux";
+import { thunk } from "redux-thunk";
 import {
   fetchLedgerEntriesMock,
   fetchAccountingPeriodsMock,
@@ -6,14 +8,24 @@ import {
   searchPartyMock,
   searchFunderMock,
   fetchFunderActivityReportMock,
+  resetAccountingPeriodsMock,
+  openAccountingPeriodMock,
+  lockAccountingPeriodMock,
+  closeAccountingPeriodMock,
+  reopenAccountingPeriodMock,
   fetchLedgerEntries,
   fetchAccountingPeriods,
   searchParty,
   searchFunder,
   fetchPartyLedgerBalance,
+  resetPartyLedgerBalance,
   fetchFunderActivityReport,
+  openAccountingPeriod,
+  lockAccountingPeriod,
+  closeAccountingPeriod,
+  reopenAccountingPeriod,
 } from "../src/actions";
-import { ACTION_TYPE } from "../src/reducer";
+import reducer, { ACTION_TYPE } from "../src/reducer";
 
 describe("Actions - Mocks", () => {
   let dispatch;
@@ -253,6 +265,10 @@ describe("Actions - Real API calls", () => {
     ]);
   });
 
+  it("resetPartyLedgerBalance returns the reset action", () => {
+    expect(resetPartyLedgerBalance()).toEqual({ type: `${ACTION_TYPE.PARTY_LEDGER_BALANCE_RESET}` });
+  });
+
   it("fetchFunderActivityReport defaults the period range to null", () => {
     const action = fetchFunderActivityReport("analytic-1");
     expect(action.variables).toEqual({
@@ -260,5 +276,161 @@ describe("Actions - Real API calls", () => {
       accountingPeriodStart: null,
       accountingPeriodEnd: null,
     });
+  });
+});
+
+describe("Actions - Mocks (US4 period lifecycle)", () => {
+  const buildStore = () =>
+    createStore(
+      combineReducers({
+        core: () => ({ user: { i_user: { rights: [] } } }),
+        ledger: reducer,
+      }),
+      applyMiddleware(thunk),
+    );
+
+  beforeEach(() => {
+    resetAccountingPeriodsMock();
+  });
+
+  it("openAccountingPeriodMock appends a new open period once no unclosed period blocks it", async () => {
+    const store = buildStore();
+    await store.dispatch(fetchAccountingPeriodsMock());
+    // July ("1") is open: close it first, then August can be opened.
+    await store.dispatch(lockAccountingPeriodMock("1"));
+    await store.dispatch(closeAccountingPeriodMock("1"));
+
+    await store.dispatch(openAccountingPeriodMock("2026-08-01", "2026-08-31"));
+
+    const state = store.getState().ledger;
+    expect(state.periodMutation.lastRejectionReason).toBe(null);
+    expect(state.accountingPeriods.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ startDate: "2026-08-01", endDate: "2026-08-31", status: "open" }),
+      ]),
+    );
+  });
+
+  it("openAccountingPeriodMock rejects while an unclosed period still exists", async () => {
+    const store = buildStore();
+    await store.dispatch(fetchAccountingPeriodsMock());
+
+    await store.dispatch(openAccountingPeriodMock("2026-08-01", "2026-08-31"));
+
+    const state = store.getState().ledger;
+    expect(state.periodMutation.lastRejectionReason).toContain("is still open");
+    expect(state.accountingPeriods.items).toHaveLength(2);
+  });
+
+  it("lockAccountingPeriodMock locks the earliest open period", async () => {
+    const store = buildStore();
+    await store.dispatch(fetchAccountingPeriodsMock());
+
+    await store.dispatch(lockAccountingPeriodMock("1"));
+
+    const state = store.getState().ledger;
+    expect(state.periodMutation.lastRejectionReason).toBe(null);
+    expect(state.accountingPeriods.items.find((p) => p.id === "1").status).toBe("locked");
+  });
+
+  it("lockAccountingPeriodMock rejects locking a later open period while an earlier one is still open", async () => {
+    const store = buildStore();
+    await store.dispatch(fetchAccountingPeriodsMock());
+    // Reopen June ("2"): now both June and July are open, June being the earliest.
+    await store.dispatch(reopenAccountingPeriodMock("2"));
+
+    await store.dispatch(lockAccountingPeriodMock("1"));
+
+    const state = store.getState().ledger;
+    expect(state.periodMutation.lastRejectionReason).toContain("while period");
+    expect(state.accountingPeriods.items.find((p) => p.id === "1").status).toBe("open");
+  });
+
+  it("closeAccountingPeriodMock rejects closing a later locked period while an earlier one is still locked", async () => {
+    const store = buildStore();
+    await store.dispatch(fetchAccountingPeriodsMock());
+    await store.dispatch(lockAccountingPeriodMock("1"));
+    // Reopen June and lock it too: now both are locked, June being the earliest.
+    await store.dispatch(reopenAccountingPeriodMock("2"));
+    await store.dispatch(lockAccountingPeriodMock("2"));
+
+    await store.dispatch(closeAccountingPeriodMock("1"));
+
+    const state = store.getState().ledger;
+    expect(state.periodMutation.lastRejectionReason).toContain("while period");
+    expect(state.accountingPeriods.items.find((p) => p.id === "1").status).toBe("locked");
+  });
+
+  it("reopenAccountingPeriodMock rejects reopening a closed period when a later one is already closed", async () => {
+    const store = buildStore();
+    await store.dispatch(fetchAccountingPeriodsMock());
+    await store.dispatch(lockAccountingPeriodMock("1"));
+    await store.dispatch(closeAccountingPeriodMock("1"));
+
+    // June ("2") is no longer the most recent closed period (July is).
+    await store.dispatch(reopenAccountingPeriodMock("2"));
+
+    const state = store.getState().ledger;
+    expect(state.periodMutation.lastRejectionReason).toContain("while period");
+    expect(state.accountingPeriods.items.find((p) => p.id === "2").status).toBe("closed");
+  });
+
+  it("reopenAccountingPeriodMock reopens the most recent closed period", async () => {
+    const store = buildStore();
+    await store.dispatch(fetchAccountingPeriodsMock());
+    await store.dispatch(lockAccountingPeriodMock("1"));
+    await store.dispatch(closeAccountingPeriodMock("1"));
+
+    await store.dispatch(reopenAccountingPeriodMock("1"));
+
+    const state = store.getState().ledger;
+    expect(state.periodMutation.lastRejectionReason).toBe(null);
+    expect(state.accountingPeriods.items.find((p) => p.id === "1").status).toBe("open");
+  });
+});
+
+describe("Actions - Real API calls (US4)", () => {
+  it("openAccountingPeriod builds the OpenAccountingPeriod mutation", () => {
+    const action = openAccountingPeriod("2026-08-01", "2026-08-31");
+    expect(action.operation).toContain("OpenAccountingPeriod");
+    expect(action.variables).toEqual({ startDate: "2026-08-01", endDate: "2026-08-31" });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.OPEN_ACCOUNTING_PERIOD}_REQ`,
+      `${ACTION_TYPE.OPEN_ACCOUNTING_PERIOD}_RESP`,
+      `${ACTION_TYPE.OPEN_ACCOUNTING_PERIOD}_ERR`,
+    ]);
+  });
+
+  it("lockAccountingPeriod builds the LockAccountingPeriod mutation", () => {
+    const action = lockAccountingPeriod("1");
+    expect(action.operation).toContain("LockAccountingPeriod");
+    expect(action.variables).toEqual({ accountingPeriodId: "1" });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.LOCK_ACCOUNTING_PERIOD}_REQ`,
+      `${ACTION_TYPE.LOCK_ACCOUNTING_PERIOD}_RESP`,
+      `${ACTION_TYPE.LOCK_ACCOUNTING_PERIOD}_ERR`,
+    ]);
+  });
+
+  it("closeAccountingPeriod builds the CloseAccountingPeriod mutation", () => {
+    const action = closeAccountingPeriod("1");
+    expect(action.operation).toContain("CloseAccountingPeriod");
+    expect(action.variables).toEqual({ accountingPeriodId: "1" });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD}_REQ`,
+      `${ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD}_RESP`,
+      `${ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD}_ERR`,
+    ]);
+  });
+
+  it("reopenAccountingPeriod builds the ReopenAccountingPeriod mutation", () => {
+    const action = reopenAccountingPeriod("1");
+    expect(action.operation).toContain("ReopenAccountingPeriod");
+    expect(action.variables).toEqual({ accountingPeriodId: "1" });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD}_REQ`,
+      `${ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD}_RESP`,
+      `${ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD}_ERR`,
+    ]);
   });
 });

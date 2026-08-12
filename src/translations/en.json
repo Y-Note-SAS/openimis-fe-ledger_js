@@ -92,7 +92,37 @@
       "allPeriods": "All periods"
     },
     "periods": {
-      "pageTitle": "Accounting Periods"
+      "pageTitle": "Accounting Periods",
+      "empty": "No accounting periods yet.",
+      "status": {
+        "open": "Open",
+        "locked": "Locked",
+        "closed": "Closed"
+      },
+      "action": {
+        "open": "Open",
+        "lock": "Lock",
+        "close": "Close",
+        "reopen": "Reopen"
+      },
+      "table": {
+        "period": "Period",
+        "status": "Status",
+        "actions": "Actions"
+      },
+      "openForm": {
+        "title": "Open a New Period",
+        "startDate": "Start Date",
+        "endDate": "End Date"
+      },
+      "rejectionTitle": "Action rejected",
+      "actionUnavailable": "No action available for this period",
+      "adminOnlyNotice": "Period lifecycle actions require finance-administrator rights.",
+      "filter": {
+        "status": "Status",
+        "all": "All",
+        "noResults": "No periods match the selected status."
+      }
     },
     "reviewQueue": {
       "pageTitle": "Replication Review Queue"
