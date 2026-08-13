@@ -326,7 +326,11 @@ function reducer(state = initialState, action) {
     case err(ACTION_TYPE.OPEN_ACCOUNTING_PERIOD):
       return {
         ...state,
-        periodMutation: { submitting: false, error: formatServerError(action.payload), lastRejectionReason: null },
+        periodMutation: {
+          submitting: false,
+          error: formatServerError(action.payload)?.message ?? null,
+          lastRejectionReason: null,
+        },
       };
 
     case req(ACTION_TYPE.LOCK_ACCOUNTING_PERIOD):
@@ -346,7 +350,11 @@ function reducer(state = initialState, action) {
     case err(ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD):
       return {
         ...state,
-        periodMutation: { submitting: false, error: formatServerError(action.payload), lastRejectionReason: null },
+        periodMutation: {
+          submitting: false,
+          error: formatServerError(action.payload)?.message ?? null,
+          lastRejectionReason: null,
+        },
       };
 
     // --- User Story 5: Manual Review Queue --------------------------------
