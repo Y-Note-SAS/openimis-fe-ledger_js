@@ -461,7 +461,7 @@ function reducer(state = initialState, action) {
       };
     case resp(ACTION_TYPE.DEPLOYMENT_CONFIGURATION): {
       const data = action.payload?.data;
-      const gqlError = formatGraphQLError(action.payload);
+      const gqlError = formatGraphQLError(action.payload)?.message ?? null;
       return {
         ...state,
         deploymentConfiguration: {
@@ -482,7 +482,7 @@ function reducer(state = initialState, action) {
       };
     }
     case err(ACTION_TYPE.DEPLOYMENT_CONFIGURATION): {
-      const serverError = formatServerError(action.payload);
+      const serverError = formatServerError(action.payload)?.message ?? null;
       return {
         ...state,
         deploymentConfiguration: { ...state.deploymentConfiguration, isFetching: false, error: serverError },
@@ -513,7 +513,11 @@ function reducer(state = initialState, action) {
     case err(ACTION_TYPE.CONFIGURE_DEPLOYMENT):
       return {
         ...state,
-        deploymentConfiguration: { ...state.deploymentConfiguration, submitting: false, error: formatServerError(action.payload) },
+        deploymentConfiguration: {
+          ...state.deploymentConfiguration,
+          submitting: false,
+          error: formatServerError(action.payload)?.message ?? null,
+        },
       };
 
     default:

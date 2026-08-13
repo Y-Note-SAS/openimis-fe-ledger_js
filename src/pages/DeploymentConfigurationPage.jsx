@@ -69,11 +69,14 @@ const DeploymentConfigurationPage = ({
   const [retainedEarningsAccountId, setRetainedEarningsAccountId] = useState("");
   const [warningOpen, setWarningOpen] = useState(false);
   const [pendingSave, setPendingSave] = useState(false);
+  const isAdmin = hasLedgerAdminRight(rights);
 
   useEffect(() => {
-    if (USE_MOCK_DEPLOYMENT) loadMockReferenceData();
-    else loadReferenceData();
-  }, [loadMockReferenceData, loadReferenceData]);
+    if (isAdmin) {
+      if (USE_MOCK_DEPLOYMENT) loadMockReferenceData();
+      else loadReferenceData();
+    }
+  }, [isAdmin, loadMockReferenceData, loadReferenceData]);
 
   useEffect(() => {
     const data = deploymentConfiguration?.data;
@@ -107,7 +110,7 @@ const DeploymentConfigurationPage = ({
     [intl],
   );
 
-  if (!hasLedgerAdminRight(rights)) {
+  if (!isAdmin) {
     return <Alert severity="error">{formatMessage(intl, "ledger", "ledger.accessDenied")}</Alert>;
   }
 
@@ -227,9 +230,7 @@ const DeploymentConfigurationPage = ({
           {error ? (
             <Grid size={12}>
               <Box className="paperBody">
-                <Alert severity="error">
-                  {error.message || formatMessage(intl, "ledger", "ledger.deployment.saveError")}
-                </Alert>
+                <Alert severity="error">{error}</Alert>
               </Box>
             </Grid>
           ) : null}

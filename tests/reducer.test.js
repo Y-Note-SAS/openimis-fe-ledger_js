@@ -447,4 +447,24 @@ describe("Reducer", () => {
     expect(state.deploymentConfiguration.error).toBe(null);
     expect(state.deploymentConfiguration.data.operatingMode).toBe("single");
   });
+
+  it("handles LEDGER_DEPLOYMENT_CONFIGURATION_ERR", () => {
+    const action = {
+      type: `${ACTION_TYPE.DEPLOYMENT_CONFIGURATION}_ERR`,
+      payload: { message: "Network error" },
+    };
+    const state = reducer(initialState, action);
+    expect(state.deploymentConfiguration.error).toBe("Network error");
+    expect(state.externalSystems.error).toBe("Network error");
+  });
+
+  it("handles LEDGER_CONFIGURE_DEPLOYMENT_ERR", () => {
+    const action = {
+      type: `${ACTION_TYPE.CONFIGURE_DEPLOYMENT}_ERR`,
+      payload: { message: "Network error" },
+    };
+    const state = reducer(initialState, action);
+    expect(state.deploymentConfiguration.submitting).toBe(false);
+    expect(state.deploymentConfiguration.error).toBe("Network error");
+  });
 });
