@@ -71,9 +71,21 @@ const initialState = {
   chartOfAccounts: { isFetching: false, isFetched: false, error: null, items: [] },
 };
 
+const decodeLedgerReferenceId = (id) => {
+  if (id === null || id === undefined) return id;
+  const decoded = decodeId(id);
+  if (decoded !== id || /^\d+$/.test(id)) return decoded;
+  try {
+    const parts = atob(id).split(":");
+    return parts.length > 1 ? parts[1] : decoded;
+  } catch {
+    return decoded;
+  }
+};
+
 const mapLedgerEntryNode = (node) => {
   const lines = (node?.lines || []).map((line) => ({
-    id: decodeId(line.id),
+    id: decodeLedgerReferenceId(line.id),
     account: line.account,
     debit: line.debit,
     credit: line.credit,
@@ -81,9 +93,11 @@ const mapLedgerEntryNode = (node) => {
     funderTag: line.funderTag,
   }));
   return {
-    id: decodeId(node.id),
+    id: decodeLedgerReferenceId(node.id),
     journal: node.journal,
-    accountingPeriod: node.accountingPeriod,
+    accountingPeriod: node.accountingPeriod
+      ? { ...node.accountingPeriod, id: decodeLedgerReferenceId(node.accountingPeriod.id) }
+      : node.accountingPeriod,
     sourceEventType: node.sourceEventType,
     sourceEventReference: node.sourceEventReference,
     postedAt: node.postedAt,
@@ -93,6 +107,17 @@ const mapLedgerEntryNode = (node) => {
 };
 
 const firstErrorMessage = (errors) => (errors && errors.length ? errors[0].message : null);
+
+// Mock review items use readable ids (e.g. "review-1"), while GraphQL
+// responses use openIMIS base64 ids. Keep both forms valid in the reducer.
+const decodeManualReviewId = (id) => {
+  if (id === null || id === undefined) return id;
+  try {
+    return decodeId(id);
+  } catch {
+    return id;
+  }
+};
 
 const mapAccountingPeriod = (period) => (period ? { ...period, id: decodeId(period.id) } : period);
 
@@ -345,7 +370,10 @@ function reducer(state = initialState, action) {
           isFetching: false,
           isFetched: true,
           error: formatGraphQLError(action.payload),
-          items: (action.payload?.data?.manualReviewQueue || []).map((item) => ({ ...item, id: decodeId(item.id) })),
+          items: (action.payload?.data?.manualReviewQueue || []).map((item) => ({
+            ...item,
+            id: decodeManualReviewId(item.id),
+          })),
         },
       };
     case err(ACTION_TYPE.MANUAL_REVIEW_QUEUE):
@@ -369,7 +397,9 @@ function reducer(state = initialState, action) {
         manualReviewQueue: {
           ...state.manualReviewQueue,
           items: state.manualReviewQueue.items.map((item) =>
-            item.id === decodeId(updated?.id) ? { ...item, ...updated, id: decodeId(updated.id) } : item,
+            item.id === decodeManualReviewId(updated?.id)
+              ? { ...item, ...updated, id: decodeManualReviewId(updated.id) }
+              : item,
           ),
         },
       };

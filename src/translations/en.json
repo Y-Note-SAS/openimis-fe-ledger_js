@@ -125,7 +125,43 @@
       }
     },
     "reviewQueue": {
-      "pageTitle": "Replication Review Queue"
+      "pageTitle": "Replication Review Queue",
+      "empty": "No manual review items found.",
+      "filter": {
+        "status": "Status",
+        "all": "All"
+      },
+      "status": {
+        "pending": "Pending",
+        "resolved": "Resolved"
+      },
+      "table": {
+        "status": "Status",
+        "originalEntry": "Original entry",
+        "reason": "Reason",
+        "targetSystem": "Target system",
+        "actions": "Actions"
+      },
+      "action": {
+        "resolve": "Resolve",
+        "view": "View"
+      },
+      "dialog": {
+        "title": "Resolve manual review item",
+        "originalEntry": "Original flagged entry (read-only)",
+        "entry": "Entry",
+        "period": "Period",
+        "party": "Party",
+        "journal": "Journal",
+        "postedAt": "Posted date",
+        "noReason": "No rejection reason provided.",
+        "correctingEntry": "Correcting entry",
+        "noCandidates": "No correcting entries match this party and period.",
+        "resolvedEntry": "Correcting entry",
+        "resolutionNote": "Resolution note",
+        "close": "Close",
+        "resolve": "Resolve"
+      }
     },
     "export": {
       "pageTitle": "Period Export"
