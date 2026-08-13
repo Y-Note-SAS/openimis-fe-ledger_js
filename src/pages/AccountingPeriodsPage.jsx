@@ -98,7 +98,7 @@ const AccountingPeriodsPage = ({
   // always receives the full loaded list so the action buttons stay correct.
   const visiblePeriods = statusFilter ? periods.filter((period) => period.status === statusFilter) : periods;
   const submitting = periodMutation?.submitting || false;
-  const rejectionReason = periodMutation?.lastRejectionReason || null;
+  const mutationError = periodMutation?.error || periodMutation?.lastRejectionReason || null;
 
   const runAction = (period, action) => {
     if (action === PERIOD_ACTION.LOCK) lockAccountingPeriodMock(period.id);
@@ -196,11 +196,11 @@ const AccountingPeriodsPage = ({
             </Grid>
           )}
 
-          {rejectionReason ? (
+          {mutationError ? (
             <Grid size={12}>
               <Box className="paperBody">
                 <Alert severity="error">
-                  {formatMessage(intl, "ledger", "ledger.periods.rejectionTitle")}: {rejectionReason}
+                  {formatMessage(intl, "ledger", "ledger.periods.rejectionTitle")}: {mutationError}
                 </Alert>
               </Box>
             </Grid>
