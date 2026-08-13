@@ -387,6 +387,21 @@ describe("Actions - Mocks (US4 period lifecycle)", () => {
     expect(state.periodMutation.lastRejectionReason).toBe(null);
     expect(state.accountingPeriods.items.find((p) => p.id === "1").status).toBe("open");
   });
+
+  it("openAccountingPeriodMock keeps generated ids unique beyond a single digit", async () => {
+    const store = buildStore();
+    await store.dispatch(fetchAccountingPeriodsMock());
+    for (let month = 8; month <= 19; month += 1) {
+      const open = store.getState().ledger.accountingPeriods.items.find((period) => period.status === "open");
+      await store.dispatch(lockAccountingPeriodMock(open.id));
+      await store.dispatch(closeAccountingPeriodMock(open.id));
+      const start = `2026-${String(month).padStart(2, "0")}-01`;
+      const end = `2026-${String(month).padStart(2, "0")}-28`;
+      await store.dispatch(openAccountingPeriodMock(start, end));
+    }
+    const ids = store.getState().ledger.accountingPeriods.items.map((period) => period.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
 });
 
 describe("Actions - Real API calls (US4)", () => {

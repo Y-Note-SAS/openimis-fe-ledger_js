@@ -6,7 +6,7 @@ import { Provider } from "react-redux";
 import { createStore, combineReducers, applyMiddleware } from "redux";
 import { thunk } from "redux-thunk";
 import { IntlProvider } from "react-intl";
-import reducer from "../../src/reducer";
+import reducer, { ACTION_TYPE } from "../../src/reducer";
 import { resetAccountingPeriodsMock } from "../../src/actions";
 import { RIGHT_LEDGER_REPORTING, RIGHT_LEDGER_ADMIN } from "../../src/constants";
 import AccountingPeriodsPage from "../../src/pages/AccountingPeriodsPage";
@@ -93,6 +93,17 @@ describe("AccountingPeriodsPage", () => {
     const { container } = renderPage(buildStore({ rights: [] }));
 
     expect(container).toHaveTextContent("ledger.accessDenied");
+  });
+
+  it("shows a transport error surfaced in periodMutation.error", () => {
+    const store = buildStore();
+    store.dispatch({
+      type: `${ACTION_TYPE.LOCK_ACCOUNTING_PERIOD}_ERR`,
+      payload: { message: "Network error" },
+    });
+    renderPage(store);
+
+    expect(screen.getByText(/Network error/)).toBeInTheDocument();
   });
 
   it("shows the backend rejection reason when opening while a period is still open", async () => {
