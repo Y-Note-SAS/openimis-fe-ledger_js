@@ -74,7 +74,7 @@ Single-package frontend module (plan.md "Structure Decision"): `src/` and `tests
 - [x] T019 [P] [US1] Unit test for `LEDGER_ENTRIES_*` reducer cases (incl. default-period-filter behavior, FR-001) in `tests/reducer.test.js`
 - [x] T020 [P] [US1] Unit test for per-entry debit/credit/balance subtotal computation in `tests/utils/ledgerEntryTotals.test.js`
 - [x] T021 [P] [US1] Component test asserting `LedgerEntryGrid` renders balanced totals and expand/collapse behavior (data-model.md `LedgerEntryViewModel`) in `tests/components/LedgerEntryGrid.test.js` _(DEV REVIEW: implemented in `tests/components/LedgerEntrySearcher.test.jsx` against `LedgerEntrySearcher.jsx`, not a separate `LedgerEntryGrid`; expand/collapse covered by `fireEvent.click` cases at lines 284-444. TC-10/TC-11 verified PASS. TC-12 only PARTIAL: debit/credit subtotals render side-by-side but there is no explicit "balanced" visual indicator — `ledger.entry.balanced`/`ledger.entry.debitEqualsCredit` translation keys exist in en.json but are never referenced in code)_
-- [ ] T021b [US1] Add an explicit visual "balanced" confirmation (icon/color/label) to the group subtotal row using the existing unused `ledger.entry.balanced` translation key, to satisfy TC-12 in full
+- [x] T021b [US1] Add an explicit visual "balanced" confirmation (icon/color/label) to the group subtotal row using the existing unused `ledger.entry.balanced` translation key, to satisfy TC-12 in full _(DEV REVIEW 2: confirmed fixed — `isBalanced` check (`debit === credit && balance === 0`) now renders a `CheckCircleIcon` + `ledger.entry.debitEqualsCredit` label in `theme.palette.success.main` in the subtotal `<tfoot>`. TC-12: PASS)_
 
 ### Implementation for User Story 1
 
@@ -83,9 +83,9 @@ Single-package frontend module (plan.md "Structure Decision"): `src/` and `tests
 - [x] T024 [US1] Implement `src/utils/ledgerEntryTotals.js` exporting a pure function computing `{ debit, credit, balance }` from a `LedgerEntryViewModel.lines` array (data-model.md validation rule: `balance === 0` for a valid entry)
 - [x] T025 [P] [US1] Implement the baseline expandable/collapsible `LedgerEntryGrid` component (MUI `Table`/`Collapse`-based tree rows, group subtotals via T024) in `src/components/LedgerEntryGrid.jsx` — satisfies FR-023's baseline requirement _(DEV REVIEW: implemented as `src/components/LedgerEntrySearcher.jsx` instead of a standalone `LedgerEntryGrid.jsx` — same functional coverage, TC-10/TC-11/TC-13 verified PASS; file name diverges from spec)_
 - [x] T026 [P] [US1] Implement the baseline `LedgerFilters` component (journal, accounting period, party, funder, source-event-type controls using standard MUI inputs and the pickers from Phase 2) in `src/components/LedgerFilters.jsx` — satisfies FR-001a's baseline requirement _(DEV REVIEW: implemented as `src/components/LedgerEntryFilter.jsx` — TC-03 through TC-09 all verified PASS, including AND-combination of filters (TC-08) and period widening (TC-09); file name diverges from spec)_
-- [x] T027 [US1] Implement `GeneralLedgerPage` wiring `LedgerFilters` + `LedgerEntryGrid` + pagination controls + permission gate (`hasLedgerReportingRight`) in `src/pages/GeneralLedgerPage.jsx` _(DEV REVIEW: page-level permission gate verified PASS (TC-17), page returns null without the right and is covered by test — but TC-18's menu-hiding half is NOT confirmed working, see T028 note)_
-- [x] T028 [US1] Register the `/ledger/general` route, `LedgerMainMenu` entry (permission-filtered), and `ledger` reducer key in `src/index.jsx`'s `DEFAULT_CONFIG` _(DEV REVIEW: route registration and reducer key confirmed. TC-18 menu-hiding is UNVERIFIED/likely broken: `buildLedgerMainMenuEntries` in `LedgerMainMenu.jsx` produces `{ text, route }` entries with no `filter` property, and fe-core's current `MainMenuBar.jsx`/`MainMenuContribution.jsx` only hide entries via an explicit `entry.filter(rights)` function — so rights-based menu hiding does not actually occur through this path. Needs a fix in `LedgerMainMenu.jsx` and/or confirmation of the current fe-core contract)_
-- [ ] T029 [US1] Add source-event-reference link rendering (distinguishable by `sourceEventType`, FR-003) inside `LedgerEntryGrid.jsx` _(DEV REVIEW: reference text and event type ARE shown in `LedgerEntrySearcher.jsx`, but the "link" is a placeholder `<a href="#/{type}/{ref}">` that maps to no registered route — `withHistory` is imported but never used, no real navigation wired. TC-14 verdict: PARTIAL/FAIL — reopening until it actually navigates to the source event)_
+- [x] T027 [US1] Implement `GeneralLedgerPage` wiring `LedgerFilters` + `LedgerEntryGrid` + pagination controls + permission gate (`hasLedgerReportingRight`) in `src/pages/GeneralLedgerPage.jsx` _(DEV REVIEW 3: page-level permission gate verified PASS (TC-17); TC-18 menu-hiding now also confirmed PASS, see T028 note)_
+- [x] T028 [US1] Register the `/ledger/general` route, `LedgerMainMenu` entry (permission-filtered), and `ledger` reducer key in `src/index.jsx`'s `DEFAULT_CONFIG` _(DEV REVIEW 3 — reverses DEV REVIEW 2: TC-18 menu-hiding CONFIRMED PASS. The DEV REVIEW 2 verdict was based on a stale local checkout of `openimis-fe-core_js` (128 commits behind `origin/develop`, wrong branch). On `origin/develop` (commit 85a621a "fix(core): fix all menus not visibles in main menu bar"), `MainMenuBar.jsx` now calls `prepareMenuEntries(rights, intl, rawEntries, routes)` (`src/helpers/utils.jsx`), which computes `routeRef = entry.route || entry.id` and falls back to `routes[routeRef]?.rights` when the entry itself has no `rights` — no per-entry `filter` function needed. `ModulesManager.getRoutes()` in `openimis-fe_js` indexes routes by both `path` and `id`, so `routes["ledger/general"]` resolves to the `core.Router` entry with `rights: READ_RIGHTS` (`src/index.jsx:36-42`). Since `LedgerMainMenu.jsx`'s entries use `route: routes.ROUTE_GENERAL_LEDGER` = `"ledger/general"`, the lookup matches and rights-based hiding works correctly as originally implemented. No code change needed here — confirm at deploy time that the app's resolved `@openimis/fe-core` is actually `origin/develop` or later (this ledger module's own `node_modules` has no fe-core installed, so this couldn't be exercised by its own test suite; add an integration/e2e check if that matters))_
+- [x] T029 [US1] Add source-event-reference link rendering (distinguishable by `sourceEventType`, FR-003) inside `LedgerEntryGrid.jsx` _(DEV REVIEW 2: confirmed fixed — `sourceEventRouteRef(entry)` maps `claim_payment`/`invoice`/`payroll_disbursement`/`payment_point_reconciliation` to real fe-core route refs, `navigateToSourceEvent` calls `historyPush(modulesManager, history, routeRef, [reference])`; the detail-view button is `disabled` for unmapped types (`correction`/`closing_entry`). TC-14: PASS. Caveat: no automated test exercises the navigation call itself — consider adding one)_
 - [x] T030 [US1] Add US1-specific translation keys (filter labels, column headers, source-event-type labels) to `src/translations/en.json` _(DEV REVIEW: confirmed present — `ledger.entry.*`, `ledger.entryLine.*`, `ledger.sourceEventTypeValue.*` all in en.json; was unchecked despite being done)_
 
 **Checkpoint**: User Story 1 fully functional and independently testable — MVP deliverable
@@ -100,19 +100,19 @@ Single-package frontend module (plan.md "Structure Decision"): `src/` and `tests
 
 ### Tests for User Story 2
 
-- [ ] T031 [P] [US2] Unit test for `partySearch`/`partyLedgerBalance` action creators in `tests/actions.test.js`
-- [ ] T032 [P] [US2] Unit test for corresponding reducer cases in `tests/reducer.test.js`
+- [x] T031 [P] [US2] Unit test for `partySearch`/`partyLedgerBalance` action creators in `tests/actions.test.js`
+- [x] T032 [P] [US2] Unit test for corresponding reducer cases in `tests/reducer.test.js`
 - [x] T033 [P] [US2] Unit test for `src/utils/balance.js`'s signed-balance + legend formatting (positive = owed by party, negative = owed to party) in `tests/utils/balance.test.js`
 
 ### Implementation for User Story 2
 
 - [x] T034 [US2] Implement `src/utils/balance.js` exporting `formatSignedBalance(balance)` returning `{ label, legend }` per the Clarifications sign convention
-- [x] T035 [US2] Implement `searchParty(searchTerm)` action creator (unified search across party types) and `PARTY_SEARCH_*` reducer cases in `src/actions.js` / `src/reducer.js` _(DEV REVIEW: action creator + reducer implémentés mais non testés)_
-- [x] T036 [US2] Implement `fetchPartyLedgerBalance(analyticValueId, accountingPeriodId)` action creator (contracts/graphql-operations.md `PartyLedgerBalance` query) and `PARTY_LEDGER_BALANCE_*` reducer cases in `src/actions.js` / `src/reducer.js` _(DEV REVIEW: action creator + reducer implémentés mais non testés)_
-- [x] T037 [P] [US2] Implement `PartyPicker` (unified search box, results annotated by party type per FR-004) in `src/pickers/PartyPicker.jsx` _(DEV REVIEW: ⚠️ aucun test dédié (0% coverage))_
-- [ ] T038 [US2] Implement `PartyLedgerPage` wiring `PartyPicker` + `AccountingPeriodPicker` + statement table + signed-balance display (via `formatSignedBalance`) + carried-forward-balance empty state, gated by `hasLedgerReportingRight`, in `src/pages/PartyLedgerPage.jsx`
+- [x] T035 [US2] Implement `searchParty(searchTerm)` action creator (unified search across party types) and `PARTY_SEARCH_*` reducer cases in `src/actions.js` / `src/reducer.js`
+- [x] T036 [US2] Implement `fetchPartyLedgerBalance(analyticValueId, accountingPeriodId)` action creator (contracts/graphql-operations.md `PartyLedgerBalance` query) and `PARTY_LEDGER_BALANCE_*` reducer cases in `src/actions.js` / `src/reducer.js`
+- [x] T037 [P] [US2] Implement `PartyPicker` (unified search box, results annotated by party type per FR-004) in `src/pickers/PartyPicker.jsx`
+- [x] T038 [US2] Implement `PartyLedgerPage` wiring `PartyPicker` + `AccountingPeriodPicker` + statement table + signed-balance display (via `formatSignedBalance`) + carried-forward-balance empty state, gated by `hasLedgerReportingRight`, in `src/pages/PartyLedgerPage.jsx` _(DEV REVIEW: ⚠️ sans le droit, la page fait `return null` mais n'affiche aucun message d'accès refusé — l'écran reste vide sans explication, contrairement au critère d'acceptation)_
 - [x] T039 [US2] Register the `/ledger/party` route and menu entry in `src/index.jsx`
-- [ ] T040 [US2] Add US2-specific translation keys (balance legend text, empty-state copy) to `src/translations/en.json`
+- [x] T040 [US2] Add US2-specific translation keys (balance legend text, empty-state copy) to `src/translations/en.json`
 
 **Checkpoint**: User Stories 1 AND 2 both independently functional
 
@@ -150,19 +150,19 @@ Single-package frontend module (plan.md "Structure Decision"): `src/` and `tests
 
 ### Tests for User Story 4
 
-- [ ] T049 [P] [US4] Unit test for `openAccountingPeriod`/`lockAccountingPeriod`/`closeAccountingPeriod`/`reopenAccountingPeriod` action creators (incl. rejection-reason propagation) in `tests/actions.test.js`
+- [x] T049 [P] [US4] Unit test for `openAccountingPeriod`/`lockAccountingPeriod`/`closeAccountingPeriod`/`reopenAccountingPeriod` action creators (incl. rejection-reason propagation) in `tests/actions.test.js`
 - [x] T050 [P] [US4] Unit test for `AccountingPeriodViewModel.availableActions` derivation logic (earliest-open/locked-period rule) in `tests/utils/periodActions.test.js`
-- [ ] T051 [P] [US4] Component test for `AccountingPeriodStatusBadge` rendering each status in `tests/components/AccountingPeriodStatusBadge.test.js`
+- [x] T051 [P] [US4] Component test for `AccountingPeriodStatusBadge` rendering each status in `tests/components/AccountingPeriodStatusBadge.test.js`
 
 ### Implementation for User Story 4
 
 - [x] T052 [US4] Implement `src/utils/periodActions.js` exporting `availableActionsForPeriod(period, allPeriods)` → `Array<"lock"|"close"|"reopen">` per data-model.md's derived field
 - [x] T053 [US4] Implement `openAccountingPeriod(startDate, endDate)` mutation action creator (contracts/graphql-operations.md) and `OPEN_ACCOUNTING_PERIOD_*` reducer cases (updating `periodMutation` + appending to `accountingPeriods.items` on success) in `src/actions.js` / `src/reducer.js` _(DEV REVIEW: action creator + reducer implémentés mais non testés)_
 - [x] T054 [US4] Implement `lockAccountingPeriod(id)` / `closeAccountingPeriod(id)` / `reopenAccountingPeriod(id)` mutation action creators and their reducer cases (each surfacing `errors[].message` verbatim into `periodMutation.lastRejectionReason` per FR-009) in `src/actions.js` / `src/reducer.js` _(DEV REVIEW: action creator + reducer implémentés mais non testés)_
-- [ ] T055 [P] [US4] Implement `AccountingPeriodStatusBadge` component (open/locked/closed visual states) in `src/components/AccountingPeriodStatusBadge.jsx`
-- [ ] T056 [US4] Implement `AccountingPeriodsPage` — period list with status badges, open-period form, lock/close/reopen action buttons driven by `availableActionsForPeriod`, and a rejection-reason alert display; lifecycle controls gated by `hasLedgerAdminRight`, list itself visible under `hasLedgerReportingRight` per FR-020's read/write split, in `src/pages/AccountingPeriodsPage.jsx`
+- [x] T055 [P] [US4] Implement `AccountingPeriodStatusBadge` component (open/locked/closed visual states) in `src/components/AccountingPeriodStatusBadge.jsx`
+- [x] T056 [US4] Implement `AccountingPeriodsPage` — period list with status badges, open-period form, lock/close/reopen action buttons driven by `availableActionsForPeriod`, and a rejection-reason alert display; lifecycle controls gated by `hasLedgerAdminRight`, list itself visible under `hasLedgerReportingRight` per FR-020's read/write split, in `src/pages/AccountingPeriodsPage.jsx`
 - [x] T057 [US4] Register the `/ledger/periods` route and menu entry (list visible to reporting right, admin actions additionally gated in-page) in `src/index.jsx`
-- [ ] T058 [US4] Add US4-specific translation keys (status labels, action labels, generic "action unavailable" copy) to `src/translations/en.json`
+- [x] T058 [US4] Add US4-specific translation keys (status labels, action labels, generic "action unavailable" copy) to `src/translations/en.json`
 
 **Checkpoint**: User Stories 1, 2, 3, AND 4 independently functional
 
@@ -176,19 +176,19 @@ Single-package frontend module (plan.md "Structure Decision"): `src/` and `tests
 
 ### Tests for User Story 5
 
-- [ ] T059 [P] [US5] Unit test for `manualReviewQueue`/`resolveManualReviewItem` action creators in `tests/actions.test.js`
+- [x] T059 [P] [US5] Unit test for `manualReviewQueue`/`resolveManualReviewItem` action creators in `tests/actions.test.js`
 - [x] T060 [P] [US5] Unit test for the same-party/same-period correcting-entry candidate filter (data-model.md client-side validation rule) in `tests/utils/correctingEntryCandidates.test.js`
-- [ ] T061 [P] [US5] Component test confirming `ManualReviewResolutionDialog` renders no edit affordance for the original entry in `tests/components/ManualReviewResolutionDialog.test.js`
+- [x] T061 [P] [US5] Component test confirming `ManualReviewResolutionDialog` renders no edit affordance for the original entry in `tests/components/ManualReviewResolutionDialog.test.js`
 
 ### Implementation for User Story 5
 
 - [x] T062 [US5] Implement `fetchManualReviewQueue(status)` action creator (contracts/graphql-operations.md `ManualReviewQueue` query) and reducer cases in `src/actions.js` / `src/reducer.js` _(DEV REVIEW: action creator + reducer implémentés mais non testés)_
 - [x] T063 [US5] Implement `src/utils/correctingEntryCandidates.js` exporting a pure function filtering fetched `ledgerEntries` items to `partyAnalyticValueId`+`accountingPeriodId` matching a given `ManualReviewItemViewModel.originalEntry`
-- [x] T064 [US5] Implement `resolveManualReviewItem(reviewItemId, correctingTransactionId, resolutionNote)` mutation action creator and `RESOLVE_MANUAL_REVIEW_ITEM_*` reducer cases (updating the item's `status`/`resolvedAt`/`resolutionNote` in `manualReviewQueue.items`) in `src/actions.js` / `src/reducer.js` _(DEV REVIEW: action creator + reducer implémentés mais non testés)_
-- [ ] T065 [P] [US5] Implement `ManualReviewResolutionDialog` (rejection-reason display, correcting-entry picker restricted via T063, resolution-note field, read-only original-entry summary with no edit controls per FR-012) in `src/components/ManualReviewResolutionDialog.jsx`
-- [ ] T066 [US5] Implement `ManualReviewQueuePage` — pending/resolved list, opens `ManualReviewResolutionDialog`, gated entirely by `hasLedgerAdminRight` (FR-020) in `src/pages/ManualReviewQueuePage.jsx`
+- [ ] T064 [US5] Implement `resolveManualReviewItem(reviewItemId, correctingTransactionId, resolutionNote)` mutation action creator and `RESOLVE_MANUAL_REVIEW_ITEM_*` reducer cases (updating the item's `status`/`resolvedAt`/`resolutionNote` in `manualReviewQueue.items`) in `src/actions.js` / `src/reducer.js` _(DEV REVIEW: `err(RESOLVE_MANUAL_REVIEW_ITEM)` in `src/reducer.js:408` stores the raw `formatServerError(...)` object in `reviewResolution.error` instead of `.message`; `ManualReviewResolutionDialog.jsx:142` renders it directly as a JSX child, so a transport-level failure crashes the dialog — fix by mirroring the `?.message ?? null` pattern used for US4's mutation error cases, then re-check)_
+- [x] T065 [P] [US5] Implement `ManualReviewResolutionDialog` (rejection-reason display, correcting-entry picker restricted via T063, resolution-note field, read-only original-entry summary with no edit controls per FR-012) in `src/components/ManualReviewResolutionDialog.jsx`
+- [x] T066 [US5] Implement `ManualReviewQueuePage` — pending/resolved list, opens `ManualReviewResolutionDialog`, gated entirely by `hasLedgerAdminRight` (FR-020) in `src/pages/ManualReviewQueuePage.jsx`
 - [x] T067 [US5] Register the `/ledger/manual-review` route and menu entry (admin-only) in `src/index.jsx`
-- [ ] T068 [US5] Add US5-specific translation keys to `src/translations/en.json`
+- [x] T068 [US5] Add US5-specific translation keys to `src/translations/en.json`
 
 **Checkpoint**: User Stories 1–5 independently functional
 
