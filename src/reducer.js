@@ -62,7 +62,7 @@ const initialState = {
   manualReviewQueue: { isFetching: false, isFetched: false, error: null, items: [] },
   reviewResolution: { submitting: false, error: null },
 
-  exportJobs: { byPeriodId: {} },
+  exportJobs: { byPeriodId: {}, error: null },
 
   deploymentConfiguration: { isFetching: false, isFetched: false, error: null, data: null, submitting: false },
 
@@ -427,7 +427,11 @@ function reducer(state = initialState, action) {
       if (!job) return state;
       return {
         ...state,
-        exportJobs: { byPeriodId: { ...state.exportJobs.byPeriodId, [job.accountingPeriodId]: job } },
+        exportJobs: {
+          ...state.exportJobs,
+          error: null,
+          byPeriodId: { ...state.exportJobs.byPeriodId, [job.accountingPeriodId]: job },
+        },
       };
     }
     case resp(ACTION_TYPE.EXPORT_SEQUENCES): {
@@ -435,9 +439,16 @@ function reducer(state = initialState, action) {
       if (!job) return state;
       return {
         ...state,
-        exportJobs: { byPeriodId: { ...state.exportJobs.byPeriodId, [job.accountingPeriodId]: job } },
+        exportJobs: {
+          ...state.exportJobs,
+          error: null,
+          byPeriodId: { ...state.exportJobs.byPeriodId, [job.accountingPeriodId]: job },
+        },
       };
     }
+    case err(ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD):
+    case err(ACTION_TYPE.EXPORT_SEQUENCES):
+      return { ...state, exportJobs: { ...state.exportJobs, error: formatServerError(action.payload)?.message ?? null } };
 
     // --- User Story 7: Deployment Configuration ----------------------------
     case req(ACTION_TYPE.DEPLOYMENT_CONFIGURATION):
