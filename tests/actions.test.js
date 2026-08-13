@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { createStore, combineReducers, applyMiddleware } from "redux";
 import { thunk } from "redux-thunk";
 import {
@@ -29,8 +29,11 @@ import {
   lockAccountingPeriod,
   closeAccountingPeriod,
   reopenAccountingPeriod,
+  exportAccountingPeriod,
+  pollExportJob,
 } from "../src/actions";
 import reducer, { ACTION_TYPE } from "../src/reducer";
+import { EXPORT_FORMAT } from "../src/constants";
 
 describe("Actions - Mocks", () => {
   let dispatch;
@@ -209,6 +212,67 @@ describe("Actions - Mocks", () => {
     const gizAllReport = dispatch.mock.calls[5][0].payload.data.funderActivityReport;
     expect(gizAllReport.debitTotal).toBe(33400);
     expect(gizAllReport.creditTotal).toBe(33400);
+  });
+});
+
+describe("Actions - Period export", () => {
+  beforeEach(() => {
+    vi.useRealTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("creates an export mutation action with the selected period and format", () => {
+    const action = exportAccountingPeriod("period-1", EXPORT_FORMAT.OHADA_FEC);
+
+    expect(action.variables).toEqual({
+      accountingPeriodId: "period-1",
+      format: EXPORT_FORMAT.OHADA_FEC,
+    });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_REQ`,
+      `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_RESP`,
+      `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_ERR`,
+    ]);
+  });
+
+  it("stops polling when the export reaches a terminal status", async () => {
+    vi.useFakeTimers();
+    const dispatch = vi.fn(() => Promise.resolve());
+    const getState = vi.fn(() => ({
+      ledger: { exportJobs: { byPeriodId: { "period-1": { status: "complete" } } } },
+    }));
+
+    const stop = pollExportJob("period-1", 1000)(dispatch, getState);
+    await Promise.resolve();
+    const callsAfterFirstTick = dispatch.mock.calls.length;
+
+    vi.advanceTimersByTime(1000);
+    await Promise.resolve();
+
+    expect(dispatch).toHaveBeenCalled();
+    expect(dispatch.mock.calls.length).toBe(callsAfterFirstTick);
+    stop();
+  });
+
+  it("clears the polling interval when stop is called", async () => {
+    vi.useFakeTimers();
+    const dispatch = vi.fn(() => Promise.resolve());
+    const getState = vi.fn(() => ({
+      ledger: { exportJobs: { byPeriodId: { "period-1": { status: "in_progress" } } } },
+    }));
+
+    const stop = pollExportJob("period-1", 1000)(dispatch, getState);
+    await Promise.resolve();
+    const callsBeforeStop = dispatch.mock.calls.length;
+    stop();
+
+    vi.advanceTimersByTime(3000);
+    await Promise.resolve();
+
+    expect(dispatch.mock.calls.length).toBe(callsBeforeStop);
   });
 });
 
