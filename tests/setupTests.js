@@ -25,8 +25,10 @@ vi.mock("@mui/material/styles", () => ({
 
 vi.mock("@mui/material", () => ({
   Typography: ({ children }) => React.createElement("span", null, children),
-  Button: ({ children, onClick, disabled, type }) =>
-    React.createElement("button", { type: type ?? "button", onClick, disabled }, children),
+  Button: ({ children, onClick, disabled, type, component, href, download }) =>
+    component === "a"
+      ? React.createElement("a", { href, download, onClick }, children)
+      : React.createElement("button", { type: type ?? "button", onClick, disabled }, children),
   MenuItem: ({ value, children }) => React.createElement("option", { value: value ?? "" }, children),
   Select: ({ value, children, onChange, inputProps = {} }) => {
     const options = React.Children.toArray(children);
@@ -47,6 +49,8 @@ vi.mock("@mui/material", () => ({
     );
   },
   Chip: ({ label }) => React.createElement("span", null, label),
+  Stack: ({ children, role, "aria-live": ariaLive }) =>
+    React.createElement("div", { role, "aria-live": ariaLive }, children),
   Grid: ({ children }) => React.createElement("div", null, children),
   Autocomplete: ({
     options = [],
@@ -86,7 +90,7 @@ vi.mock("@mui/material", () => ({
             React.createElement(
               "option",
               {
-                key: String(option?.value || option?.analyticValueId || option?.id) || `option-${index}`,
+                key: String(option?.value ?? option?.analyticValueId ?? option?.id ?? index),
                 value: option?.value ?? "",
               },
               getOptionLabel(option),
@@ -95,8 +99,10 @@ vi.mock("@mui/material", () => ({
         ],
       ),
     ),
-  TextField: ({ label, inputProps = {}, fullWidth, multiline, minRows, margin, ...props }) =>
-    React.createElement("input", { "aria-label": label, ...inputProps, ...props }),
+  TextField: ({ label, inputProps = {}, select, children, ...props }) =>
+    select
+      ? React.createElement("select", { "aria-label": label, ...inputProps, ...props }, children)
+      : React.createElement("input", { "aria-label": label, ...inputProps, ...props }),
   Paper: ({ children }) => React.createElement("div", null, children),
   Box: ({ children }) => React.createElement("div", null, children),
   Alert: ({ children }) => React.createElement("div", null, children),
