@@ -49,6 +49,8 @@ vi.mock("@mui/material", () => ({
     );
   },
   Chip: ({ label }) => React.createElement("span", null, label),
+  Stack: ({ children, role, "aria-live": ariaLive }) =>
+    React.createElement("div", { role, "aria-live": ariaLive }, children),
   Grid: ({ children }) => React.createElement("div", null, children),
   Autocomplete: ({
     options = [],
@@ -88,7 +90,7 @@ vi.mock("@mui/material", () => ({
             React.createElement(
               "option",
               {
-                key: String(option?.value || option?.analyticValueId || option?.id) || `option-${index}`,
+                key: String(option?.value ?? option?.analyticValueId ?? option?.id ?? index),
                 value: option?.value ?? "",
               },
               getOptionLabel(option),
