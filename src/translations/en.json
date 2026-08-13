@@ -164,7 +164,27 @@
       }
     },
     "export": {
-      "pageTitle": "Period Export"
+      "pageTitle": "Period Export",
+      "resultTitle": "Export result",
+      "period": "Accounting Period",
+      "format": "Export format",
+      "formats": {
+        "generic": "Generic CSV",
+        "ohadaFec": "OHADA / FEC CSV"
+      },
+      "trigger": "Start export",
+      "statusLabel": "Export status",
+      "status": {
+        "in_progress": "In progress",
+        "complete": "Complete",
+        "failed": "Failed"
+      },
+      "numbering": {
+        "provisional": "Provisional numbering",
+        "final": "Final numbering"
+      },
+      "download": "Download export",
+      "failure": "The export failed. Please try again."
     },
     "deployment": {
       "pageTitle": "Deployment Configuration"
