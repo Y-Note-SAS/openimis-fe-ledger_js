@@ -86,7 +86,7 @@ vi.mock("@mui/material", () => ({
             React.createElement(
               "option",
               {
-                key: String(option?.value ?? option?.analyticValueId ?? option?.id ?? index),
+                key: String(option?.value || option?.analyticValueId || option?.id) || `option-${index}`,
                 value: option?.value ?? "",
               },
               getOptionLabel(option),
@@ -95,7 +95,7 @@ vi.mock("@mui/material", () => ({
         ],
       ),
     ),
-  TextField: ({ label, inputProps = {}, ...props }) =>
+  TextField: ({ label, inputProps = {}, fullWidth, multiline, minRows, margin, ...props }) =>
     React.createElement("input", { "aria-label": label, ...inputProps, ...props }),
   Paper: ({ children }) => React.createElement("div", null, children),
   Box: ({ children }) => React.createElement("div", null, children),
