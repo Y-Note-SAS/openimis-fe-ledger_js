@@ -176,19 +176,19 @@ Single-package frontend module (plan.md "Structure Decision"): `src/` and `tests
 
 ### Tests for User Story 5
 
-- [ ] T059 [P] [US5] Unit test for `manualReviewQueue`/`resolveManualReviewItem` action creators in `tests/actions.test.js`
+- [x] T059 [P] [US5] Unit test for `manualReviewQueue`/`resolveManualReviewItem` action creators in `tests/actions.test.js`
 - [x] T060 [P] [US5] Unit test for the same-party/same-period correcting-entry candidate filter (data-model.md client-side validation rule) in `tests/utils/correctingEntryCandidates.test.js`
-- [ ] T061 [P] [US5] Component test confirming `ManualReviewResolutionDialog` renders no edit affordance for the original entry in `tests/components/ManualReviewResolutionDialog.test.js`
+- [x] T061 [P] [US5] Component test confirming `ManualReviewResolutionDialog` renders no edit affordance for the original entry in `tests/components/ManualReviewResolutionDialog.test.js`
 
 ### Implementation for User Story 5
 
 - [x] T062 [US5] Implement `fetchManualReviewQueue(status)` action creator (contracts/graphql-operations.md `ManualReviewQueue` query) and reducer cases in `src/actions.js` / `src/reducer.js` _(DEV REVIEW: action creator + reducer implémentés mais non testés)_
 - [x] T063 [US5] Implement `src/utils/correctingEntryCandidates.js` exporting a pure function filtering fetched `ledgerEntries` items to `partyAnalyticValueId`+`accountingPeriodId` matching a given `ManualReviewItemViewModel.originalEntry`
-- [x] T064 [US5] Implement `resolveManualReviewItem(reviewItemId, correctingTransactionId, resolutionNote)` mutation action creator and `RESOLVE_MANUAL_REVIEW_ITEM_*` reducer cases (updating the item's `status`/`resolvedAt`/`resolutionNote` in `manualReviewQueue.items`) in `src/actions.js` / `src/reducer.js` _(DEV REVIEW: action creator + reducer implémentés mais non testés)_
-- [ ] T065 [P] [US5] Implement `ManualReviewResolutionDialog` (rejection-reason display, correcting-entry picker restricted via T063, resolution-note field, read-only original-entry summary with no edit controls per FR-012) in `src/components/ManualReviewResolutionDialog.jsx`
-- [ ] T066 [US5] Implement `ManualReviewQueuePage` — pending/resolved list, opens `ManualReviewResolutionDialog`, gated entirely by `hasLedgerAdminRight` (FR-020) in `src/pages/ManualReviewQueuePage.jsx`
+- [ ] T064 [US5] Implement `resolveManualReviewItem(reviewItemId, correctingTransactionId, resolutionNote)` mutation action creator and `RESOLVE_MANUAL_REVIEW_ITEM_*` reducer cases (updating the item's `status`/`resolvedAt`/`resolutionNote` in `manualReviewQueue.items`) in `src/actions.js` / `src/reducer.js` _(DEV REVIEW: `err(RESOLVE_MANUAL_REVIEW_ITEM)` in `src/reducer.js:408` stores the raw `formatServerError(...)` object in `reviewResolution.error` instead of `.message`; `ManualReviewResolutionDialog.jsx:142` renders it directly as a JSX child, so a transport-level failure crashes the dialog — fix by mirroring the `?.message ?? null` pattern used for US4's mutation error cases, then re-check)_
+- [x] T065 [P] [US5] Implement `ManualReviewResolutionDialog` (rejection-reason display, correcting-entry picker restricted via T063, resolution-note field, read-only original-entry summary with no edit controls per FR-012) in `src/components/ManualReviewResolutionDialog.jsx`
+- [x] T066 [US5] Implement `ManualReviewQueuePage` — pending/resolved list, opens `ManualReviewResolutionDialog`, gated entirely by `hasLedgerAdminRight` (FR-020) in `src/pages/ManualReviewQueuePage.jsx`
 - [x] T067 [US5] Register the `/ledger/manual-review` route and menu entry (admin-only) in `src/index.jsx`
-- [ ] T068 [US5] Add US5-specific translation keys to `src/translations/en.json`
+- [x] T068 [US5] Add US5-specific translation keys to `src/translations/en.json`
 
 **Checkpoint**: User Stories 1–5 independently functional
 
