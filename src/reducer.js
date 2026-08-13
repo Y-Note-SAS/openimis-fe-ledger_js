@@ -418,7 +418,7 @@ function reducer(state = initialState, action) {
       };
     }
     case err(ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM):
-      return { ...state, reviewResolution: { submitting: false, error: formatServerError(action.payload) } };
+      return { ...state, reviewResolution: { submitting: false, error: formatServerError(action.payload)?.message ?? null } };
 
     // --- User Story 6: Period Export ---------------------------------------
     case resp(ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD): {
