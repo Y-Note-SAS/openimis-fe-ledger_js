@@ -247,6 +247,17 @@ describe("Reducer", () => {
     expect(state.accountingPeriods.items.length).toBe(1);
   });
 
+  it("handles LEDGER_OPEN_ACCOUNTING_PERIOD_ERR with a string error message", () => {
+    const action = {
+      type: `${ACTION_TYPE.OPEN_ACCOUNTING_PERIOD}_ERR`,
+      payload: { message: "Network error" }
+    };
+    const state = reducer(initialState, action);
+    expect(state.periodMutation.submitting).toBe(false);
+    expect(state.periodMutation.error).toBe("Network error");
+    expect(state.periodMutation.lastRejectionReason).toBe(null);
+  });
+
   it("handles LEDGER_OPEN_ACCOUNTING_PERIOD_RESP with errors", () => {
     const action = {
       type: `${ACTION_TYPE.OPEN_ACCOUNTING_PERIOD}_RESP`,

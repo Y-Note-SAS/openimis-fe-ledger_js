@@ -801,8 +801,10 @@ export function fetchFunderActivityReportMock(analyticValueId, periodRange = {})
 // reopen, no new period while an unclosed one exists) and return the
 // rejection reason in `errors[].message` exactly like the backend would, so
 // FR-009's verbatim display can be exercised without a real server.
+// mockAccountingPeriods always holds DECODED ids, so only the query argument may
+// need decoding (a caller can still pass an encoded id such as OPEN_PERIOD_ID).
 const findMockPeriod = (id) =>
-  mockAccountingPeriods.find((period) => period.id === id || decodeMockId(period.id) === id);
+  mockAccountingPeriods.find((period) => period.id === id || period.id === decodeMockId(id));
 
 function dispatchMockPeriodTransition({
   dispatch,
@@ -884,8 +886,10 @@ export function openAccountingPeriodMock(startDate, endDate) {
       });
       return;
     }
+    // mockAccountingPeriods ids are already DECODED: re-decoding them here (decodeMockId)
+    // would atob() plain numeric strings and yield NaN for any id >= 10, freezing the counter.
     const nextId = String(
-      mockAccountingPeriods.reduce((max, period) => Math.max(max, Number(decodeMockId(period.id)) || 0), 0) + 1,
+      mockAccountingPeriods.reduce((max, period) => Math.max(max, Number(period.id) || 0), 0) + 1,
     );
     const created = { id: nextId, startDate, endDate, status: "open" };
     mockAccountingPeriods = [...mockAccountingPeriods, created];
