@@ -39,9 +39,11 @@ const renderPage = (props = {}) => {
 
 describe("PeriodExportPage", () => {
   it("denies access without the finance administrator right", () => {
-    renderPage({ rights: [] });
+    const fetchAccountingPeriodsMock = vi.fn();
+    renderPage({ rights: [], fetchAccountingPeriodsMock });
 
     expect(screen.getByText("ledger.accessDenied")).toBeInTheDocument();
+    expect(fetchAccountingPeriodsMock).not.toHaveBeenCalled();
   });
 
   it("shows both export formats and triggers the selected generic export", () => {
@@ -59,5 +61,11 @@ describe("PeriodExportPage", () => {
 
     expect(exportAccountingPeriodMock).toHaveBeenCalledWith("period-1", "generic", true);
     expect(pollExportJobMock).toHaveBeenCalledWith("period-1", "generic", true);
+  });
+
+  it("shows the export error message when provided", () => {
+    renderPage({ exportJobs: { byPeriodId: {}, error: "Network error" } });
+
+    expect(screen.getByText("Network error")).toBeInTheDocument();
   });
 });

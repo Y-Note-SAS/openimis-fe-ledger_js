@@ -354,6 +354,24 @@ describe("Reducer", () => {
     expect(state.exportJobs.byPeriodId["1"].downloadUrl).toBe("http://example.com/export.csv");
   });
 
+  it("handles LEDGER_EXPORT_ACCOUNTING_PERIOD_ERR", () => {
+    const action = {
+      type: `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_ERR`,
+      payload: { message: "Network error" },
+    };
+    const state = reducer(initialState, action);
+    expect(state.exportJobs.error).toBe("Network error");
+  });
+
+  it("handles LEDGER_EXPORT_SEQUENCES_ERR", () => {
+    const action = {
+      type: `${ACTION_TYPE.EXPORT_SEQUENCES}_ERR`,
+      payload: { message: "Network error" },
+    };
+    const state = reducer(initialState, action);
+    expect(state.exportJobs.error).toBe("Network error");
+  });
+
   it("handles LEDGER_DEPLOYMENT_CONFIGURATION_REQ", () => {
     const action = { type: `${ACTION_TYPE.DEPLOYMENT_CONFIGURATION}_REQ` };
     const state = reducer(initialState, action);
