@@ -30,13 +30,14 @@ const entries = [
   },
 ];
 
-const renderDialog = (item = pendingItem, onResolve = vi.fn()) =>
+const renderDialog = (item = pendingItem, onResolve = vi.fn(), error = null) =>
   render(
     <IntlProvider locale="en" messages={{}}>
       <ManualReviewResolutionDialog
         intl={{}}
         item={item}
         ledgerEntries={entries}
+        error={error}
         open
         onClose={vi.fn()}
         onResolve={onResolve}
@@ -79,5 +80,11 @@ describe("ManualReviewResolutionDialog", () => {
     expect(screen.getByText(/Already corrected/)).toBeInTheDocument();
     expect(screen.queryByText("ledger.reviewQueue.dialog.resolve")).not.toBeInTheDocument();
     expect(screen.queryByRole("combobox")).not.toBeInTheDocument();
+  });
+
+  it("renders the resolution error message when provided", () => {
+    renderDialog(pendingItem, vi.fn(), "Network error");
+
+    expect(screen.getByText("Network error")).toBeInTheDocument();
   });
 });

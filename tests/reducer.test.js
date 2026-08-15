@@ -323,6 +323,26 @@ describe("Reducer", () => {
     expect(state.manualReviewQueue.items[0].status).toBe("resolved");
   });
 
+  it("handles LEDGER_RESOLVE_MANUAL_REVIEW_ITEM_ERR", () => {
+    const action = {
+      type: `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_ERR`,
+      payload: { message: "Network error" },
+    };
+    const state = reducer(initialState, action);
+    expect(state.reviewResolution.submitting).toBe(false);
+    expect(state.reviewResolution.error).toBe("Network error");
+  });
+
+  it("handles LEDGER_RESOLVE_MANUAL_REVIEW_ITEM_ERR without a message", () => {
+    const action = {
+      type: `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_ERR`,
+      payload: null,
+    };
+    const state = reducer(initialState, action);
+    expect(state.reviewResolution.submitting).toBe(false);
+    expect(state.reviewResolution.error).toBe(null);
+  });
+
   it("handles LEDGER_EXPORT_ACCOUNTING_PERIOD_RESP", () => {
     const action = {
       type: `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_RESP`,
