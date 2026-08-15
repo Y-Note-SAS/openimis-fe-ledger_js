@@ -103,6 +103,8 @@ vi.mock("@mui/material", () => ({
     select
       ? React.createElement("select", { "aria-label": label, ...inputProps, ...props }, children)
       : React.createElement("input", { "aria-label": label, ...inputProps, ...props }),
+  Stack: ({ children, spacing, direction, alignItems, justifyContent, divider, useFlexGap, ...props }) =>
+    React.createElement("div", props, children),
   Paper: ({ children }) => React.createElement("div", null, children),
   Box: ({ children }) => React.createElement("div", null, children),
   Alert: ({ children }) => React.createElement("div", null, children),
