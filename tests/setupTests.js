@@ -49,8 +49,6 @@ vi.mock("@mui/material", () => ({
     );
   },
   Chip: ({ label }) => React.createElement("span", null, label),
-  Stack: ({ children, role, "aria-live": ariaLive }) =>
-    React.createElement("div", { role, "aria-live": ariaLive }, children),
   Grid: ({ children }) => React.createElement("div", null, children),
   Autocomplete: ({
     options = [],
@@ -103,8 +101,8 @@ vi.mock("@mui/material", () => ({
     select
       ? React.createElement("select", { "aria-label": label, ...inputProps, ...props }, children)
       : React.createElement("input", { "aria-label": label, ...inputProps, ...props }),
-  Stack: ({ children, spacing, direction, alignItems, justifyContent, divider, useFlexGap, ...props }) =>
-    React.createElement("div", props, children),
+  Stack: ({ children, role, "aria-live": ariaLive, spacing, direction, alignItems, justifyContent, divider, useFlexGap, flexWrap, ...props }) =>
+    React.createElement("div", { role, "aria-live": ariaLive, ...props }, children),
   Paper: ({ children }) => React.createElement("div", null, children),
   Box: ({ children }) => React.createElement("div", null, children),
   Alert: ({ children }) => React.createElement("div", null, children),
