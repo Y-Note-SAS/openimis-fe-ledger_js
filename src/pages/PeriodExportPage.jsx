@@ -70,11 +70,14 @@ const PeriodExportPage = ({
   const periods = accountingPeriods?.items || [];
   const selectedPeriod = periods.find((period) => period.id === periodId);
   const job = periodId ? exportJobs?.byPeriodId?.[periodId] : null;
+  const isAdmin = hasLedgerAdminRight(rights);
 
   useEffect(() => {
-    loadPeriods();
+    if (isAdmin) {
+      loadPeriods();
+    }
     return () => stopPollingRef.current?.();
-  }, [loadPeriods]);
+  }, [isAdmin, loadPeriods]);
 
   useEffect(() => {
     stopPollingRef.current?.();
@@ -91,7 +94,7 @@ const PeriodExportPage = ({
     return () => stopPollingRef.current?.();
   }, [job?.status, periodId, selectedPeriod?.status, startPolling, startMockPolling]);
 
-  if (!hasLedgerAdminRight(rights)) {
+  if (!isAdmin) {
     return <Alert severity="error">{formatMessage(intl, "ledger", "ledger.accessDenied")}</Alert>;
   }
 
@@ -156,6 +159,12 @@ const PeriodExportPage = ({
               </Grid>
             </StyledPaper>
           </Grid>
+
+          {exportJobs?.error ? (
+            <Grid size={12}>
+              <Alert severity="error">{exportJobs.error}</Alert>
+            </Grid>
+          ) : null}
 
           {job ? (
             <Grid size={12}>
