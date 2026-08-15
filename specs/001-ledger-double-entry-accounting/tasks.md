@@ -202,18 +202,18 @@ Single-package frontend module (plan.md "Structure Decision"): `src/` and `tests
 
 ### Tests for User Story 6
 
-- [ ] T069 [P] [US6] Unit test for `exportAccountingPeriod` mutation action creator in `tests/actions.test.js`
-- [ ] T070 [P] [US6] Unit test for the polling action creator's start/stop-on-terminal-status behavior in `tests/actions.test.js`
-- [ ] T071 [P] [US6] Component test for `ExportJobStatus` rendering in-progress/complete/failed states and the provisional/final label in `tests/components/ExportJobStatus.test.js`
+- [x] T069 [P] [US6] Unit test for `exportAccountingPeriod` mutation action creator in `tests/actions.test.js`
+- [x] T070 [P] [US6] Unit test for the polling action creator's start/stop-on-terminal-status behavior in `tests/actions.test.js`
+- [x] T071 [P] [US6] Component test for `ExportJobStatus` rendering in-progress/complete/failed states and the provisional/final label in `tests/components/ExportJobStatus.test.js`
 
 ### Implementation for User Story 6
 
-- [x] T072 [US6] Implement `exportAccountingPeriod(accountingPeriodId, format)` mutation action creator (contracts/graphql-operations.md) and `EXPORT_ACCOUNTING_PERIOD_*` reducer cases populating `exportJobs.byPeriodId` in `src/actions.js` / `src/reducer.js` _(DEV REVIEW: action creator + reducer implémentés mais non testés)_
-- [x] T073 [US6] Implement `pollExportJob(accountingPeriodId)` action creator — dispatches the `ExportSequences` query on a fixed interval (research.md §5) while status is `in_progress`, clearing the interval on `complete`/`failed`/unmount — and its reducer cases in `src/actions.js` / `src/reducer.js` _(DEV REVIEW: action creator + reducer implémentés mais non testés)_
-- [ ] T074 [P] [US6] Implement `ExportJobStatus` component (status display, provisional/final badge per FR-016, download link/button) in `src/components/ExportJobStatus.jsx`
-- [ ] T075 [US6] Implement `PeriodExportPage` — period selector, format selector (OHADA/FEC vs. generic, chosen per trigger per Clarifications), trigger button, `ExportJobStatus`, wired to start/stop polling on mount/unmount, gated by `hasLedgerAdminRight`, in `src/pages/PeriodExportPage.jsx`
+- [x] T072 [US6] Implement `exportAccountingPeriod(accountingPeriodId, format)` mutation action creator (contracts/graphql-operations.md) and `EXPORT_ACCOUNTING_PERIOD_*` reducer cases populating `exportJobs.byPeriodId` in `src/actions.js` / `src/reducer.js`
+- [x] T073 [US6] Implement `pollExportJob(accountingPeriodId)` action creator — dispatches the `ExportSequences` query on a fixed interval (research.md §5) while status is `in_progress`, clearing the interval on `complete`/`failed`/unmount — and its reducer cases in `src/actions.js` / `src/reducer.js`
+- [x] T074 [P] [US6] Implement `ExportJobStatus` component (status display, provisional/final badge per FR-016, download link/button) in `src/components/ExportJobStatus.jsx`
+- [x] T075 [US6] Implement `PeriodExportPage` — period selector, format selector (OHADA/FEC vs. generic, chosen per trigger per Clarifications), trigger button, `ExportJobStatus`, wired to start/stop polling on mount/unmount, gated by `hasLedgerAdminRight`, in `src/pages/PeriodExportPage.jsx`
 - [x] T076 [US6] Register the `/ledger/export` route and menu entry (admin-only) in `src/index.jsx`
-- [ ] T077 [US6] Add US6-specific translation keys (format labels, status labels, provisional/final copy) to `src/translations/en.json`
+- [x] T077 [US6] Add US6-specific translation keys (format labels, status labels, provisional/final copy) to `src/translations/en.json`
 
 **Checkpoint**: User Stories 1–6 independently functional
 
