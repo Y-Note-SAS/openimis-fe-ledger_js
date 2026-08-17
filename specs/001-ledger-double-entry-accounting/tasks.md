@@ -184,7 +184,7 @@ Single-package frontend module (plan.md "Structure Decision"): `src/` and `tests
 
 - [x] T062 [US5] Implement `fetchManualReviewQueue(status)` action creator (contracts/graphql-operations.md `ManualReviewQueue` query) and reducer cases in `src/actions.js` / `src/reducer.js` _(DEV REVIEW: action creator + reducer implémentés mais non testés)_
 - [x] T063 [US5] Implement `src/utils/correctingEntryCandidates.js` exporting a pure function filtering fetched `ledgerEntries` items to `partyAnalyticValueId`+`accountingPeriodId` matching a given `ManualReviewItemViewModel.originalEntry`
-- [ ] T064 [US5] Implement `resolveManualReviewItem(reviewItemId, correctingTransactionId, resolutionNote)` mutation action creator and `RESOLVE_MANUAL_REVIEW_ITEM_*` reducer cases (updating the item's `status`/`resolvedAt`/`resolutionNote` in `manualReviewQueue.items`) in `src/actions.js` / `src/reducer.js` _(DEV REVIEW: `err(RESOLVE_MANUAL_REVIEW_ITEM)` in `src/reducer.js:408` stores the raw `formatServerError(...)` object in `reviewResolution.error` instead of `.message`; `ManualReviewResolutionDialog.jsx:142` renders it directly as a JSX child, so a transport-level failure crashes the dialog — fix by mirroring the `?.message ?? null` pattern used for US4's mutation error cases, then re-check)_
+- [x] T064 [US5] Implement `resolveManualReviewItem(reviewItemId, correctingTransactionId, resolutionNote)` mutation action creator and `RESOLVE_MANUAL_REVIEW_ITEM_*` reducer cases (updating the item's `status`/`resolvedAt`/`resolutionNote` in `manualReviewQueue.items`) in `src/actions.js` / `src/reducer.js` _(DEV REVIEW: `err(RESOLVE_MANUAL_REVIEW_ITEM)` in `src/reducer.js:408` stores the raw `formatServerError(...)` object in `reviewResolution.error` instead of `.message`; `ManualReviewResolutionDialog.jsx:142` renders it directly as a JSX child, so a transport-level failure crashes the dialog — fix by mirroring the `?.message ?? null` pattern used for US4's mutation error cases, then re-check)_
 - [x] T065 [P] [US5] Implement `ManualReviewResolutionDialog` (rejection-reason display, correcting-entry picker restricted via T063, resolution-note field, read-only original-entry summary with no edit controls per FR-012) in `src/components/ManualReviewResolutionDialog.jsx`
 - [x] T066 [US5] Implement `ManualReviewQueuePage` — pending/resolved list, opens `ManualReviewResolutionDialog`, gated entirely by `hasLedgerAdminRight` (FR-020) in `src/pages/ManualReviewQueuePage.jsx`
 - [x] T067 [US5] Register the `/ledger/manual-review` route and menu entry (admin-only) in `src/index.jsx`
@@ -227,17 +227,17 @@ Single-package frontend module (plan.md "Structure Decision"): `src/` and `tests
 
 ### Tests for User Story 7
 
-- [ ] T078 [P] [US7] Unit test for `configureDeployment` mutation action creator + reference-data fetch action creators in `tests/actions.test.js`
-- [ ] T079 [P] [US7] Component test confirming `ForwardOnlyModeWarningDialog` blocks submission until acknowledged in `tests/components/ForwardOnlyModeWarningDialog.test.js`
+- [x] T078 [P] [US7] Unit test for `configureDeployment` mutation action creator + reference-data fetch action creators in `tests/actions.test.js`
+- [x] T079 [P] [US7] Component test confirming `ForwardOnlyModeWarningDialog` blocks submission until acknowledged in `tests/components/ForwardOnlyModeWarningDialog.test.js`
 
 ### Implementation for User Story 7
 
-- [x] T080 [US7] Implement `fetchLedgerDeploymentReferenceData()` action creator (contracts/graphql-operations.md `LedgerDeploymentReferenceData` query: `externalSystems`, `currencyCodes`, `chartOfAccounts`, `deploymentConfiguration`) and reducer cases populating `externalSystems`/`currencyCodes`/`chartOfAccounts`/`deploymentConfiguration` in `src/actions.js` / `src/reducer.js` _(DEV REVIEW: action creator + reducer implémentés mais non testés)_
-- [x] T081 [US7] Implement `configureDeployment(operatingMode, externalSystem, currencyCode, retainedEarningsAccountId)` mutation action creator and `CONFIGURE_DEPLOYMENT_*` reducer cases in `src/actions.js` / `src/reducer.js` _(DEV REVIEW: action creator + reducer implémentés mais non testés)_
-- [ ] T082 [P] [US7] Implement `ForwardOnlyModeWarningDialog` (explicit acknowledgement required before enabling save, per FR-018) in `src/components/ForwardOnlyModeWarningDialog.jsx`
-- [ ] T083 [US7] Implement `DeploymentConfigurationPage` — operating-mode toggle, external-system/currency-code/retained-earnings-account dropdowns sourced from fetched reference data (no free text, per Clarifications), wired to `ForwardOnlyModeWarningDialog` on mode change, gated entirely by `hasLedgerAdminRight` (FR-020), in `src/pages/DeploymentConfigurationPage.jsx`
+- [x] T080 [US7] Implement `fetchLedgerDeploymentReferenceData()` action creator (contracts/graphql-operations.md `LedgerDeploymentReferenceData` query: `externalSystems`, `currencyCodes`, `chartOfAccounts`, `deploymentConfiguration`) and reducer cases populating `externalSystems`/`currencyCodes`/`chartOfAccounts`/`deploymentConfiguration` in `src/actions.js` / `src/reducer.js`
+- [x] T081 [US7] Implement `configureDeployment(operatingMode, externalSystem, currencyCode, retainedEarningsAccountId)` mutation action creator and `CONFIGURE_DEPLOYMENT_*` reducer cases in `src/actions.js` / `src/reducer.js`
+- [x] T082 [P] [US7] Implement `ForwardOnlyModeWarningDialog` (explicit acknowledgement required before enabling save, per FR-018) in `src/components/ForwardOnlyModeWarningDialog.jsx`
+- [x] T083 [US7] Implement `DeploymentConfigurationPage` — operating-mode toggle, external-system/currency-code/retained-earnings-account dropdowns sourced from fetched reference data (no free text, per Clarifications), wired to `ForwardOnlyModeWarningDialog` on mode change, gated entirely by `hasLedgerAdminRight` (FR-020), in `src/pages/DeploymentConfigurationPage.jsx`
 - [x] T084 [US7] Register the `/ledger/configuration` route and menu entry (admin-only) in `src/index.jsx`
-- [ ] T085 [US7] Add US7-specific translation keys (forward-only warning copy, field labels) to `src/translations/en.json`
+- [x] T085 [US7] Add US7-specific translation keys (forward-only warning copy, field labels) to `src/translations/en.json`
 
 **Checkpoint**: All 7 user stories independently functional
 
