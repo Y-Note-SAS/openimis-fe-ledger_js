@@ -88,7 +88,7 @@ vi.mock("@mui/material", () => ({
             React.createElement(
               "option",
               {
-                key: String(option?.value ?? option?.analyticValueId ?? option?.id ?? index),
+                key: String(option?.value || option?.analyticValueId || option?.id) || `option-${index}`,
                 value: option?.value ?? "",
               },
               getOptionLabel(option),

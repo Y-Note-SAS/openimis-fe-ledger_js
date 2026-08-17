@@ -48,8 +48,8 @@ describe("page smoke tests", () => {
     expect(() => renderPage(Page)).not.toThrow();
   });
 
-  it("DeploymentConfigurationPage renders its placeholder shell", () => {
-    const { getByText } = renderPage(DeploymentConfigurationPage);
-    expect(getByText("This is the Deployment Configuration Page")).toBeInTheDocument();
+  it("DeploymentConfigurationPage renders its configuration form", () => {
+    const { getByLabelText } = renderPage(DeploymentConfigurationPage);
+    expect(getByLabelText("ledger.deployment.operatingMode")).toBeInTheDocument();
   });
 });

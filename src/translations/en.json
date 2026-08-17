@@ -187,7 +187,23 @@
       "failure": "The export failed. Please try again."
     },
     "deployment": {
-      "pageTitle": "Deployment Configuration"
+      "pageTitle": "Deployment Configuration",
+      "operatingMode": "Operating mode",
+      "operatingModes": {
+        "localOnly": "Local only",
+        "replicated": "Replicated"
+      },
+      "externalSystem": "External system",
+      "currencyCode": "Currency",
+      "retainedEarningsAccount": "Retained earnings account",
+      "save": "Save configuration",
+      "saveError": "The deployment configuration could not be saved.",
+      "forwardOnly": {
+        "title": "Confirm operating mode change",
+        "message": "This change applies only going forward. Existing ledger entries will not be replicated retroactively. Confirm to continue.",
+        "cancel": "Cancel",
+        "confirm": "Confirm and save"
+      }
     }
   }
 }
