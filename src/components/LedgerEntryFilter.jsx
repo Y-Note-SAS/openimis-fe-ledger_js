@@ -40,7 +40,13 @@ const LedgerEntryFilter = ({ intl, filters, onChangeFilters }) => {
               <LedgerJournalPicker
                 value={textFilterValue("journal")}
                 onChange={(value) =>
-                  onChangeFilters([{ id: "journal", value, filter: value ? `journal: "${value}"` : null }])
+                  onChangeFilters([
+                    {
+                      id: "journal",
+                      value: value?.code ?? null,
+                      filter: value?.code ? `journal: "${value.code}"` : null,
+                    },
+                  ])
                 }
               />
             </Grid>
