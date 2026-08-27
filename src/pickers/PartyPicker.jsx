@@ -5,30 +5,34 @@ import { bindActionCreators } from "redux";
 import _debounce from "lodash/debounce";
 import { Autocomplete, TextField } from "@mui/material";
 import { formatMessage } from "@openimis/fe-core";
-import { searchPartyMock } from "../actions";
+import { searchParty } from "../actions";
 import { DEFUALT_DEBOUNCE_TIME } from "../constants";
 
-const PartyPicker = ({ intl, value, onChange, results, fetchingResults, searchPartyMock }) => {
+const PartyPicker = ({ intl, value, onChange, results, fetchingResults, searchParty }) => {
   const [inputValue, setInputValue] = useState("");
 
   const debouncedSearch = useMemo(
     () =>
       _debounce((term) => {
-        searchPartyMock(term);
+        searchParty(term);
       }, DEFUALT_DEBOUNCE_TIME),
-    [searchPartyMock],
+    [searchParty],
   );
+
+  // The backend analyticValue query has no axis filter, so it returns both
+  // party and funder values; keep only party-axis rows (partyType is set).
+  const partyResults = useMemo(() => (results || []).filter((result) => !!result.partyType), [results]);
 
   useEffect(() => () => debouncedSearch.cancel(), [debouncedSearch]);
 
   return (
     <Autocomplete
-      options={results || []}
+      options={partyResults || []}
       loading={fetchingResults}
       openOnFocus
       value={value || null}
       inputValue={inputValue}
-      onOpen={() => searchPartyMock("")}
+      onOpen={() => searchParty("")}
       onInputChange={(_, newInputValue) => {
         setInputValue(newInputValue);
         debouncedSearch(newInputValue);
@@ -55,7 +59,7 @@ const mapStateToProps = (state) => ({
   fetchingResults: state.ledger.partySearch.isFetching,
 });
 
-const mapDispatchToProps = (dispatch) => bindActionCreators({ searchPartyMock }, dispatch);
+const mapDispatchToProps = (dispatch) => bindActionCreators({ searchParty }, dispatch);
 
 export { PartyPicker };
 export default injectIntl(connect(mapStateToProps, mapDispatchToProps)(PartyPicker));

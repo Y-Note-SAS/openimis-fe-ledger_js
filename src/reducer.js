@@ -83,22 +83,45 @@ const decodeLedgerReferenceId = (id) => {
   }
 };
 
+// Backend AccountingPeriod.status is a SmallIntegerField (1=open, 2=locked,
+// 3=closed) while the frontend view-model uses strings. Normalize on ingest so
+// components keep comparing `status === "open"` etc.
+const PERIOD_STATUS_LABELS = { 1: "open", 2: "locked", 3: "closed", A_1: "open", A_2: "locked", A_3: "closed" };
+const mapPeriodStatus = (status) => PERIOD_STATUS_LABELS[status] ?? status;
+
+// Derives the legacy `{ analyticValueId, displayName }` tag view-model from the
+// real backend's `analyticTags` (filtered by axis code). Returns null when the
+// line carries no tag for that axis.
+const mapAnalyticTag = (analyticTags, axisCode) => {
+  const value = (analyticTags || []).find(
+    (tag) => tag?.analyticValue?.axis?.code?.toLowerCase() === axisCode,
+  )?.analyticValue;
+  return value ? { analyticValueId: value.id, displayName: value.displayName } : null;
+};
+
+const mapLedgerEntryLine = (line) => ({
+  id: decodeLedgerReferenceId(line.id),
+  account: line.account,
+  debit: line.debit,
+  credit: line.credit,
+  partyTag: line.partyTag || mapAnalyticTag(line.analyticTags, "party"),
+  funderTag: line.funderTag || mapAnalyticTag(line.analyticTags, "funder"),
+});
+
 const mapLedgerEntryNode = (node) => {
-  const lines = (node?.lines || []).map((line) => ({
-    id: decodeLedgerReferenceId(line.id),
-    account: line.account,
-    debit: line.debit,
-    credit: line.credit,
-    partyTag: line.partyTag,
-    funderTag: line.funderTag,
-  }));
+  const rawLines = node?.lines || node?.transaction?.legs || [];
+  const lines = rawLines.map(mapLedgerEntryLine);
   return {
     id: decodeLedgerReferenceId(node.id),
     journal: node.journal,
     accountingPeriod: node.accountingPeriod
-      ? { ...node.accountingPeriod, id: decodeLedgerReferenceId(node.accountingPeriod.id) }
+      ? {
+          ...node.accountingPeriod,
+          id: decodeLedgerReferenceId(node.accountingPeriod.id),
+          status: mapPeriodStatus(node.accountingPeriod.status),
+        }
       : node.accountingPeriod,
-    sourceEventType: node.sourceEventType,
+    sourceEventType: node.sourceEventType?.toLowerCase(),
     sourceEventReference: node.sourceEventReference,
     postedAt: node.postedAt,
     lines,
@@ -132,7 +155,8 @@ const decodeManualReviewId = (id) => {
   }
 };
 
-const mapAccountingPeriod = (period) => (period ? { ...period, id: decodeId(period.id) } : period);
+const mapAccountingPeriod = (period) =>
+  period ? { ...period, id: decodeId(period.id), status: mapPeriodStatus(period.status) } : period;
 
 // Shared by lock/close/reopen (US4): replaces the matching period in
 // `accountingPeriods.items` with the mutation's returned period, or (if the
@@ -211,10 +235,9 @@ function reducer(state = initialState, action) {
         accountingPeriods: { ...state.accountingPeriods, isFetching: true, isFetched: false, error: null },
       };
     case resp(ACTION_TYPE.ACCOUNTING_PERIODS): {
-      const items = (action.payload?.data?.accountingPeriods || []).map((period) => ({
-        ...period,
-        id: decodeId(period.id),
-      }));
+      const items = (action.payload?.data?.accountingPeriods?.edges || []).map((edge) =>
+        mapAccountingPeriod(edge.node),
+      );
       return {
         ...state,
         accountingPeriods: {
@@ -241,7 +264,15 @@ function reducer(state = initialState, action) {
           isFetching: false,
           isFetched: true,
           error: formatGraphQLError(action.payload),
-          results: (action.payload?.data?.analyticValues || []).map((r) => ({ ...r, id: decodeId(r.analyticValueId) })),
+          results: (action.payload?.data?.analyticValue?.edges || []).map((edge) => {
+            const node = edge.node;
+            return {
+              ...node,
+              analyticValueId: node.id,
+              id: decodeId(node.id),
+              partyType: node.partyType?.toLowerCase(),
+            };
+          }),
         },
       };
     case err(ACTION_TYPE.PARTY_SEARCH):
@@ -290,7 +321,15 @@ function reducer(state = initialState, action) {
           isFetching: false,
           isFetched: true,
           error: formatGraphQLError(action.payload),
-          results: (action.payload?.data?.analyticValues || []).map((r) => ({ ...r, id: decodeId(r.analyticValueId) })),
+          results: (action.payload?.data?.analyticValue?.edges || []).map((edge) => {
+            const node = edge.node;
+            return {
+              ...node,
+              analyticValueId: node.id,
+              id: decodeId(node.id),
+              partyType: node.partyType?.toLowerCase(),
+            };
+          }),
         },
       };
     case err(ACTION_TYPE.FUNDER_SEARCH):

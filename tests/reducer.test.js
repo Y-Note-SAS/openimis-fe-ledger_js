@@ -15,7 +15,7 @@ describe("Reducer", () => {
     expect(state.ledgerEntries.filters.journal).toBe("BANK");
   });
 
-  it("handles LEDGER_LEDGER_ENTRIES_RESP", () => {
+  it("handles LEDGER_LEDGER_ENTRIES_RESP with the real transaction/legs shape", () => {
     const action = {
       type: `${ACTION_TYPE.LEDGER_ENTRIES}_RESP`,
       payload: {
@@ -24,17 +24,48 @@ describe("Reducer", () => {
             totalCount: 10,
             pageInfo: { hasNextPage: true, hasPreviousPage: false, startCursor: "0", endCursor: "9" },
             edges: [
-              { node: { id: "QWNjb3VudGluZ1BlcmlvZDox", journal: { code: "BANK" }, lines: [] } }
-            ]
-          }
-        }
-      }
+              {
+                node: {
+                  id: "TGVkZ2VyRW50cnk6MQ==",
+                  journal: { code: "BANK", name: "Bank" },
+                  accountingPeriod: { id: "QWNjb3VudGluZ1BlcmlvZDox", status: 1 },
+                  sourceEventType: "claim_payment",
+                  sourceEventReference: "CLM-2026-0001",
+                  postedAt: "2026-07-24T10:00:00Z",
+                  transaction: {
+                    id: "VHJhbnNhY3Rpb246MQ==",
+                    legs: [
+                      {
+                        id: "TGVnOjE=",
+                        account: { code: "4010", name: "Debit" },
+                        debit: "12500.00",
+                        credit: null,
+                        analyticTags: [
+                          { analyticValue: { id: "QW5hbHl0aWNWYWx1ZTox", displayName: "District Hospital", partyType: "health_facility", funderCode: null, axis: { code: "party" } } },
+                          { analyticValue: { id: "QW5hbHl0aWNWYWx1ZToy", displayName: "GIZ", partyType: null, funderCode: "GIZ", axis: { code: "funder" } } },
+                        ],
+                      },
+                    ],
+                  },
+                },
+              },
+            ],
+          },
+        },
+      },
     };
     const state = reducer(initialState, action);
     expect(state.ledgerEntries.isFetching).toBe(false);
     expect(state.ledgerEntries.isFetched).toBe(true);
     expect(state.ledgerEntries.items.length).toBe(1);
     expect(state.ledgerEntries.pageInfo.totalCount).toBe(10);
+    const entry = state.ledgerEntries.items[0];
+    expect(entry.id).toBe("1");
+    expect(entry.accountingPeriod.status).toBe("open");
+    expect(entry.sourceEventType).toBe("claim_payment");
+    expect(entry.lines).toHaveLength(1);
+    expect(entry.lines[0].partyTag).toEqual({ analyticValueId: "QW5hbHl0aWNWYWx1ZTox", displayName: "District Hospital" });
+    expect(entry.lines[0].funderTag).toEqual({ analyticValueId: "QW5hbHl0aWNWYWx1ZToy", displayName: "GIZ" });
   });
 
   it("handles LEDGER_LEDGER_ENTRIES_ERR", () => {
@@ -55,22 +86,35 @@ describe("Reducer", () => {
     expect(state.accountingPeriods.isFetched).toBe(false);
   });
 
-  it("handles LEDGER_ACCOUNTING_PERIODS_RESP", () => {
+  it("handles LEDGER_ACCOUNTING_PERIODS_RESP (Relay connection, status normalized)", () => {
     const action = {
       type: `${ACTION_TYPE.ACCOUNTING_PERIODS}_RESP`,
       payload: {
         data: {
-          accountingPeriods: [
-            { id: "QWNjb3VudGluZ1BlcmlvZDox", startDate: "2026-07-01", endDate: "2026-07-31", status: "open" }
-          ]
-        }
-      }
+          accountingPeriods: {
+            totalCount: 1,
+            edges: [
+              {
+                node: {
+                  id: "QWNjb3VudGluZ1BlcmlvZDox",
+                  startDate: "2026-07-01",
+                  endDate: "2026-07-31",
+                  code: "2026-07",
+                  status: 1,
+                },
+              },
+            ],
+          },
+        },
+      },
     };
     const state = reducer(initialState, action);
     expect(state.accountingPeriods.isFetching).toBe(false);
     expect(state.accountingPeriods.isFetched).toBe(true);
     expect(state.accountingPeriods.items.length).toBe(1);
     expect(state.accountingPeriods.items[0].id).toBe("QWNjb3VudGluZ1BlcmlvZDox");
+    expect(state.accountingPeriods.items[0].status).toBe("open");
+    expect(state.accountingPeriods.items[0].code).toBe("2026-07");
   });
 
   it("handles LEDGER_PARTY_SEARCH_REQ", () => {
@@ -79,21 +123,26 @@ describe("Reducer", () => {
     expect(state.partySearch.isFetching).toBe(true);
   });
 
-  it("handles LEDGER_PARTY_SEARCH_RESP", () => {
+  it("handles LEDGER_PARTY_SEARCH_RESP (analyticValue connection)", () => {
     const action = {
       type: `${ACTION_TYPE.PARTY_SEARCH}_RESP`,
       payload: {
         data: {
-          analyticValues: [
-            { analyticValueId: "QWNjb3VudGluZ1BlcmlvZDox", displayName: "Party A" }
-          ]
-        }
-      }
+          analyticValue: {
+            edges: [
+              { node: { id: "QW5hbHl0aWNWYWx1ZTox", displayName: "Party A", partyType: "health_facility", funderCode: null, externalReference: "HF-1" } },
+            ],
+          },
+        },
+      },
     };
     const state = reducer(initialState, action);
     expect(state.partySearch.isFetching).toBe(false);
     expect(state.partySearch.isFetched).toBe(true);
     expect(state.partySearch.results.length).toBe(1);
+    expect(state.partySearch.results[0].analyticValueId).toBe("QW5hbHl0aWNWYWx1ZTox");
+    expect(state.partySearch.results[0].id).toBe("QW5hbHl0aWNWYWx1ZTox");
+    expect(state.partySearch.results[0].partyType).toBe("health_facility");
   });
 
   it("handles LEDGER_PARTY_SEARCH_ERR", () => {
@@ -149,21 +198,25 @@ describe("Reducer", () => {
     expect(state.partyLedgerBalance).toEqual({ isFetching: false, isFetched: false, error: null, data: null });
   });
 
-  it("handles LEDGER_FUNDER_SEARCH_RESP", () => {
+  it("handles LEDGER_FUNDER_SEARCH_RESP (analyticValue connection)", () => {
     const action = {
       type: `${ACTION_TYPE.FUNDER_SEARCH}_RESP`,
       payload: {
         data: {
-          analyticValues: [
-            { analyticValueId: "QWNjb3VudGluZ1BlcmlvZDox", displayName: "Funder A" }
-          ]
-        }
-      }
+          analyticValue: {
+            edges: [
+              { node: { id: "QW5hbHl0aWNWYWx1ZToy", displayName: "Funder A", partyType: null, funderCode: "GIZ", externalReference: "GIZ" } },
+            ],
+          },
+        },
+      },
     };
     const state = reducer(initialState, action);
     expect(state.funderSearch.isFetching).toBe(false);
     expect(state.funderSearch.isFetched).toBe(true);
     expect(state.funderSearch.results.length).toBe(1);
+    expect(state.funderSearch.results[0].analyticValueId).toBe("QW5hbHl0aWNWYWx1ZToy");
+    expect(state.funderSearch.results[0].id).toBe("QW5hbHl0aWNWYWx1ZToy");
   });
 
   it("handles LEDGER_FUNDER_ACTIVITY_REPORT_RESP", () => {

@@ -49,8 +49,8 @@ describe("FunderPicker", () => {
 
   it("renders with results when available", () => {
     const results = [
-      { analyticValueId: "1", displayName: "Funder A" },
-      { analyticValueId: "2", displayName: "Funder B" },
+      { analyticValueId: "1", displayName: "Funder A", funderCode: "A" },
+      { analyticValueId: "2", displayName: "Funder B", funderCode: "B" },
     ];
 
     renderPicker(
@@ -59,6 +59,22 @@ describe("FunderPicker", () => {
     );
 
     expect(screen.getByLabelText("ledger.picker.funder")).toBeInTheDocument();
+  });
+
+  it("filters out party-axis results client-side (rows without funderCode)", () => {
+    const results = [
+      { analyticValueId: "1", displayName: "GIZ", partyType: null, funderCode: "GIZ" },
+      { analyticValueId: "2", displayName: "District Hospital", partyType: "health_facility", funderCode: null },
+    ];
+
+    renderPicker(
+      { value: null, onChange: vi.fn() },
+      { funderSearch: { results, isFetching: false } },
+    );
+
+    const optionLabels = screen.getAllByRole("option").map((option) => option.textContent);
+    expect(optionLabels.some((label) => label.includes("GIZ"))).toBe(true);
+    expect(optionLabels.some((label) => label.includes("District Hospital"))).toBe(false);
   });
 
   it("handles empty results", () => {

@@ -12,7 +12,7 @@ import AccountingPeriodPicker from "./pickers/AccountingPeriodPicker";
 import LedgerJournalPicker from "./pickers/LedgerJournalPicker";
 import PartyPicker from "./pickers/PartyPicker";
 import FunderPicker from "./pickers/FunderPicker";
-import { coreMainMenuEntry, buildLedgerMainMenuEntries, LEDGER_MAIN_MENU_ID } from "./menus/LedgerMainMenu";
+import { buildLedgerSubMenuEntry } from "./menus/LedgerMainMenu";
 import { RIGHT_LEDGER_REPORTING, RIGHT_LEDGER_ADMIN } from "./constants";
 
 // Route paths
@@ -30,7 +30,6 @@ const ADMIN_ONLY_RIGHTS = [RIGHT_LEDGER_ADMIN];
 const DEFAULT_CONFIG = {
   translations: [{ key: "en", messages: flatten(messages_en) }],
   reducers: [{ key: "ledger", reducer }],
-  "core.MainMenu": [coreMainMenuEntry],
   "core.Router": [
     {
       path: ROUTE_GENERAL_LEDGER,
@@ -102,15 +101,17 @@ const DEFAULT_CONFIG = {
     { key: "ledger.PartyPicker", ref: PartyPicker },
     { key: "ledger.FunderPicker", ref: FunderPicker },
   ],
-  [LEDGER_MAIN_MENU_ID]: buildLedgerMainMenuEntries({
-    ROUTE_GENERAL_LEDGER,
-    ROUTE_PARTY_LEDGER,
-    ROUTE_FUNDER_ACTIVITY,
-    ROUTE_ACCOUNTING_PERIODS,
-    ROUTE_MANUAL_REVIEW_QUEUE,
-    ROUTE_PERIOD_EXPORT,
-    ROUTE_DEPLOYMENT_CONFIGURATION,
-  }),
+  "invoice.MainMenu": [
+    buildLedgerSubMenuEntry({
+      ROUTE_GENERAL_LEDGER,
+      ROUTE_PARTY_LEDGER,
+      ROUTE_FUNDER_ACTIVITY,
+      ROUTE_ACCOUNTING_PERIODS,
+      ROUTE_MANUAL_REVIEW_QUEUE,
+      ROUTE_PERIOD_EXPORT,
+      ROUTE_DEPLOYMENT_CONFIGURATION,
+    }),
+  ],
 };
 
 export const LedgerModule = (cfg) => {

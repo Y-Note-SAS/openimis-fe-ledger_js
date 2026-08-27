@@ -1,32 +1,34 @@
-import { graphqlWithVariables } from "@openimis/fe-core";
+import { graphqlWithVariables, decodeId } from "@openimis/fe-core";
 import { ACTION_TYPE } from "./reducer";
 import { EXPORT_JOB_POLL_INTERVAL_MS, MOCK_EXPORT_POLL_INTERVAL_MS } from "./constants";
 
-// GraphQL operation strings mirror contracts/graphql-operations.md verbatim
-// (variable names, field aliases, and nesting) since that document is the
-// authoritative source until openimis-be-ledger_py ships its real schema
-// (research.md §2).
+// GraphQL operation strings target the REAL openimis-be-ledger_py schema
+// (feature-37591): snake_case root fields, Relay connections, graphene-django
+// camelCased root fields/filters (graphene-django auto-camelCases the Python
+// snake_case field names) and UUID resolver args (party/funder). The deployed
+// LedgerEntryGQLType does not expose the `transaction`/legs object, so the
+// node is limited to its scalar + journal/accountingPeriod fields. The legacy
+// design contract in contracts/graphql-operations.md described the pre-stub
+// schema and is no longer the source of truth for these operations.
 
 const LEDGER_ENTRIES_QUERY = `
   query LedgerEntries(
-    $journal: String, $accountingPeriod: ID, $party: ID, $funder: ID,
-    $sourceEventType: String, $first: Int, $after: String
+    $journal: String, $accountingPeriodCode: String, $party: UUID, $funder: UUID,
+    $sourceEventType: LedgerEntryMetaSourceEventType, $first: Int, $after: String, $before: String, $last: Int
   ) {
     ledgerEntries(
-      journal: $journal, accountingPeriod: $accountingPeriod, party: $party,
-      funder: $funder, sourceEventType: $sourceEventType, first: $first, after: $after
+      journal_Code: $journal, accountingPeriod_Code: $accountingPeriodCode,
+      party: $party, funder: $funder, sourceEventType: $sourceEventType,
+      first: $first, after: $after, before: $before, last: $last
     ) {
       totalCount
       pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
       edges {
         node {
-          id journal { code name } accountingPeriod { id status }
+          id
+          journal { code name }
+          accountingPeriod { id status }
           sourceEventType sourceEventReference postedAt
-          lines: legs {
-            id account { code name } debit credit
-            partyTag { analyticValueId displayName }
-            funderTag { analyticValueId displayName }
-          }
         }
       }
     }
@@ -34,9 +36,14 @@ const LEDGER_ENTRIES_QUERY = `
 `;
 
 const ACCOUNTING_PERIODS_QUERY = `
-  query AccountingPeriods($status: String) {
-    accountingPeriods(status: $status) {
-      id startDate endDate status closingTransactionId lockedAt closedAt closedBy
+  query AccountingPeriods {
+    accountingPeriods {
+      totalCount
+      edges {
+        node {
+          id startDate endDate name code status lockedAt closedAt
+        }
+      }
     }
   }
 `;
@@ -51,9 +58,14 @@ const ACCOUNTING_PERIODS_QUERY = `
 // `FunderResultViewModel` fields from data-model.md. Adjust once the backend
 // contract names this explicitly.
 const ANALYTIC_VALUES_QUERY = `
-  query AnalyticValues($search: String!, $tagType: String!) {
-    analyticValues(search: $search, tagType: $tagType) {
-      analyticValueId partyType funderCode displayName externalReference
+  query AnalyticValues($search: String, $first: Int) {
+    analyticValue(displayName: $search, first: $first) {
+      totalCount
+      edges {
+        node {
+          id displayName partyType funderCode externalReference
+        }
+      }
     }
   }
 `;
@@ -193,9 +205,9 @@ const mockId = (type, id) => btoa(`${type}:${id}`);
 const OPEN_PERIOD_ID = mockId("AccountingPeriod", 1);
 const CLOSED_PERIOD_ID = mockId("AccountingPeriod", 2);
 const MOCK_RETAINED_EARNINGS_ACCOUNT_ID = mockId("ChartOfAccounts", 105);
+const ALL_PERIODS_FILTER_VALUE = "__all__";
 const MOCK_CAPITAL_RESERVE_ACCOUNT_ID = mockId("ChartOfAccounts", 110);
 const analyticId = (id) => mockId("AnalyticValue", id);
-const ALL_PERIODS_FILTER_VALUE = "__all__";
 
 const decodeMockId = (encoded) => {
   try {
@@ -296,57 +308,6 @@ let mockAccountingPeriods = MOCK_ACCOUNTING_PERIODS.map((period) => ({ ...period
 export const resetAccountingPeriodsMock = () => {
   mockAccountingPeriods = MOCK_ACCOUNTING_PERIODS.map((period) => ({ ...period, id: decodeMockId(period.id) }));
 };
-
-const MOCK_PARTIES = [
-  {
-    analyticValueId: analyticId("HF-1"),
-    partyType: "health_facility",
-    displayName: "District Hospital",
-    externalReference: "HF-1",
-  },
-  {
-    analyticValueId: analyticId("HF-2"),
-    partyType: "health_facility",
-    displayName: "Urban Clinic",
-    externalReference: "HF-2",
-  },
-  {
-    analyticValueId: analyticId("HF-3"),
-    partyType: "health_facility",
-    displayName: "Rural Health Center",
-    externalReference: "HF-3",
-  },
-  {
-    analyticValueId: analyticId("FAM-1"),
-    partyType: "insuree_family",
-    displayName: "Family Doe",
-    externalReference: "FAM-1",
-  },
-  {
-    analyticValueId: analyticId("FAM-2"),
-    partyType: "insuree_family",
-    displayName: "Family Smith",
-    externalReference: "FAM-2",
-  },
-  {
-    analyticValueId: analyticId("PPM-1"),
-    partyType: "payment_point_manager",
-    displayName: "Payment Point Manager A",
-    externalReference: "PPM-1",
-  },
-  {
-    analyticValueId: analyticId("PPM-2"),
-    partyType: "payment_point_manager",
-    displayName: "Payment Point Manager B",
-    externalReference: "PPM-2",
-  },
-];
-
-const MOCK_FUNDERS = [
-  { analyticValueId: analyticId("GIZ"), funderCode: "GIZ", displayName: "GIZ", externalReference: "GIZ" },
-  { analyticValueId: analyticId("WB"), funderCode: "WB", displayName: "World Bank", externalReference: "WB" },
-  { analyticValueId: analyticId("UNICEF"), funderCode: "UNICEF", displayName: "UNICEF", externalReference: "UNICEF" },
-];
 
 // Carried-forward balances per funder so the aggregated totals and the
 // signed balance vary from one funder to the next during manual testing.
@@ -557,9 +518,19 @@ export function fetchLedgerEntriesMock(params = []) {
 export function fetchAccountingPeriodsMock() {
   return (dispatch) => {
     dispatch({ type: `${ACTION_TYPE.ACCOUNTING_PERIODS}_REQ` });
+    // Dispatch the same Relay-connection shape the real backend returns so the
+    // reducer handles both paths uniformly (US4 stays mock-backed until its own
+    // integration ticket).
     dispatch({
       type: `${ACTION_TYPE.ACCOUNTING_PERIODS}_RESP`,
-      payload: { data: { accountingPeriods: mockAccountingPeriods } },
+      payload: {
+        data: {
+          accountingPeriods: {
+            totalCount: mockAccountingPeriods.length,
+            edges: mockAccountingPeriods.map((period) => ({ node: period })),
+          },
+        },
+      },
     });
   };
 }
@@ -676,44 +647,6 @@ export function fetchPartyLedgerBalanceMock(analyticValueId, accountingPeriodId)
           },
         },
       },
-    });
-  };
-}
-
-export function searchPartyMock(searchTerm) {
-  return (dispatch) => {
-    const term = String(searchTerm || "").toLowerCase().trim();
-    const results = !term
-      ? MOCK_PARTIES
-      : MOCK_PARTIES.filter(
-          (party) =>
-            party.displayName.toLowerCase().includes(term) ||
-            party.analyticValueId.toLowerCase().includes(term) ||
-            party.externalReference.toLowerCase().includes(term),
-        );
-    dispatch({ type: `${ACTION_TYPE.PARTY_SEARCH}_REQ` });
-    dispatch({
-      type: `${ACTION_TYPE.PARTY_SEARCH}_RESP`,
-      payload: { data: { analyticValues: results } },
-    });
-  };
-}
-
-export function searchFunderMock(searchTerm) {
-  return (dispatch) => {
-    const term = String(searchTerm || "").toLowerCase().trim();
-    const results = !term
-      ? MOCK_FUNDERS
-      : MOCK_FUNDERS.filter(
-          (funder) =>
-            funder.displayName.toLowerCase().includes(term) ||
-            funder.analyticValueId.toLowerCase().includes(term) ||
-            funder.externalReference.toLowerCase().includes(term),
-        );
-    dispatch({ type: `${ACTION_TYPE.FUNDER_SEARCH}_REQ` });
-    dispatch({
-      type: `${ACTION_TYPE.FUNDER_SEARCH}_RESP`,
-      payload: { data: { analyticValues: results } },
     });
   };
 }
@@ -964,17 +897,32 @@ export function reopenAccountingPeriodMock(accountingPeriodId) {
 }
 
 /**
- * Dispatches the LedgerEntries query (US1, FR-001). `filters` uses the
- * frontend view-model names from data-model.md's `LedgerEntryFilters`
- * (`accountingPeriodId`, `partyAnalyticValueId`, `funderAnalyticValueId`),
- * translated here to the backend's GraphQL argument names
- * (`accountingPeriod`, `party`, `funder`) per contracts/graphql-operations.md.
+ * Dispatches the real `ledgerEntries` query (US1, FR-001). `filters` uses the
+ * frontend view-model names (`accountingPeriodId`, `partyAnalyticValueId`,
+ * `funderAnalyticValueId`, `journal`, `sourceEventType`), translated to the
+ * backend's GraphQL arguments (`journal_Code`, `accountingPeriod_Code`,
+ * `party`/`funder` as raw UUIDs, `sourceEventType`).
  *
- * Per FR-001 / data-model.md's client-side validation rule, when
- * `filters.accountingPeriodId` is not explicitly set, this defaults to the
- * current open accounting period's id (read from `state.ledger.accountingPeriods`)
- * rather than sending an unscoped query.
+ * The backend has no `accounting_period__id` filter, so an explicit period is
+ * passed via its unique `code` (resolved from `state.ledger.accountingPeriods`).
+ * Per FR-001, when no period filter is set, this defaults to the current open
+ * period's code rather than sending an unscoped query.
  */
+const decodeUuid = (id) => {
+  if (!id) return null;
+  try {
+    return decodeId(id);
+  } catch {
+    return id;
+  }
+};
+
+// graphene-django exposes choice fields as enums: the filter argument expects
+// the CONSTANT_CASE member name (e.g. "CLAIM_PAYMENT"), while the frontend
+// view-model uses the lowercase Django value ("claim_payment").
+const toGrapheneEnum = (value) =>
+  value ? String(value).toUpperCase().replace(/[^A-Z0-9]/g, "_") : null;
+
 export function fetchLedgerEntries(filters = {}, pageInfo = {}) {
   return async (dispatch, getState) => {
     let accountingPeriodId = filters.accountingPeriodId;
@@ -983,16 +931,23 @@ export function fetchLedgerEntries(filters = {}, pageInfo = {}) {
       accountingPeriodId = openPeriod?.id ?? null;
     }
 
+    const periods = getState().ledger?.accountingPeriods?.items || [];
+    const accountingPeriodCode = accountingPeriodId
+      ? (periods.find((period) => period.id === accountingPeriodId)?.code ?? null)
+      : null;
+
     const resolvedFilters = { ...filters, accountingPeriodId };
 
     const variables = {
       journal: filters.journal ?? null,
-      accountingPeriod: accountingPeriodId,
-      party: filters.partyAnalyticValueId ?? null,
-      funder: filters.funderAnalyticValueId ?? null,
-      sourceEventType: filters.sourceEventType ?? null,
+      accountingPeriodCode,
+      party: decodeUuid(filters.partyAnalyticValueId),
+      funder: decodeUuid(filters.funderAnalyticValueId),
+      sourceEventType: toGrapheneEnum(filters.sourceEventType),
       first: pageInfo.first ?? null,
       after: pageInfo.after ?? null,
+      before: pageInfo.before ?? null,
+      last: pageInfo.last ?? null,
     };
 
     return dispatch(
@@ -1010,18 +965,20 @@ export function fetchLedgerEntries(filters = {}, pageInfo = {}) {
  * Dispatches the AccountingPeriods query (Foundational T015; shared by
  * AccountingPeriodPicker and the US1 default-period lookup).
  */
-export function fetchAccountingPeriods(status = null) {
-  const variables = { status };
-  return graphqlWithVariables(ACCOUNTING_PERIODS_QUERY, variables, [
+export function fetchAccountingPeriods() {
+  return graphqlWithVariables(ACCOUNTING_PERIODS_QUERY, {}, [
     `${ACTION_TYPE.ACCOUNTING_PERIODS}_REQ`,
     `${ACTION_TYPE.ACCOUNTING_PERIODS}_RESP`,
     `${ACTION_TYPE.ACCOUNTING_PERIODS}_ERR`,
   ]);
 }
 
-/** User Story 2 — unified party search across party types (research.md §6). */
+/** User Story 2 — party search over `analyticValue`. The backend only exposes
+ * exact `displayName` matching (no icontains / axis filter), so the picker
+ * fetches a bounded list and filters by axis client-side (keeps `partyType`
+ * results only). */
 export function searchParty(searchTerm) {
-  const variables = { search: searchTerm, tagType: "party" };
+  const variables = { search: searchTerm || null, first: 25 };
   return graphqlWithVariables(ANALYTIC_VALUES_QUERY, variables, [
     `${ACTION_TYPE.PARTY_SEARCH}_REQ`,
     `${ACTION_TYPE.PARTY_SEARCH}_RESP`,
@@ -1043,9 +1000,10 @@ export function fetchPartyLedgerBalance(analyticValueId, accountingPeriodId) {
   ]);
 }
 
-/** User Story 3 — unified funder search (same AnalyticValue index, tagType "funder"). */
+/** User Story 3 — funder search over `analyticValue` (keeps `funderCode`
+ * results only; exact `displayName` match, see searchParty). */
 export function searchFunder(searchTerm) {
-  const variables = { search: searchTerm, tagType: "funder" };
+  const variables = { search: searchTerm || null, first: 25 };
   return graphqlWithVariables(ANALYTIC_VALUES_QUERY, variables, [
     `${ACTION_TYPE.FUNDER_SEARCH}_REQ`,
     `${ACTION_TYPE.FUNDER_SEARCH}_RESP`,

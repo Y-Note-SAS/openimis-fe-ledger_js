@@ -69,4 +69,20 @@ describe("PartyPicker", () => {
 
     expect(screen.getByLabelText("ledger.picker.party")).toBeInTheDocument();
   });
+
+  it("filters out funder-axis results client-side (rows without partyType)", () => {
+    const results = [
+      { analyticValueId: "1", displayName: "Party A", partyType: "health_facility", funderCode: null },
+      { analyticValueId: "2", displayName: "GIZ", partyType: null, funderCode: "GIZ" },
+    ];
+
+    renderPicker(
+      { value: null, onChange: vi.fn() },
+      { partySearch: { results, isFetching: false } },
+    );
+
+    const optionLabels = screen.getAllByRole("option").map((option) => option.textContent);
+    expect(optionLabels.some((label) => label.includes("Party A"))).toBe(true);
+    expect(optionLabels.some((label) => label.includes("GIZ"))).toBe(false);
+  });
 });

@@ -5,8 +5,6 @@ import {
   fetchLedgerEntriesMock,
   fetchAccountingPeriodsMock,
   fetchPartyLedgerBalanceMock,
-  searchPartyMock,
-  searchFunderMock,
   fetchFunderActivityReportMock,
   fetchManualReviewQueueMock,
   resolveManualReviewItemMock,
@@ -91,45 +89,12 @@ describe("Actions - Mocks", () => {
       type: `${ACTION_TYPE.ACCOUNTING_PERIODS}_RESP`,
       payload: expect.objectContaining({
         data: expect.objectContaining({
-          accountingPeriods: expect.arrayContaining([expect.objectContaining({ status: expect.any(String) })]),
+          accountingPeriods: expect.objectContaining({
+            edges: expect.arrayContaining([expect.objectContaining({ node: expect.objectContaining({ status: expect.any(String) }) })]),
+          }),
         }),
       }),
     });
-  });
-
-  it("searchPartyMock returns parties matching search term", () => {
-    const thunk = searchPartyMock("Hospital");
-    thunk(dispatch);
-
-    expect(dispatch).toHaveBeenCalledTimes(2);
-    const respCall = dispatch.mock.calls.find((call) => call[0].type === `${ACTION_TYPE.PARTY_SEARCH}_RESP`);
-    expect(respCall).toBeDefined();
-    const results = respCall[0].payload.data.analyticValues;
-    expect(results.length).toBeGreaterThan(0);
-    results.forEach((party) => {
-      expect(party.displayName.toLowerCase()).toContain("hospital");
-    });
-  });
-
-  it("searchPartyMock returns all parties when search term is empty", () => {
-    const thunk = searchPartyMock("");
-    thunk(dispatch);
-
-    const respCall = dispatch.mock.calls.find((call) => call[0].type === `${ACTION_TYPE.PARTY_SEARCH}_RESP`);
-    expect(respCall).toBeDefined();
-    const results = respCall[0].payload.data.analyticValues;
-    expect(results.length).toBe(7);
-  });
-
-  it("searchFunderMock returns funders matching search term", () => {
-    const thunk = searchFunderMock("GIZ");
-    thunk(dispatch);
-
-    const respCall = dispatch.mock.calls.find((call) => call[0].type === `${ACTION_TYPE.FUNDER_SEARCH}_RESP`);
-    expect(respCall).toBeDefined();
-    const results = respCall[0].payload.data.analyticValues;
-    expect(results.length).toBe(1);
-    expect(results[0].displayName).toBe("GIZ");
   });
 
   // Test pour fetchPartyLedgerBalanceMock (version "Updated upstream")
@@ -310,10 +275,12 @@ describe("Actions - Deployment configuration", () => {
 });
 
 describe("Actions - Real API calls", () => {
-  it("searchParty delegates to the analyticValues query", () => {
+  it("searchParty delegates to the real analyticValue query", () => {
     const action = searchParty("Family");
     expect(action.operation).toContain("AnalyticValues");
-    expect(action.variables).toEqual({ search: "Family", tagType: "party" });
+    expect(action.operation).toContain("analyticValue");
+    expect(action.operation).toContain("displayName");
+    expect(action.variables).toEqual({ search: "Family", first: 25 });
     expect(action.actionTypes).toEqual([
       `${ACTION_TYPE.PARTY_SEARCH}_REQ`,
       `${ACTION_TYPE.PARTY_SEARCH}_RESP`,
@@ -332,19 +299,72 @@ describe("Actions - Real API calls", () => {
     ]);
   });
 
-  it("fetchLedgerEntries is defined", () => {
-    expect(fetchLedgerEntries).toBeDefined();
+  it("fetchLedgerEntries builds the real ledgerEntries query with resolved period code", async () => {
+    const dispatch = vi.fn(() => Promise.resolve());
+    const getState = vi.fn(() => ({
+      ledger: {
+        accountingPeriods: {
+          items: [
+            { id: "1", code: "2026-07", status: "open" },
+            { id: "2", code: "2026-06", status: "closed" },
+          ],
+        },
+      },
+    }));
+    const action = fetchLedgerEntries(
+      { accountingPeriodId: "1", journal: "BANK", sourceEventType: "claim_payment" },
+      { first: 10, after: "abc", orderBy: "-postedAt" },
+    );
+    await action(dispatch, getState);
+
+    const thunkAction = dispatch.mock.calls[0][0];
+    expect(thunkAction.operation).toContain("ledgerEntries");
+    expect(thunkAction.operation).toContain("journal_Code");
+    expect(thunkAction.operation).toContain("accountingPeriod_Code");
+    expect(thunkAction.operation).toContain("LedgerEntryMetaSourceEventType");
+    expect(thunkAction.variables).toEqual({
+      journal: "BANK",
+      accountingPeriodCode: "2026-07",
+      party: null,
+      funder: null,
+      sourceEventType: "CLAIM_PAYMENT",
+      first: 10,
+      after: "abc",
+      before: null,
+      last: null,
+    });
   });
 
-  it("fetchAccountingPeriods is defined", () => {
-    expect(fetchAccountingPeriods).toBeDefined();
+  it("fetchLedgerEntries defaults to the open period when none is set", async () => {
+    const dispatch = vi.fn(() => Promise.resolve());
+    const getState = vi.fn(() => ({
+      ledger: {
+        accountingPeriods: {
+          items: [{ id: "open-1", code: "2026-07", status: "open" }],
+        },
+      },
+    }));
+    const action = fetchLedgerEntries({}, {});
+    await action(dispatch, getState);
+
+    const thunkAction = dispatch.mock.calls[0][0];
+    expect(thunkAction.variables.accountingPeriodCode).toBe("2026-07");
   });
 
-  it("searchFunder builds the analyticValues query with tagType funder", () => {
+  it("fetchAccountingPeriods builds the real accountingPeriods query (no status filter)", () => {
+    const action = fetchAccountingPeriods();
+    expect(action.operation).toContain("accountingPeriods");
+    expect(action.operation).toContain("edges");
+    expect(action.operation).not.toContain("$status");
+    expect(action.operation).not.toContain("accountingPeriods(status");
+    expect(action.variables).toEqual({});
+  });
+
+  it("searchFunder builds the real analyticValue query", () => {
     const action = searchFunder("GIZ");
-    expect(action.operation).toContain("analyticValues");
-    expect(action.operation).toContain("tagType");
-    expect(action.variables).toEqual({ search: "GIZ", tagType: "funder" });
+    expect(action.operation).toContain("analyticValue");
+    expect(action.operation).toContain("displayName");
+    expect(action.variables).toEqual({ search: "GIZ", first: 25 });
     expect(action.actionTypes).toEqual([
       `${ACTION_TYPE.FUNDER_SEARCH}_REQ`,
       `${ACTION_TYPE.FUNDER_SEARCH}_RESP`,
