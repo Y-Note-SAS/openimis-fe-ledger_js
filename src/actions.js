@@ -41,7 +41,7 @@ const ACCOUNTING_PERIODS_QUERY = `
   }
 `;
 
-// ASSUMPTION ( research.md §6 leaves the exact search operation unspecified):
+// ASSUMPTION (research.md §6 leaves the exact search operation unspecified):
 // contracts/graphql-operations.md establishes that `partyLedgerBalance`/
 // `funderActivityReport` take an `analyticValueId`, and research.md §6 says
 // lookups go through the ledger backend's own `AnalyticValue`-backed search,
