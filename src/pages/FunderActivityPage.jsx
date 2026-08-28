@@ -26,7 +26,7 @@ import {
 import FunderPicker from "../pickers/FunderPicker";
 import AccountingPeriodPicker from "../pickers/AccountingPeriodPicker";
 import { hasLedgerReportingRight } from "../utils/permissions";
-import { fetchFunderActivityReportMock } from "../actions";
+import { fetchFunderActivityReport } from "../actions";
 
 const StyledPage = styled("div")(({ theme }) => ({
   "& .page": theme.page ?? {},
@@ -72,7 +72,7 @@ const FunderActivityPage = ({
   rights,
   funderActivityReport,
   accountingPeriods,
-  fetchFunderActivityReportMock,
+  fetchFunderActivityReport,
 }) => {
   const [selectedFunder, setSelectedFunder] = useState(null);
   const [periodStartId, setPeriodStartId] = useState(null);
@@ -80,19 +80,18 @@ const FunderActivityPage = ({
 
   useEffect(() => {
     if (selectedFunder?.analyticValueId) {
-      fetchFunderActivityReportMock(selectedFunder.analyticValueId, {
+      fetchFunderActivityReport(selectedFunder.analyticValueId, {
         start: periodStartId,
         end: periodEndId,
       });
     }
-  }, [fetchFunderActivityReportMock, selectedFunder?.analyticValueId, periodStartId, periodEndId]);
+  }, [fetchFunderActivityReport, selectedFunder?.analyticValueId, periodStartId, periodEndId]);
 
   if (!hasLedgerReportingRight(rights)) {
     return <Alert severity="error">{formatMessage(intl, "ledger", "ledger.accessDenied")}</Alert>;
   }
 
   const reportData = funderActivityReport?.data || null;
-  const showMockDataNotice = !!selectedFunder?.analyticValueId;
   const displayReport = reportData;
   const byCategory = displayReport?.byCategory || [];
 
@@ -159,15 +158,6 @@ const FunderActivityPage = ({
             </Grid>
           ) : (
             <>
-              {showMockDataNotice ? (
-                <Grid size={12}>
-                  <Box className="paperBody">
-                    <Alert severity="info">
-                      Demo data shown until the real backend response is available for this funder and period range.
-                    </Alert>
-                  </Box>
-                </Grid>
-              ) : null}
 
               <Grid size={12}>
                 <StyledPaper className="paper">
@@ -264,6 +254,6 @@ const mapStateToProps = (state) => ({
   accountingPeriods: state.ledger.accountingPeriods?.items || [],
 });
 
-const mapDispatchToProps = { fetchFunderActivityReportMock };
+const mapDispatchToProps = { fetchFunderActivityReport };
 
 export default withModulesManager(injectIntl(connect(mapStateToProps, mapDispatchToProps)(FunderActivityPage)));

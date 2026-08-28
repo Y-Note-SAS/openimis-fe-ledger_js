@@ -10,6 +10,33 @@ import reducer, { ACTION_TYPE } from "../../src/reducer";
 import { RIGHT_LEDGER_REPORTING } from "../../src/constants";
 import FunderActivityPage from "../../src/pages/FunderActivityPage";
 
+vi.mock("@openimis/fe-core", async (importOriginal) => {
+  const orig = await importOriginal();
+  const FULL = {
+    analyticValueId: btoa("AnalyticValue:GIZ"),
+    accountingPeriodStart: null, accountingPeriodEnd: null,
+    debitTotal: 33400, creditTotal: 33400, balance: 4700,
+    byCategory: [
+      { category: "claim_payment", debit: 18600, credit: 18600, balance: 0 },
+      { category: "payment_point_reconciliation", debit: 800, credit: 800, balance: 0 },
+    ],
+  };
+  const JUNE = {
+    analyticValueId: btoa("AnalyticValue:GIZ"),
+    accountingPeriodStart: null, accountingPeriodEnd: "2",
+    debitTotal: 6100, creditTotal: 6100, balance: 4700,
+    byCategory: [{ category: "claim_payment", debit: 6100, credit: 6100, balance: 0 }],
+  };
+  return {
+    ...orig,
+    graphqlWithVariables: (query, variables, types) => (dispatch) => {
+      dispatch({ type: types[0] });
+      const onlyEnd = variables?.accountingPeriodEnd && !variables?.accountingPeriodStart;
+      dispatch({ type: types[1], payload: { data: { funderActivityReport: onlyEnd ? JUNE : FULL } } });
+    },
+  };
+});
+
 vi.mock("../../src/pickers/FunderPicker", () => ({
   default: ({ onChange }) => (
     <button type="button" onClick={() => onChange?.({ analyticValueId: btoa("AnalyticValue:GIZ"), displayName: "GIZ" })}>
