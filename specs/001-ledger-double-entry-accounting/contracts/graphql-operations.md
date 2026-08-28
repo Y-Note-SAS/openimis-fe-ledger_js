@@ -4,7 +4,6 @@ Source of truth for these shapes: the REAL `openimis-be-ledger_py` schema (branc
 
 ## Queries
 
-
 ### `ledgerEntries` — User Story 1 (real backend)
 ```graphql
 query LedgerEntries(
