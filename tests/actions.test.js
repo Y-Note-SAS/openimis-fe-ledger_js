@@ -351,6 +351,34 @@ describe("Actions - Real API calls", () => {
     expect(thunkAction.variables.accountingPeriodCode).toBe("2026-07");
   });
 
+  it("fetchLedgerEntries falls back to the open period when the requested id is not in state", async () => {
+    const dispatch = vi.fn(() => Promise.resolve());
+    const getState = vi.fn(() => ({
+      ledger: {
+        accountingPeriods: {
+          items: [
+            { id: "open-1", code: "2026-07", status: "open" },
+            { id: "closed-1", code: "2026-06", status: "closed" },
+          ],
+        },
+      },
+    }));
+    const action = fetchLedgerEntries({ accountingPeriodId: "999" }, {});
+    await action(dispatch, getState);
+
+    const thunkAction = dispatch.mock.calls[0][0];
+    expect(thunkAction.variables.accountingPeriodCode).toBe("2026-07");
+  });
+
+  it("fetchLedgerEntries does not dispatch an unscoped query when no period can be resolved", async () => {
+    const dispatch = vi.fn(() => Promise.resolve());
+    const getState = vi.fn(() => ({ ledger: { accountingPeriods: { items: [] } } }));
+    const action = fetchLedgerEntries({}, {});
+    await action(dispatch, getState);
+
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
   it("fetchAccountingPeriods builds the real accountingPeriods query (no status filter)", () => {
     const action = fetchAccountingPeriods();
     expect(action.operation).toContain("accountingPeriods");

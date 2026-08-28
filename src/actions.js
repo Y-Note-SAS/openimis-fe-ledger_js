@@ -925,16 +925,26 @@ const toGrapheneEnum = (value) =>
 
 export function fetchLedgerEntries(filters = {}, pageInfo = {}) {
   return async (dispatch, getState) => {
+    const periods = getState().ledger?.accountingPeriods?.items || [];
+
+    // FR-001: the ledger query must always be scoped to an accounting period.
+    // If the requested period id is missing/stale, fall back to the current
+    // open period so we never send an unscoped query. If no period can be
+    // resolved at all, wait rather than requesting every entry (the page loads
+    // the periods at mount).
     let accountingPeriodId = filters.accountingPeriodId;
-    if (accountingPeriodId === undefined) {
-      const openPeriod = getState().ledger?.accountingPeriods?.items?.find((period) => period.status === "open");
+    if (!accountingPeriodId || !periods.some((period) => period.id === accountingPeriodId)) {
+      const openPeriod = periods.find((period) => period.status === "open");
       accountingPeriodId = openPeriod?.id ?? null;
     }
 
-    const periods = getState().ledger?.accountingPeriods?.items || [];
     const accountingPeriodCode = accountingPeriodId
       ? (periods.find((period) => period.id === accountingPeriodId)?.code ?? null)
       : null;
+
+    if (accountingPeriodId === null || accountingPeriodCode === null) {
+      return;
+    }
 
     const resolvedFilters = { ...filters, accountingPeriodId };
 
