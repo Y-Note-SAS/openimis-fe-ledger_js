@@ -42,10 +42,13 @@ const seedPeriods = (store) =>
     type: `${ACTION_TYPE.ACCOUNTING_PERIODS}_RESP`,
     payload: {
       data: {
-        accountingPeriods: [
-          { id: "1", startDate: "2026-07-01", endDate: "2026-07-31", status: "open" },
-          { id: "2", startDate: "2026-06-01", endDate: "2026-06-30", status: "closed" },
-        ],
+        accountingPeriods: {
+          totalCount: 2,
+          edges: [
+            { node: { id: "1", startDate: "2026-07-01", endDate: "2026-07-31", status: "open" } },
+            { node: { id: "2", startDate: "2026-06-01", endDate: "2026-06-30", status: "closed" } },
+          ],
+        },
       },
     },
   });

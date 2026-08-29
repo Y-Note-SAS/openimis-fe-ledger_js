@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useCallback } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { connect } from "react-redux";
 import { injectIntl } from "react-intl";
 import { Chip } from "@mui/material";
@@ -14,7 +14,7 @@ import {
   withHistory,
   withModulesManager,
 } from "@openimis/fe-core";
-import { fetchAccountingPeriodsMock, fetchLedgerEntriesMock } from "../actions";
+import { fetchAccountingPeriods, fetchLedgerEntries } from "../actions";
 import { DEFAULT_PAGE_SIZE, ROWS_PER_PAGE_OPTIONS } from "../constants";
 import LedgerEntryFilter from "./LedgerEntryFilter";
 
@@ -104,19 +104,27 @@ const LedgerEntrySearcher = ({
   accountingPeriods,
   fetchingAccountingPeriods,
   fetchedAccountingPeriods,
-  fetchLedgerEntriesMock,
-  fetchAccountingPeriodsMock,
+  fetchLedgerEntries,
+  fetchAccountingPeriods,
 }) => {
   const [expandedEntryId, setExpandedEntryId] = useState(null);
+  // Populated by filtersToQueryParams right before the base Searcher calls
+  // fetch(), which only forwards the raw params string array.
+  const fetchContextRef = useRef({ filters: {}, pageInfo: {} });
 
   useEffect(() => {
     if (!fetchedAccountingPeriods && !fetchingAccountingPeriods) {
-      fetchAccountingPeriodsMock();
+      fetchAccountingPeriods();
     }
-  }, [fetchedAccountingPeriods, fetchingAccountingPeriods, fetchAccountingPeriodsMock]);
+    // Fetch periods once on mount; do NOT re-run on fetch-state changes.
+    // Re-running on failure would retry a failing backend query in an
+    // infinite loop (flood of 400s).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  const fetch = (params) => {
-    fetchLedgerEntriesMock(params);
+  const fetch = () => {
+    const { filters, pageInfo } = fetchContextRef.current;
+    return fetchLedgerEntries(filters, pageInfo);
   };
 
   const defaultFilters = () => {
@@ -135,6 +143,25 @@ const LedgerEntrySearcher = ({
   const rowIdentifier = (entry) => entry.id;
 
   const filtersToQueryParams = (state) => {
+    const valueOf = (key) => state.filters?.[key]?.value ?? null;
+    const partyValue = valueOf("partyAnalyticValueId");
+    const funderValue = valueOf("funderAnalyticValueId");
+    fetchContextRef.current = {
+      filters: {
+        journal: typeof valueOf("journal") === "string" ? valueOf("journal") : null,
+        accountingPeriodId:
+          valueOf("accountingPeriodId") === ALL_PERIODS_FILTER_VALUE ? null : valueOf("accountingPeriodId"),
+        sourceEventType: typeof valueOf("sourceEventType") === "string" ? valueOf("sourceEventType") : null,
+        partyAnalyticValueId: partyValue?.analyticValueId ?? partyValue,
+        funderAnalyticValueId: funderValue?.analyticValueId ?? funderValue,
+      },
+      pageInfo: {
+        first: state.pageSize,
+        after: state.afterCursor,
+        before: state.beforeCursor,
+        orderBy: state.orderBy,
+      },
+    };
     const params = Object.keys(state.filters)
       .filter((key) => !!state.filters[key]?.filter)
       .map((key) => state.filters[key].filter);
@@ -226,6 +253,9 @@ const LedgerEntrySearcher = ({
     if (!entry) return null;
 
     const lines = entry.lines || [];
+    // The deployed backend does not expose the transaction/legs object yet, so
+    // there is no line-level detail to render (backend follow-up).
+    if (lines.length === 0) return null;
     const isBalanced = entry.totals?.balance === 0 && entry.totals?.debit === entry.totals?.credit;
     const sourceRouteRef = sourceEventRouteRef(entry);
 
@@ -331,8 +361,8 @@ const mapStateToProps = (state) => ({
 });
 
 const mapDispatchToProps = {
-  fetchLedgerEntriesMock,
-  fetchAccountingPeriodsMock,
+  fetchLedgerEntries,
+  fetchAccountingPeriods,
 };
 
 export { LEDGER_ENTRY_SEARCHER_CONTRIBUTION_KEY };
