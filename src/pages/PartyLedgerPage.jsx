@@ -27,7 +27,7 @@ import PartyPicker from "../pickers/PartyPicker";
 import AccountingPeriodPicker from "../pickers/AccountingPeriodPicker";
 import { hasLedgerReportingRight } from "../utils/permissions";
 import { formatSignedBalance } from "../utils/balance";
-import { fetchPartyLedgerBalanceMock, resetPartyLedgerBalance } from "../actions";
+import { fetchPartyLedgerBalance, resetPartyLedgerBalance } from "../actions";
 
 const StyledPage = styled("div")(({ theme }) => ({
   "& .page": theme.page ?? {},
@@ -67,7 +67,7 @@ const StyledPaper = styled(Paper)(({ theme }) => ({
   "& .item": theme.paper?.item ?? {},
 }));
 
-const PartyLedgerPage = ({ intl, modulesManager, rights, partyLedgerBalance, fetchPartyLedgerBalanceMock, resetPartyLedgerBalance }) => {
+const PartyLedgerPage = ({ intl, modulesManager, rights, partyLedgerBalance, fetchPartyLedgerBalance, resetPartyLedgerBalance }) => {
   const [selectedParty, setSelectedParty] = useState(null);
   const [selectedPeriodId, setSelectedPeriodId] = useState(null);
   const hasSelectedFilters = useRef(false);
@@ -77,19 +77,18 @@ const PartyLedgerPage = ({ intl, modulesManager, rights, partyLedgerBalance, fet
   useEffect(() => {
     if (selectedParty?.analyticValueId && selectedPeriodId) {
       hasSelectedFilters.current = true;
-      fetchPartyLedgerBalanceMock(selectedParty.analyticValueId, selectedPeriodId);
+      fetchPartyLedgerBalance(selectedParty.analyticValueId, selectedPeriodId);
     } else if (hasSelectedFilters.current) {
       // Clear any previously fetched statement as soon as one of the two
       // filters is removed, so a cleared filter never shows stale data.
       resetPartyLedgerBalance();
     }
-  }, [fetchPartyLedgerBalanceMock, resetPartyLedgerBalance, selectedParty?.analyticValueId, selectedPeriodId]);
+  }, [fetchPartyLedgerBalance, resetPartyLedgerBalance, selectedParty?.analyticValueId, selectedPeriodId]);
 
   if (!hasLedgerReportingRight(rights)) {
     return <Alert severity="error">{formatMessage(intl, "ledger", "ledger.accessDenied")}</Alert>;
   }
 
-  const showMockDataNotice = !!selectedParty?.analyticValueId && !!selectedPeriodId;
   const transactions = ledgerData?.transactions || [];
   const carriedForwardBalance = ledgerData?.carriedForwardBalance ?? 0;
 
@@ -135,16 +134,6 @@ const PartyLedgerPage = ({ intl, modulesManager, rights, partyLedgerBalance, fet
                   </Typography>
                 </Box>
               </StyledPaper>
-            </Grid>
-          ) : null}
-
-          {showMockDataNotice ? (
-            <Grid size={12}>
-              <Box className="paperBody">
-                <Alert severity="info">
-                  Demo data shown until the real backend response is available for this party and period.
-                </Alert>
-              </Box>
             </Grid>
           ) : null}
 
@@ -229,6 +218,6 @@ const mapStateToProps = (state) => ({
   partyLedgerBalance: state.ledger.partyLedgerBalance,
 });
 
-const mapDispatchToProps = { fetchPartyLedgerBalanceMock, resetPartyLedgerBalance };
+const mapDispatchToProps = { fetchPartyLedgerBalance, resetPartyLedgerBalance };
 
 export default withModulesManager(injectIntl(connect(mapStateToProps, mapDispatchToProps)(PartyLedgerPage)));
