@@ -14,9 +14,7 @@ const renderPage = (props = {}) => {
     currencyCodes: { items: [] },
     chartOfAccounts: { items: [] },
     fetchLedgerDeploymentReferenceData: vi.fn(),
-    fetchLedgerDeploymentReferenceDataMock: vi.fn(),
     configureDeployment: vi.fn(),
-    configureDeploymentMock: vi.fn(),
     ...props,
   };
   return render(
@@ -34,11 +32,11 @@ describe("DeploymentConfigurationPage", () => {
   });
 
   it("denies access without the finance administrator right and skips the reference data fetch", () => {
-    const fetchLedgerDeploymentReferenceDataMock = vi.fn();
-    renderPage({ rights: [], fetchLedgerDeploymentReferenceDataMock });
+    const fetchLedgerDeploymentReferenceData = vi.fn();
+    renderPage({ rights: [], fetchLedgerDeploymentReferenceData });
 
     expect(screen.getByText("ledger.accessDenied")).toBeInTheDocument();
-    expect(fetchLedgerDeploymentReferenceDataMock).not.toHaveBeenCalled();
+    expect(fetchLedgerDeploymentReferenceData).not.toHaveBeenCalled();
   });
 
   it("shows the deployment error message when provided", () => {
