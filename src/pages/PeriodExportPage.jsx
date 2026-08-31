@@ -6,14 +6,12 @@ import { connect } from "react-redux";
 import { GRID_RESPONSIVE_STANDARD, Helmet, withModulesManager, formatMessage } from "@openimis/fe-core";
 import AccountingPeriodPicker from "../pickers/AccountingPeriodPicker";
 import ExportJobStatus from "../components/ExportJobStatus";
-import { ACCOUNTING_PERIOD_STATUS, EXPORT_FORMAT, USE_MOCK_EXPORT } from "../constants";
+import { ACCOUNTING_PERIOD_STATUS, EXPORT_FORMAT } from "../constants";
 import { hasLedgerAdminRight } from "../utils/permissions";
 import {
   exportAccountingPeriod,
-  exportAccountingPeriodMock,
-  fetchAccountingPeriodsMock,
+  fetchAccountingPeriods,
   pollExportJob,
-  pollExportJobMock,
 } from "../actions";
 
 const StyledPage = styled("div")(({ theme }) => ({
@@ -58,11 +56,9 @@ const PeriodExportPage = ({
   rights,
   accountingPeriods,
   exportJobs,
-  fetchAccountingPeriodsMock: loadPeriods,
+  fetchAccountingPeriods: loadPeriods,
   exportAccountingPeriod: startExport,
   pollExportJob: startPolling,
-  exportAccountingPeriodMock: startMockExport,
-  pollExportJobMock: startMockPolling,
 }) => {
   const [periodId, setPeriodId] = useState(null);
   const [format, setFormat] = useState(EXPORT_FORMAT.GENERIC);
@@ -87,12 +83,9 @@ const PeriodExportPage = ({
   useEffect(() => {
     if (!job || job.status !== "in_progress" || !periodId) return undefined;
     stopPollingRef.current?.();
-    const provisional = selectedPeriod?.status !== ACCOUNTING_PERIOD_STATUS.CLOSED;
-    stopPollingRef.current = USE_MOCK_EXPORT
-      ? startMockPolling(periodId, job.format || format, provisional)
-      : startPolling(periodId);
+    stopPollingRef.current = startPolling(periodId);
     return () => stopPollingRef.current?.();
-  }, [job?.status, periodId, selectedPeriod?.status, startPolling, startMockPolling]);
+  }, [job?.status, periodId, startPolling]);
 
   if (!isAdmin) {
     return <Alert severity="error">{formatMessage(intl, "ledger", "ledger.accessDenied")}</Alert>;
@@ -101,14 +94,8 @@ const PeriodExportPage = ({
   const triggerExport = () => {
     if (!periodId) return;
     stopPollingRef.current?.();
-    const provisional = selectedPeriod?.status !== ACCOUNTING_PERIOD_STATUS.CLOSED;
-    if (USE_MOCK_EXPORT) {
-      startMockExport(periodId, format, provisional);
-      stopPollingRef.current = startMockPolling(periodId, format, provisional);
-    } else {
-      startExport(periodId, format);
-      stopPollingRef.current = startPolling(periodId);
-    }
+    startExport(periodId, format);
+    stopPollingRef.current = startPolling(periodId);
   };
 
   return (
@@ -194,11 +181,9 @@ const mapStateToProps = (state) => ({
 });
 
 const mapDispatchToProps = {
-  fetchAccountingPeriodsMock,
+  fetchAccountingPeriods,
   exportAccountingPeriod,
   pollExportJob,
-  exportAccountingPeriodMock,
-  pollExportJobMock,
 };
 
 export { PeriodExportPage };

@@ -22,11 +22,9 @@ const renderPage = (props = {}) => {
       items: [{ id: "period-1", startDate: "2026-07-01", endDate: "2026-07-31", status: "open" }],
     },
     exportJobs: { byPeriodId: {} },
-    fetchAccountingPeriodsMock: vi.fn(),
+    fetchAccountingPeriods: vi.fn(),
     exportAccountingPeriod: vi.fn(),
     pollExportJob: vi.fn(() => vi.fn()),
-    exportAccountingPeriodMock: vi.fn(),
-    pollExportJobMock: vi.fn(() => vi.fn()),
     ...props,
   };
 
@@ -39,19 +37,17 @@ const renderPage = (props = {}) => {
 
 describe("PeriodExportPage", () => {
   it("denies access without the finance administrator right", () => {
-    const fetchAccountingPeriodsMock = vi.fn();
-    renderPage({ rights: [], fetchAccountingPeriodsMock });
+    const fetchAccountingPeriods = vi.fn();
+    renderPage({ rights: [], fetchAccountingPeriods });
 
     expect(screen.getByText("ledger.accessDenied")).toBeInTheDocument();
-    expect(fetchAccountingPeriodsMock).not.toHaveBeenCalled();
+    expect(fetchAccountingPeriods).not.toHaveBeenCalled();
   });
 
   it("shows both export formats and triggers the selected generic export", () => {
     const exportAccountingPeriod = vi.fn();
     const pollExportJob = vi.fn(() => vi.fn());
-    const exportAccountingPeriodMock = vi.fn();
-    const pollExportJobMock = vi.fn(() => vi.fn());
-    renderPage({ exportAccountingPeriod, pollExportJob, exportAccountingPeriodMock, pollExportJobMock });
+    renderPage({ exportAccountingPeriod, pollExportJob });
 
     expect(screen.getByText("ledger.export.formats.generic")).toBeInTheDocument();
     expect(screen.getByText("ledger.export.formats.ohadaFec")).toBeInTheDocument();
@@ -59,8 +55,8 @@ describe("PeriodExportPage", () => {
     fireEvent.change(screen.getByLabelText("ledger.export.period"), { target: { value: "period-1" } });
     fireEvent.click(screen.getByText("ledger.export.trigger"));
 
-    expect(exportAccountingPeriodMock).toHaveBeenCalledWith("period-1", "generic", true);
-    expect(pollExportJobMock).toHaveBeenCalledWith("period-1", "generic", true);
+    expect(exportAccountingPeriod).toHaveBeenCalledWith("period-1", "generic");
+    expect(pollExportJob).toHaveBeenCalledWith("period-1");
   });
 
   it("shows the export error message when provided", () => {
