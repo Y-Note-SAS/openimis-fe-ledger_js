@@ -1,5 +1,5 @@
 import React from "react";
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { Provider } from "react-redux";
 import { applyMiddleware, combineReducers, createStore } from "redux";
@@ -10,6 +10,17 @@ import ManualReviewQueuePage from "../../src/pages/ManualReviewQueuePage";
 import { resetManualReviewQueueMock } from "../../src/actions";
 import { RIGHT_LEDGER_ADMIN } from "../../src/constants";
 import { filterCorrectingEntryCandidates } from "../../src/utils/correctingEntryCandidates";
+
+vi.mock("../../src/actions", async (importOriginal) => {
+  const a = await importOriginal();
+  return {
+    ...a,
+    fetchManualReviewQueue: a.fetchManualReviewQueueMock,
+    resolveManualReviewItem: a.resolveManualReviewItemMock,
+    fetchLedgerEntries: a.fetchLedgerEntriesMock,
+    fetchAccountingPeriods: a.fetchAccountingPeriodsMock,
+  };
+});
 
 const buildStore = (rights = [RIGHT_LEDGER_ADMIN]) =>
   createStore(

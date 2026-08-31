@@ -23,10 +23,10 @@ import { Helmet, withModulesManager, formatMessage } from "@openimis/fe-core";
 import { hasLedgerAdminRight } from "../utils/permissions";
 import { MANUAL_REVIEW_STATUS } from "../constants";
 import {
-  fetchLedgerEntriesMock,
-  fetchAccountingPeriodsMock,
-  fetchManualReviewQueueMock,
-  resolveManualReviewItemMock,
+  fetchLedgerEntries,
+  fetchAccountingPeriods,
+  fetchManualReviewQueue,
+  resolveManualReviewItem,
 } from "../actions";
 import ManualReviewResolutionDialog from "../components/ManualReviewResolutionDialog";
 
@@ -74,10 +74,10 @@ const ManualReviewQueuePage = ({
   ledgerEntries,
   accountingPeriods,
   reviewResolution,
-  fetchManualReviewQueueMock,
-  fetchLedgerEntriesMock,
-  fetchAccountingPeriodsMock,
-  resolveManualReviewItemMock,
+  fetchManualReviewQueue,
+  fetchLedgerEntries,
+  fetchAccountingPeriods,
+  resolveManualReviewItem,
 }) => {
   const [statusFilter, setStatusFilter] = useState("");
   const [selectedItemId, setSelectedItemId] = useState(null);
@@ -85,10 +85,10 @@ const ManualReviewQueuePage = ({
 
   useEffect(() => {
     if (isAdmin) {
-      fetchManualReviewQueueMock(statusFilter || null);
-      fetchAccountingPeriodsMock();
+      fetchManualReviewQueue(statusFilter || null);
+      fetchAccountingPeriods();
     }
-  }, [fetchAccountingPeriodsMock, fetchManualReviewQueueMock, isAdmin, statusFilter]);
+  }, [fetchAccountingPeriods, fetchManualReviewQueue, isAdmin, statusFilter]);
 
   if (!isAdmin) {
     return <Alert severity="error">{formatMessage(intl, "ledger", "ledger.accessDenied")}</Alert>;
@@ -100,7 +100,7 @@ const ManualReviewQueuePage = ({
 
   const openResolution = (item) => {
     setSelectedItemId(item.id);
-    fetchLedgerEntriesMock([
+    fetchLedgerEntries([
       `accountingPeriod: "${item.originalEntry?.accountingPeriodId}"`,
       `party: "${item.originalEntry?.partyAnalyticValueId}"`,
       "first: 100",
@@ -193,7 +193,7 @@ const ManualReviewQueuePage = ({
           error={reviewResolution?.error}
           onClose={() => setSelectedItemId(null)}
           onResolve={(itemId, correctingEntryId, resolutionNote) =>
-            resolveManualReviewItemMock(itemId, correctingEntryId, resolutionNote)
+            resolveManualReviewItem(itemId, correctingEntryId, resolutionNote)
           }
         />
       </div>
@@ -211,7 +211,7 @@ const mapStateToProps = (state) => ({
 
 const mapDispatchToProps = (dispatch) =>
   bindActionCreators(
-    { fetchManualReviewQueueMock, fetchLedgerEntriesMock, fetchAccountingPeriodsMock, resolveManualReviewItemMock },
+    { fetchManualReviewQueue, fetchLedgerEntries, fetchAccountingPeriods, resolveManualReviewItem },
     dispatch,
   );
 
