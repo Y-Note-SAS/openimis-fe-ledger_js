@@ -26,8 +26,12 @@ vi.mock("@openimis/fe-core", async (importOriginal) => {
       dispatch({ type: types[0] });
       const q = String(query);
       let data;
-      if (q.includes("accountingPeriods(")) {
-        data = { accountingPeriods: byStatus(variables?.status) };
+      if (q.includes("accountingPeriods")) {
+        data = {
+          accountingPeriods: {
+            edges: (byStatus(variables?.status) || []).map((period) => ({ node: period })),
+          },
+        };
       } else if (q.includes("lockAccountingPeriod")) {
         const p = findP(variables?.accountingPeriodId);
         if (p) p.status = "locked";
