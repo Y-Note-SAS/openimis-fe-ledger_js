@@ -6,7 +6,7 @@ import { connect } from "react-redux";
 import { GRID_RESPONSIVE_STANDARD, Helmet, withModulesManager, formatMessage } from "@openimis/fe-core";
 import AccountingPeriodPicker from "../pickers/AccountingPeriodPicker";
 import ExportJobStatus from "../components/ExportJobStatus";
-import { ACCOUNTING_PERIOD_STATUS, EXPORT_FORMAT } from "../constants";
+import { EXPORT_FORMAT } from "../constants";
 import { hasLedgerAdminRight } from "../utils/permissions";
 import {
   exportAccountingPeriod,
