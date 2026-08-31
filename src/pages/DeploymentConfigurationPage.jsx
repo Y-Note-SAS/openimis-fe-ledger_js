@@ -5,13 +5,11 @@ import { injectIntl } from "react-intl";
 import { connect } from "react-redux";
 import { GRID_RESPONSIVE_STANDARD, Helmet, withModulesManager, formatMessage } from "@openimis/fe-core";
 import ForwardOnlyModeWarningDialog from "../components/ForwardOnlyModeWarningDialog";
-import { OPERATING_MODE, USE_MOCK_DEPLOYMENT } from "../constants";
+import { OPERATING_MODE } from "../constants";
 import { hasLedgerAdminRight } from "../utils/permissions";
 import {
   configureDeployment,
-  configureDeploymentMock,
   fetchLedgerDeploymentReferenceData,
-  fetchLedgerDeploymentReferenceDataMock,
 } from "../actions";
 
 const StyledPage = styled("div")(({ theme }) => ({
@@ -60,8 +58,6 @@ const DeploymentConfigurationPage = ({
   chartOfAccounts,
   fetchLedgerDeploymentReferenceData: loadReferenceData,
   configureDeployment: saveDeployment,
-  fetchLedgerDeploymentReferenceDataMock: loadMockReferenceData,
-  configureDeploymentMock: saveMockDeployment,
 }) => {
   const [operatingMode, setOperatingMode] = useState(OPERATING_MODE.LOCAL_ONLY);
   const [externalSystem, setExternalSystem] = useState("");
@@ -73,10 +69,9 @@ const DeploymentConfigurationPage = ({
 
   useEffect(() => {
     if (isAdmin) {
-      if (USE_MOCK_DEPLOYMENT) loadMockReferenceData();
-      else loadReferenceData();
+      loadReferenceData();
     }
-  }, [isAdmin, loadMockReferenceData, loadReferenceData]);
+  }, [isAdmin, loadReferenceData]);
 
   useEffect(() => {
     const data = deploymentConfiguration?.data;
@@ -121,22 +116,14 @@ const DeploymentConfigurationPage = ({
       setWarningOpen(true);
       return;
     }
-    if (USE_MOCK_DEPLOYMENT) {
-      saveMockDeployment(operatingMode, externalSystem || null, currencyCode, retainedEarningsAccountId);
-    } else {
-      saveDeployment(operatingMode, externalSystem || null, currencyCode, retainedEarningsAccountId);
-    }
+    saveDeployment(operatingMode, externalSystem || null, currencyCode, retainedEarningsAccountId);
   };
 
   const confirmModeChange = () => {
     setWarningOpen(false);
     if (!pendingSave) return;
     setPendingSave(false);
-    if (USE_MOCK_DEPLOYMENT) {
-      saveMockDeployment(operatingMode, externalSystem || null, currencyCode, retainedEarningsAccountId);
-    } else {
-      saveDeployment(operatingMode, externalSystem || null, currencyCode, retainedEarningsAccountId);
-    }
+    saveDeployment(operatingMode, externalSystem || null, currencyCode, retainedEarningsAccountId);
   };
 
   return (
@@ -260,8 +247,6 @@ const mapStateToProps = (state) => ({
 const mapDispatchToProps = {
   fetchLedgerDeploymentReferenceData,
   configureDeployment,
-  fetchLedgerDeploymentReferenceDataMock,
-  configureDeploymentMock,
 };
 
 export { DeploymentConfigurationPage };
