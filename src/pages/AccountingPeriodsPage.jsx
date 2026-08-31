@@ -24,11 +24,11 @@ import { availableActionsForPeriod } from "../utils/periodActions";
 import { hasLedgerReportingRight, hasLedgerAdminRight } from "../utils/permissions";
 import { ACCOUNTING_PERIOD_STATUS, PERIOD_ACTION } from "../constants";
 import {
-  fetchAccountingPeriodsMock,
-  openAccountingPeriodMock,
-  lockAccountingPeriodMock,
-  closeAccountingPeriodMock,
-  reopenAccountingPeriodMock,
+  fetchAccountingPeriods,
+  openAccountingPeriod,
+  lockAccountingPeriod,
+  closeAccountingPeriod,
+  reopenAccountingPeriod,
 } from "../actions";
 
 const StyledPage = styled("div")(({ theme }) => ({
@@ -74,19 +74,19 @@ const AccountingPeriodsPage = ({
   rights,
   accountingPeriods,
   periodMutation,
-  fetchAccountingPeriodsMock,
-  openAccountingPeriodMock,
-  lockAccountingPeriodMock,
-  closeAccountingPeriodMock,
-  reopenAccountingPeriodMock,
+  fetchAccountingPeriods,
+  openAccountingPeriod,
+  lockAccountingPeriod,
+  closeAccountingPeriod,
+  reopenAccountingPeriod,
 }) => {
   const [newStartDate, setNewStartDate] = useState("");
   const [newEndDate, setNewEndDate] = useState("");
   const [statusFilter, setStatusFilter] = useState(null);
 
   useEffect(() => {
-    fetchAccountingPeriodsMock();
-  }, [fetchAccountingPeriodsMock]);
+    fetchAccountingPeriods();
+  }, [fetchAccountingPeriods]);
 
   if (!hasLedgerReportingRight(rights)) {
     return <Alert severity="error">{formatMessage(intl, "ledger", "ledger.accessDenied")}</Alert>;
@@ -101,14 +101,14 @@ const AccountingPeriodsPage = ({
   const mutationError = periodMutation?.error || periodMutation?.lastRejectionReason || null;
 
   const runAction = (period, action) => {
-    if (action === PERIOD_ACTION.LOCK) lockAccountingPeriodMock(period.id);
-    if (action === PERIOD_ACTION.CLOSE) closeAccountingPeriodMock(period.id);
-    if (action === PERIOD_ACTION.REOPEN) reopenAccountingPeriodMock(period.id);
+    if (action === PERIOD_ACTION.LOCK) lockAccountingPeriod(period.id);
+    if (action === PERIOD_ACTION.CLOSE) closeAccountingPeriod(period.id);
+    if (action === PERIOD_ACTION.REOPEN) reopenAccountingPeriod(period.id);
   };
 
   const openPeriod = () => {
     if (newStartDate && newEndDate) {
-      openAccountingPeriodMock(newStartDate, newEndDate);
+      openAccountingPeriod(newStartDate, newEndDate);
     }
   };
 
@@ -279,11 +279,11 @@ const mapStateToProps = (state) => ({
 });
 
 const mapDispatchToProps = {
-  fetchAccountingPeriodsMock,
-  openAccountingPeriodMock,
-  lockAccountingPeriodMock,
-  closeAccountingPeriodMock,
-  reopenAccountingPeriodMock,
+  fetchAccountingPeriods,
+  openAccountingPeriod,
+  lockAccountingPeriod,
+  closeAccountingPeriod,
+  reopenAccountingPeriod,
 };
 
 export default withModulesManager(injectIntl(connect(mapStateToProps, mapDispatchToProps)(AccountingPeriodsPage)));

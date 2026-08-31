@@ -11,6 +11,50 @@ import { resetAccountingPeriodsMock } from "../../src/actions";
 import { RIGHT_LEDGER_REPORTING, RIGHT_LEDGER_ADMIN } from "../../src/constants";
 import AccountingPeriodsPage from "../../src/pages/AccountingPeriodsPage";
 
+vi.mock("@openimis/fe-core", async (importOriginal) => {
+  const orig = await importOriginal();
+  const enc = (s) => btoa(s);
+  let periods = [
+    { id: enc("AccountingPeriod:1"), startDate: "2026-07-01", endDate: "2026-07-31", status: "open", name: "July", code: "2026-07" },
+    { id: enc("AccountingPeriod:2"), startDate: "2026-06-01", endDate: "2026-06-30", status: "closed", name: "June", code: "2026-06" },
+  ];
+  const byStatus = (status) => (status ? periods.filter((p) => p.status === status) : periods);
+  const findP = (id) => periods.find((p) => p.id === id);
+  return {
+    ...orig,
+    graphqlWithVariables: (query, variables, types) => (dispatch) => {
+      dispatch({ type: types[0] });
+      const q = String(query);
+      let data;
+      if (q.includes("accountingPeriods(")) {
+        data = { accountingPeriods: byStatus(variables?.status) };
+      } else if (q.includes("lockAccountingPeriod")) {
+        const p = findP(variables?.accountingPeriodId);
+        if (p) p.status = "locked";
+        data = { lockAccountingPeriod: { accountingPeriod: p, errors: [] } };
+      } else if (q.includes("closeAccountingPeriod")) {
+        const p = findP(variables?.accountingPeriodId);
+        if (p) p.status = "closed";
+        data = { closeAccountingPeriod: { accountingPeriod: p, errors: [] } };
+      } else if (q.includes("reopenAccountingPeriod")) {
+        const p = findP(variables?.accountingPeriodId);
+        if (p) p.status = "open";
+        data = { reopenAccountingPeriod: { accountingPeriod: p, errors: [] } };
+      } else if (q.includes("openAccountingPeriod")) {
+        const openP = periods.find((p) => p.status === "open");
+        if (openP) {
+          data = { openAccountingPeriod: { accountingPeriod: null, errors: [{ field: "startDate", message: `Cannot open a new period while ${openP.startDate} — ${openP.endDate} is still open` }] } };
+        } else {
+          const np = { id: enc("AccountingPeriod:3"), startDate: variables?.startDate, endDate: variables?.endDate, status: "open", name: "Aug", code: "2026-08" };
+          periods.push(np);
+          data = { openAccountingPeriod: { accountingPeriod: np, errors: [] } };
+        }
+      }
+      dispatch({ type: types[1], payload: { data } });
+    },
+  };
+});
+
 const buildStore = ({ rights = [RIGHT_LEDGER_REPORTING, RIGHT_LEDGER_ADMIN] } = {}) =>
   createStore(
     combineReducers({
