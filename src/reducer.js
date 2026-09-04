@@ -55,7 +55,7 @@ const initialState = {
   funderSearch: { isFetching: false, isFetched: false, error: null, results: [] },
   funderActivityReport: { isFetching: false, isFetched: false, error: null, data: null },
 
-  journalSearch: { isFetching: false, isFetched: false, error: null, results: [] },
+  journalSearch: { isFetching: false, isFetched: false, error: null, results: [], fetchedType: null },
 
   accountingPeriods: { isFetching: false, isFetched: false, error: null, items: [] },
   periodMutation: { submitting: false, error: null, lastRejectionReason: null },
@@ -262,7 +262,8 @@ function reducer(state = initialState, action) {
           isFetching: false,
           isFetched: true,
           error: formatGraphQLError(action.payload),
-          results: (action.payload?.data?.journals?.edges || []).map((edge) => edge?.node),
+          results: (action.payload?.data?.ledgerJournal?.edges || []).map((edge) => edge?.node),
+          fetchedType: action.meta?.journalType ?? null,
         },
       };
     case err(ACTION_TYPE.JOURNAL_SEARCH):

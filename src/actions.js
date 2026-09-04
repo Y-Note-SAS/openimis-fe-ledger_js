@@ -60,7 +60,20 @@ const ANALYTIC_VALUES_QUERY = `
 
 const JOURNALS_QUERY = `
   query Journals($first: Int) {
-    journals(first: $first, orderBy: "name") {
+    ledgerJournal(first: $first) {
+      totalCount
+      edges {
+        node {
+          id name code type
+        }
+      }
+    }
+  }
+`;
+
+const JOURNALS_BY_TYPE_QUERY = `
+  query JournalsByType($first: Int, $type: String) {
+    ledgerJournal(first: $first, type: $type) {
       totalCount
       edges {
         node {
@@ -670,13 +683,18 @@ export function searchParty(searchTerm) {
   ]);
 }
 
-/** Reference query used by the LedgerJournalPicker (journals { name code type }). */
-export function fetchJournals() {
-  return graphqlWithVariables(JOURNALS_QUERY, { first: 100 }, [
+/** Reference query used by the LedgerJournalPicker (journals { name code type }).
+    An optional `journalType` restricts the list to journals of that type
+    (e.g. "TRESORERIE"), leaving `type` unset fetches every journal. */
+export function fetchJournals(journalType) {
+  const variables = { first: 100 };
+  const operation = journalType ? JOURNALS_BY_TYPE_QUERY : JOURNALS_QUERY;
+  if (journalType) variables.type = journalType;
+  return graphqlWithVariables(operation, variables, [
     `${ACTION_TYPE.JOURNAL_SEARCH}_REQ`,
     `${ACTION_TYPE.JOURNAL_SEARCH}_RESP`,
     `${ACTION_TYPE.JOURNAL_SEARCH}_ERR`,
-  ]);
+  ], { journalType: journalType || null });
 }
 
 /** User Story 2 — signed running balance + period statement for one party. */
