@@ -70,6 +70,19 @@ const ANALYTIC_VALUES_QUERY = `
   }
 `;
 
+const JOURNALS_QUERY = `
+  query Journals($first: Int) {
+    journals(first: $first, orderBy: "name") {
+      totalCount
+      edges {
+        node {
+          id name code type
+        }
+      }
+    }
+  }
+`;
+
 const PARTY_LEDGER_BALANCE_QUERY = `
   query PartyLedgerBalance($analyticValueId: ID!, $accountingPeriod: ID!) {
     partyLedgerBalance(analyticValueId: $analyticValueId, accountingPeriod: $accountingPeriod) {
@@ -993,6 +1006,15 @@ export function searchParty(searchTerm) {
     `${ACTION_TYPE.PARTY_SEARCH}_REQ`,
     `${ACTION_TYPE.PARTY_SEARCH}_RESP`,
     `${ACTION_TYPE.PARTY_SEARCH}_ERR`,
+  ]);
+}
+
+/** Reference query used by the LedgerJournalPicker (journals { name code type }). */
+export function fetchJournals() {
+  return graphqlWithVariables(JOURNALS_QUERY, { first: 100 }, [
+    `${ACTION_TYPE.JOURNAL_SEARCH}_REQ`,
+    `${ACTION_TYPE.JOURNAL_SEARCH}_RESP`,
+    `${ACTION_TYPE.JOURNAL_SEARCH}_ERR`,
   ]);
 }
 

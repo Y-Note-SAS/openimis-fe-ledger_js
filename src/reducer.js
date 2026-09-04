@@ -10,13 +10,13 @@ export const ACTION_TYPE = {
   PARTY_LEDGER_BALANCE: "LEDGER_PARTY_LEDGER_BALANCE",
   PARTY_LEDGER_BALANCE_RESET: "LEDGER_PARTY_LEDGER_BALANCE_RESET",
   FUNDER_SEARCH: "LEDGER_FUNDER_SEARCH",
+  JOURNAL_SEARCH: "LEDGER_JOURNAL_SEARCH",
   FUNDER_ACTIVITY_REPORT: "LEDGER_FUNDER_ACTIVITY_REPORT",
   MANUAL_REVIEW_QUEUE: "LEDGER_MANUAL_REVIEW_QUEUE",
   DEPLOYMENT_CONFIGURATION: "LEDGER_DEPLOYMENT_CONFIGURATION",
   EXTERNAL_SYSTEMS: "LEDGER_EXTERNAL_SYSTEMS",
   CURRENCY_CODES: "LEDGER_CURRENCY_CODES",
   CHART_OF_ACCOUNTS: "LEDGER_CHART_OF_ACCOUNTS",
-
   OPEN_ACCOUNTING_PERIOD: "LEDGER_OPEN_ACCOUNTING_PERIOD",
   LOCK_ACCOUNTING_PERIOD: "LEDGER_LOCK_ACCOUNTING_PERIOD",
   CLOSE_ACCOUNTING_PERIOD: "LEDGER_CLOSE_ACCOUNTING_PERIOD",
@@ -55,6 +55,8 @@ const initialState = {
 
   funderSearch: { isFetching: false, isFetched: false, error: null, results: [] },
   funderActivityReport: { isFetching: false, isFetched: false, error: null, data: null },
+
+  journalSearch: { isFetching: false, isFetched: false, error: null, results: [] },
 
   accountingPeriods: { isFetching: false, isFetched: false, error: null, items: [] },
   periodMutation: { submitting: false, error: null, lastRejectionReason: null },
@@ -334,6 +336,21 @@ function reducer(state = initialState, action) {
       };
     case err(ACTION_TYPE.FUNDER_SEARCH):
       return { ...state, funderSearch: { ...state.funderSearch, isFetching: false, error: formatServerError(action.payload) } };
+
+    case req(ACTION_TYPE.JOURNAL_SEARCH):
+      return { ...state, journalSearch: { ...state.journalSearch, isFetching: true, isFetched: false, error: null } };
+    case resp(ACTION_TYPE.JOURNAL_SEARCH):
+      return {
+        ...state,
+        journalSearch: {
+          isFetching: false,
+          isFetched: true,
+          error: formatGraphQLError(action.payload),
+          results: (action.payload?.data?.journals?.edges || []).map((edge) => edge?.node),
+        },
+      };
+    case err(ACTION_TYPE.JOURNAL_SEARCH):
+      return { ...state, journalSearch: { ...state.journalSearch, isFetching: false, error: formatServerError(action.payload) } };
 
     case req(ACTION_TYPE.FUNDER_ACTIVITY_REPORT):
       return {
