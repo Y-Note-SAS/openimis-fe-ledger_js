@@ -13,7 +13,6 @@ import FunderPicker from "../pickers/FunderPicker";
 import SourceEventTypePicker from "../pickers/SourceEventTypePicker";
 
 const ALL_PERIODS_FILTER_VALUE = "__all__";
-
 const StyledLedgerEntryFilter = styled("section")(({ theme }) => ({
   padding: 0,
   width: "100%",
