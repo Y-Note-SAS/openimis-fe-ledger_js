@@ -13,7 +13,6 @@ import FunderPicker from "../pickers/FunderPicker";
 import SourceEventTypePicker from "../pickers/SourceEventTypePicker";
 
 const ALL_PERIODS_FILTER_VALUE = "__all__";
-
 const StyledLedgerEntryFilter = styled("section")(({ theme }) => ({
   padding: 0,
   width: "100%",
@@ -40,7 +39,13 @@ const LedgerEntryFilter = ({ intl, filters, onChangeFilters }) => {
               <LedgerJournalPicker
                 value={textFilterValue("journal")}
                 onChange={(value) =>
-                  onChangeFilters([{ id: "journal", value, filter: value ? `journal: "${value}"` : null }])
+                  onChangeFilters([
+                    {
+                      id: "journal",
+                      value: value?.code ?? null,
+                      filter: value?.code ? `journal: "${value.code}"` : null,
+                    },
+                  ])
                 }
               />
             </Grid>
