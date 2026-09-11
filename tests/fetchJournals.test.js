@@ -21,21 +21,22 @@ describe("fetchJournals", () => {
     const [operation, variables, types, meta] = graphqlWithVariables.mock.calls[0];
     expect(operation).toContain("query Journals");
     expect(operation).toContain("ledgerJournal");
-    expect(operation).not.toContain("$type");
+    expect(operation).toContain("type { id code type altLanguage }");
+    expect(operation).not.toContain("type_Code");
     expect(operation).not.toContain("orderBy");
     expect(variables).toEqual({ first: 100 });
     expect(types).toEqual(["LEDGER_JOURNAL_SEARCH_REQ", "LEDGER_JOURNAL_SEARCH_RESP", "LEDGER_JOURNAL_SEARCH_ERR"]);
     expect(meta).toEqual({ journalType: null });
   });
 
-  it("queries only journals of the requested type when a type is given", () => {
-    fetchJournals("TRESORERIE");
+  it("queries only journals of the requested journal type code when one is given", () => {
+    fetchJournals("treasury");
     const [operation, variables, , meta] = graphqlWithVariables.mock.calls[0];
     expect(operation).toContain("query JournalsByType");
     expect(operation).toContain("ledgerJournal");
-    expect(operation).toContain("type: $type");
+    expect(operation).toContain("type_Code: $typeCode");
     expect(operation).not.toContain("orderBy");
-    expect(variables).toEqual({ first: 100, type: "TRESORERIE" });
-    expect(meta).toEqual({ journalType: "TRESORERIE" });
+    expect(variables).toEqual({ first: 100, typeCode: "treasury" });
+    expect(meta).toEqual({ journalType: "treasury" });
   });
 });

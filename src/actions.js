@@ -2,14 +2,15 @@ import { graphqlWithVariables, decodeId } from "@openimis/fe-core";
 import { ACTION_TYPE } from "./reducer";
 import { EXPORT_JOB_POLL_INTERVAL_MS, MOCK_EXPORT_POLL_INTERVAL_MS } from "./constants";
 
-// GraphQL operation strings target the REAL openimis-be-ledger_py schema
-// (feature-37591): snake_case root fields, Relay connections, graphene-django
-// camelCased root fields/filters (graphene-django auto-camelCases the Python
-// snake_case field names) and UUID resolver args (party/funder). The deployed
-// LedgerEntryGQLType does not expose the `transaction`/legs object, so the
-// node is limited to its scalar + journal/accountingPeriod fields. The legacy
-// design contract in contracts/graphql-operations.md described the pre-stub
-// schema and is no longer the source of truth for these operations.
+// GraphQL operation strings target the REAL openimis-be-ledger_py schema:
+// snake_case root fields, Relay connections, graphene-django camelCased root
+// fields/filters (auto-camelCased Python snake_case field names) and UUID
+// resolver args (party/funder). LedgerEntryGQLType exposes the whole
+// transaction, so the entry legs (debit/credit/account) are fetched with the
+// list: they feed both the debit/credit/balance columns and the expanded row
+// detail (there is no separate detail query). The legacy design contract in
+// contracts/graphql-operations.md described the pre-stub schema and is no
+// longer the source of truth for these operations.
 
 const LEDGER_ENTRIES_QUERY = `
   query LedgerEntries(
@@ -26,8 +27,21 @@ const LEDGER_ENTRIES_QUERY = `
       edges {
         node {
           id
+          transaction {
+            balance
+            legs {
+              edges {
+                node {
+                  id
+                  debit
+                  credit
+                  account { code name }
+                }
+              }
+            }
+          }
           journal { code name }
-          accountingPeriod { id status }
+          accountingPeriod { id code name status }
           sourceEventType sourceEventReference postedAt
         }
       }
@@ -76,20 +90,24 @@ const JOURNALS_QUERY = `
       totalCount
       edges {
         node {
-          id name code type
+          id name code
+          type { id code type altLanguage }
         }
       }
     }
   }
 `;
 
+// The backend filters journals by their JournalTypes *code* (`type_Code`),
+// e.g. "treasury"; `type` alone would expect the FK id.
 const JOURNALS_BY_TYPE_QUERY = `
-  query JournalsByType($first: Int, $type: String) {
-    ledgerJournal(first: $first, type: $type) {
+  query JournalsByType($first: Int, $typeCode: String) {
+    ledgerJournal(first: $first, type_Code: $typeCode) {
       totalCount
       edges {
         node {
-          id name code type
+          id name code
+          type { id code type altLanguage }
         }
       }
     }
@@ -1022,13 +1040,14 @@ export function searchParty(searchTerm) {
   ]);
 }
 
-/** Reference query used by the LedgerJournalPicker (journals { name code type }).
-    An optional `journalType` restricts the list to journals of that type
-    (e.g. "TRESORERIE"), leaving `type` unset fetches every journal. */
+/** Reference query used by the LedgerJournalPicker (journals { name code }).
+    The optional `journalType` is a backend reference value — a JournalTypes
+    code such as "treasury" — sent as the `type_Code` filter; leaving it unset
+    fetches every journal. */
 export function fetchJournals(journalType) {
   const variables = { first: 100 };
   const operation = journalType ? JOURNALS_BY_TYPE_QUERY : JOURNALS_QUERY;
-  if (journalType) variables.type = journalType;
+  if (journalType) variables.typeCode = journalType;
   return graphqlWithVariables(operation, variables, [
     `${ACTION_TYPE.JOURNAL_SEARCH}_REQ`,
     `${ACTION_TYPE.JOURNAL_SEARCH}_RESP`,

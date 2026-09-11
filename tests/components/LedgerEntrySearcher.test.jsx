@@ -310,6 +310,32 @@ describe("LedgerEntrySearcher", () => {
     expect(screen.getByText("SALES")).toBeInTheDocument();
   });
 
+  it("shows the accounting period code (not its UUID) in the period column", () => {
+    const store = buildStore({
+      accountingPeriods: {
+        isFetching: false,
+        isFetched: true,
+        error: null,
+        items: [{ id: "1", code: "2026-07", status: "open" }],
+      },
+    });
+
+    render(
+      <Provider store={store}>
+        <IntlProvider locale="en" messages={{}}>
+          <LedgerEntrySearcher />
+        </IntlProvider>
+      </Provider>,
+    );
+
+    const props = searcherSpy.mock.calls.at(-1)[0];
+    const periodFormatter = props.itemFormatters()[1];
+    const { container } = render(
+      <>{periodFormatter({ accountingPeriod: { id: "1", code: "2026-07", status: "open" } })}</>,
+    );
+    expect(container.textContent).toContain("2026-07");
+  });
+
   it("toggles entry expansion on row click", () => {
     const items = [
       { id: "1", journal: { code: "BANK" }, lines: [{ id: "l1", account: { code: "4010", name: "Revenue" } }] },

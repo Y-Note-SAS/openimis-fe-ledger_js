@@ -15,7 +15,7 @@ describe("Reducer", () => {
     expect(state.ledgerEntries.filters.journal).toBe("BANK");
   });
 
-  it("handles LEDGER_LEDGER_ENTRIES_RESP with the real transaction/legs shape", () => {
+  it("handles LEDGER_LEDGER_ENTRIES_RESP with the real transaction/legs connection", () => {
     const action = {
       type: `${ACTION_TYPE.LEDGER_ENTRIES}_RESP`,
       payload: {
@@ -28,24 +28,37 @@ describe("Reducer", () => {
                 node: {
                   id: "TGVkZ2VyRW50cnk6MQ==",
                   journal: { code: "BANK", name: "Bank" },
-                  accountingPeriod: { id: "QWNjb3VudGluZ1BlcmlvZDox", status: 1 },
-                  sourceEventType: "claim_payment",
+                  accountingPeriod: {
+                    id: "QWNjb3VudGluZ1BlcmlvZDox",
+                    code: "2026-07",
+                    name: "Juillet 2026",
+                    status: 1,
+                  },
+                  sourceEventType: "CLAIM_PAYMENT",
                   sourceEventReference: "CLM-2026-0001",
                   postedAt: "2026-07-24T10:00:00Z",
                   transaction: {
-                    id: "VHJhbnNhY3Rpb246MQ==",
-                    legs: [
-                      {
-                        id: "TGVnOjE=",
-                        account: { code: "4010", name: "Debit" },
-                        debit: "12500.00",
-                        credit: null,
-                        analyticTags: [
-                          { analyticValue: { id: "QW5hbHl0aWNWYWx1ZTox", displayName: "District Hospital", partyType: "health_facility", funderCode: null, axis: { code: "party" } } },
-                          { analyticValue: { id: "QW5hbHl0aWNWYWx1ZToy", displayName: "GIZ", partyType: null, funderCode: "GIZ", axis: { code: "funder" } } },
-                        ],
-                      },
-                    ],
+                    balance: "FCFA0",
+                    legs: {
+                      edges: [
+                        {
+                          node: {
+                            id: "TGVnOjE=",
+                            account: { code: "4010", name: "Debit" },
+                            debit: "12500.00",
+                            credit: "0",
+                          },
+                        },
+                        {
+                          node: {
+                            id: "TGVnOjI=",
+                            account: { code: "5120", name: "Cash" },
+                            debit: "0",
+                            credit: "12500.00",
+                          },
+                        },
+                      ],
+                    },
                   },
                 },
               },
@@ -58,14 +71,93 @@ describe("Reducer", () => {
     expect(state.ledgerEntries.isFetching).toBe(false);
     expect(state.ledgerEntries.isFetched).toBe(true);
     expect(state.ledgerEntries.items.length).toBe(1);
-    expect(state.ledgerEntries.pageInfo.totalCount).toBe(10);
+    expect(state.ledgerEntries.pageInfo).toEqual({
+      totalCount: 10,
+      hasNextPage: true,
+      hasPreviousPage: false,
+      startCursor: "0",
+      endCursor: "9",
+    });
     const entry = state.ledgerEntries.items[0];
     expect(entry.id).toBe("1");
-    expect(entry.accountingPeriod.status).toBe("open");
+    expect(entry.accountingPeriod).toEqual({
+      id: "1",
+      code: "2026-07",
+      name: "Juillet 2026",
+      status: "open",
+    });
     expect(entry.sourceEventType).toBe("claim_payment");
+    expect(entry.lines).toEqual([
+      {
+        id: "1",
+        account: { code: "4010", name: "Debit" },
+        debit: "12500.00",
+        credit: "0",
+        partyTag: null,
+        funderTag: null,
+      },
+      {
+        id: "2",
+        account: { code: "5120", name: "Cash" },
+        debit: "0",
+        credit: "12500.00",
+        partyTag: null,
+        funderTag: null,
+      },
+    ]);
+    // Decimal strings coming from the backend must be summed as numbers.
+    expect(entry.totals).toEqual({ debit: 12500, credit: 12500, balance: 0 });
+  });
+
+  it("maps analytic tags to party/funder tags and keeps the flat `lines` fallback", () => {
+    const action = {
+      type: `${ACTION_TYPE.LEDGER_ENTRIES}_RESP`,
+      payload: {
+        data: {
+          ledgerEntries: {
+            totalCount: 1,
+            pageInfo: {},
+            edges: [
+              {
+                node: {
+                  id: "TGVkZ2VyRW50cnk6Mg==",
+                  lines: [
+                    {
+                      id: "TGVnOjM=",
+                      account: { code: "4010", name: "Debit" },
+                      debit: 100,
+                      credit: null,
+                      analyticTags: [
+                        {
+                          analyticValue: {
+                            id: "QW5hbHl0aWNWYWx1ZTox",
+                            displayName: "District Hospital",
+                            axis: { code: "party" },
+                          },
+                        },
+                        {
+                          analyticValue: {
+                            id: "QW5hbHl0aWNWYWx1ZToy",
+                            displayName: "GIZ",
+                            axis: { code: "funder" },
+                          },
+                        },
+                      ],
+                    },
+                  ],
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+    const state = reducer(initialState, action);
+    const entry = state.ledgerEntries.items[0];
     expect(entry.lines).toHaveLength(1);
     expect(entry.lines[0].partyTag).toEqual({ analyticValueId: "QW5hbHl0aWNWYWx1ZTox", displayName: "District Hospital" });
     expect(entry.lines[0].funderTag).toEqual({ analyticValueId: "QW5hbHl0aWNWYWx1ZToy", displayName: "GIZ" });
+    expect(entry.totals).toEqual({ debit: 100, credit: 0, balance: 100 });
   });
 
   it("handles LEDGER_LEDGER_ENTRIES_ERR", () => {

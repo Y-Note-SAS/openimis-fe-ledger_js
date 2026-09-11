@@ -8,8 +8,15 @@ import { fetchJournals } from "../actions";
 
 /* Journal picker backed by the `journals` reference query (object { name, code, type }).
    Accepts a journal object or a journal code as `value`; `onChange` yields the journal object (or null).
-   The optional `type` prop restricts the fetched list to journals of that type (e.g. "TRESORERIE"). */
-const optionLabel = (option) => (option?.name ? (option?.type ? `${option.name} (${option.type})` : option.name) : "");
+   The optional `type` prop is a backend reference value (a JournalTypes code such as
+   "treasury") sent to the backend as the `type_Code` filter. `type` is now an object
+   (`JournalTypes`), so the label reads its code/type/altLanguage. */
+const optionLabel = (option) => {
+  if (!option?.name) return "";
+  const typeLabel =
+    typeof option.type === "string" ? option.type : option.type?.code || option.type?.type || option.type?.altLanguage;
+  return typeLabel ? `${option.name} (${typeLabel})` : option.name;
+};
 
 const LedgerJournalPicker = ({
   intl,

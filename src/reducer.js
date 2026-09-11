@@ -111,8 +111,13 @@ const mapLedgerEntryLine = (line) => ({
 });
 
 const mapLedgerEntryNode = (node) => {
-  const rawLines = node?.lines || node?.transaction?.legs || [];
-  const lines = rawLines.map(mapLedgerEntryLine);
+  // The backend returns the legs as a Relay connection
+  // (`transaction.legs.edges[].node`); the flat `lines` array is kept as a
+  // fallback for mock payloads.
+  const legs = node?.transaction?.legs;
+  const rawLines =
+    node?.lines || (Array.isArray(legs) ? legs : legs?.edges?.map((edge) => edge?.node)) || [];
+  const lines = rawLines.filter(Boolean).map(mapLedgerEntryLine);
   return {
     id: decodeLedgerReferenceId(node.id),
     journal: node.journal,
@@ -346,7 +351,9 @@ function reducer(state = initialState, action) {
           isFetching: false,
           isFetched: true,
           error: formatGraphQLError(action.payload),
-          results: (action.payload?.data?.ledgerJournal?.edges || []).map((edge) => edge?.node),
+          results: (action.payload?.data?.ledgerJournal?.edges || [])
+            .map((edge) => edge?.node)
+            .filter(Boolean),
           fetchedType: action.meta?.journalType ?? null,
         },
       };

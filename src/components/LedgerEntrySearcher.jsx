@@ -209,7 +209,8 @@ const LedgerEntrySearcher = ({
       (entry) => entry.journal?.code,
       (entry) => (
         <>
-          {entry.accountingPeriod?.id} <Chip size="small" label={entry.accountingPeriod?.status} />
+          {entry.accountingPeriod?.code || entry.accountingPeriod?.name || entry.accountingPeriod?.id}{" "}
+          <Chip size="small" label={entry.accountingPeriod?.status} />
         </>
       ),
       (entry) => `${entry.sourceEventType || ""} ${entry.sourceEventReference || ""}`,
@@ -253,8 +254,6 @@ const LedgerEntrySearcher = ({
     if (!entry) return null;
 
     const lines = entry.lines || [];
-    // The deployed backend does not expose the transaction/legs object yet, so
-    // there is no line-level detail to render (backend follow-up).
     if (lines.length === 0) return null;
     const isBalanced = entry.totals?.balance === 0 && entry.totals?.debit === entry.totals?.credit;
     const sourceRouteRef = sourceEventRouteRef(entry);

@@ -322,6 +322,13 @@ describe("Actions - Real API calls", () => {
     expect(thunkAction.operation).toContain("journal_Code");
     expect(thunkAction.operation).toContain("accountingPeriod_Code");
     expect(thunkAction.operation).toContain("LedgerEntryMetaSourceEventType");
+    // The legs feed both the debit/credit/balance columns and the expanded row.
+    expect(thunkAction.operation).toContain("transaction");
+    expect(thunkAction.operation).toContain("legs");
+    expect(thunkAction.operation).toContain("debit");
+    expect(thunkAction.operation).toContain("credit");
+    expect(thunkAction.operation).toContain("account { code name }");
+    expect(thunkAction.operation).toContain("accountingPeriod { id code name status }");
     expect(thunkAction.variables).toEqual({
       journal: "BANK",
       accountingPeriodCode: "2026-07",
