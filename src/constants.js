@@ -80,5 +80,30 @@ export const EXPORT_JOB_POLL_INTERVAL_MS = 3000;
 export const USE_MOCK_EXPORT = true;
 export const MOCK_EXPORT_POLL_INTERVAL_MS = 1000;
 
-// Set to false when the deployment configuration backend is connected.
-export const USE_MOCK_DEPLOYMENT = true;
+// Mirrors backend DeploymentConfiguration.EXTERNAL_SYSTEMS (models.py).
+// The explicit list is constant by design: the backend validates the value on
+// save and exposes it both as an enum (`ODOO`/`SAGE`) and as a raw string
+// (`odoo`/`sage`) depending on the direction of the call.
+export const EXTERNAL_SYSTEM = {
+  ODOO: "odoo",
+  SAGE: "sage",
+};
+
+// Mirrors hordak AccountType (models.core.AccountType / AccountType enum in
+// the GraphQL schema): only root accounts carry a type.
+export const ACCOUNT_TYPE = {
+  ASSET: "AS",
+  LIABILITY: "LI",
+  INCOME: "IN",
+  EXPENSE: "EX",
+  EQUITY: "EQ",
+  TRADING: "TR",
+};
+
+// Deployment configuration is validated server-side: the retained earnings
+// account must not be an income or expense account.
+export const RETAINED_EARNINGS_EXCLUDED_ACCOUNT_TYPES = [ACCOUNT_TYPE.INCOME, ACCOUNT_TYPE.EXPENSE];
+
+// Fallback currency code used when the deployment configuration cannot be
+// loaded; the effective default always comes from the backend configuration.
+export const DEFAULT_CURRENCY_CODE = "XAF";

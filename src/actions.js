@@ -1,4 +1,4 @@
-import { graphqlWithVariables, decodeId } from "@openimis/fe-core";
+import { graphql, graphqlWithVariables, decodeId, formatMutation } from "@openimis/fe-core";
 import { ACTION_TYPE } from "./reducer";
 import { EXPORT_JOB_POLL_INTERVAL_MS, MOCK_EXPORT_POLL_INTERVAL_MS } from "./constants";
 
@@ -221,26 +221,33 @@ const EXPORT_SEQUENCES_QUERY = `
   }
 `;
 
-const LEDGER_DEPLOYMENT_REFERENCE_DATA_QUERY = `
-  query LedgerDeploymentReferenceData {
-    externalSystems { code label }
-    currencyCodes { code label }
-    chartOfAccounts { id code name }
-    deploymentConfiguration { operatingMode externalSystem currencyCode retainedEarningsAccount { id code name } }
+// Deployment configuration lives in a Relay connection: several rows may exist
+// (the backend mutation always creates a new one), so the current configuration
+// is the most recently created row.
+const LEDGER_DEPLOYMENT_CONFIGURATION_QUERY = `
+  query LedgerDeploymentConfiguration {
+    deploymentConfiguration(first: 1, orderBy: ["-dateCreated"]) {
+      totalCount
+      edges {
+        node {
+          id operatingMode externalSystem currencyCode
+          retainedEarningsAccount { id uuid code name }
+        }
+      }
+    }
   }
 `;
 
-const CONFIGURE_DEPLOYMENT_MUTATION = `
-  mutation ConfigureDeployment(
-    $operatingMode: String!, $externalSystem: String, $currencyCode: String!, $retainedEarningsAccountId: ID!
-  ) {
-    configureDeployment(
-      operatingMode: $operatingMode, externalSystem: $externalSystem,
-      currencyCode: $currencyCode, retainedEarningsAccountId: $retainedEarningsAccountId
-    ) {
-      clientMutationId
-      deploymentConfiguration { operatingMode externalSystem currencyCode retainedEarningsAccount { id code name } }
-      errors { field message }
+// Reference accounts shared by the deployment configuration form (retained
+// earnings account) and the journal creation form (default debit/credit
+// accounts). Not paginated: pickers need the whole (small) chart of accounts.
+const ACCOUNT_OPTIONS_QUERY = `
+  query AccountOptions($first: Int) {
+    accounts(first: $first) {
+      totalCount
+      edges {
+        node { id uuid name code fullCode type isBankAccount currencies }
+      }
     }
   }
 `;
@@ -248,9 +255,7 @@ const CONFIGURE_DEPLOYMENT_MUTATION = `
 const mockId = (type, id) => btoa(`${type}:${id}`);
 const OPEN_PERIOD_ID = mockId("AccountingPeriod", 1);
 const CLOSED_PERIOD_ID = mockId("AccountingPeriod", 2);
-const MOCK_RETAINED_EARNINGS_ACCOUNT_ID = mockId("ChartOfAccounts", 105);
 const ALL_PERIODS_FILTER_VALUE = "__all__";
-const MOCK_CAPITAL_RESERVE_ACCOUNT_ID = mockId("ChartOfAccounts", 110);
 const analyticId = (id) => mockId("AnalyticValue", id);
 
 const decodeMockId = (encoded) => {
@@ -1249,85 +1254,64 @@ export function pollExportJobMock(
   };
 }
 
-/** User Story 7 — reference data for the deployment configuration form. */
-export function fetchLedgerDeploymentReferenceData() {
-  return graphqlWithVariables(LEDGER_DEPLOYMENT_REFERENCE_DATA_QUERY, {}, [
+/** User Story 7 — current deployment configuration (most recent backend row). */
+export function fetchLedgerDeploymentConfiguration() {
+  return graphqlWithVariables(LEDGER_DEPLOYMENT_CONFIGURATION_QUERY, {}, [
     `${ACTION_TYPE.DEPLOYMENT_CONFIGURATION}_REQ`,
     `${ACTION_TYPE.DEPLOYMENT_CONFIGURATION}_RESP`,
     `${ACTION_TYPE.DEPLOYMENT_CONFIGURATION}_ERR`,
   ]);
 }
 
-/** User Story 7 — save deployment configuration; only dispatched post-acknowledgement on mode change (FR-018). */
-export function configureDeployment(operatingMode, externalSystem, currencyCode, retainedEarningsAccountId) {
-  const variables = { operatingMode, externalSystem, currencyCode, retainedEarningsAccountId };
-  return graphqlWithVariables(CONFIGURE_DEPLOYMENT_MUTATION, variables, [
-    `${ACTION_TYPE.CONFIGURE_DEPLOYMENT}_REQ`,
-    `${ACTION_TYPE.CONFIGURE_DEPLOYMENT}_RESP`,
-    `${ACTION_TYPE.CONFIGURE_DEPLOYMENT}_ERR`,
+/** Chart of accounts for the account pickers (deployment retained earnings, journal defaults). */
+export function fetchAccountOptions() {
+  return graphqlWithVariables(ACCOUNT_OPTIONS_QUERY, { first: 100 }, [
+    `${ACTION_TYPE.ACCOUNT_OPTIONS}_REQ`,
+    `${ACTION_TYPE.ACCOUNT_OPTIONS}_RESP`,
+    `${ACTION_TYPE.ACCOUNT_OPTIONS}_ERR`,
   ]);
 }
 
-/** Demo-only deployment reference data. The GraphQL action above remains the production path. */
-export function fetchLedgerDeploymentReferenceDataMock() {
-  return (dispatch) => {
-    dispatch({ type: `${ACTION_TYPE.DEPLOYMENT_CONFIGURATION}_REQ` });
-    dispatch({
-      type: `${ACTION_TYPE.DEPLOYMENT_CONFIGURATION}_RESP`,
-      payload: {
-        data: {
-          externalSystems: [
-            { code: "odoo", label: "Odoo" },
-            { code: "sage", label: "Sage" },
-          ],
-          currencyCodes: [
-            { code: "XAF", label: "Central African CFA franc" },
-            { code: "EUR", label: "Euro" },
-            { code: "USD", label: "US dollar" },
-          ],
-          chartOfAccounts: [
-            { id: MOCK_RETAINED_EARNINGS_ACCOUNT_ID, code: "105000", name: "Retained earnings" },
-            { id: MOCK_CAPITAL_RESERVE_ACCOUNT_ID, code: "110000", name: "Capital reserve" },
-          ],
-          deploymentConfiguration: {
-            operatingMode: "local_only",
-            externalSystem: null,
-            currencyCode: "XAF",
-            retainedEarningsAccount: {
-              id: MOCK_RETAINED_EARNINGS_ACCOUNT_ID,
-              code: "105000",
-              name: "Retained earnings",
-            },
-          },
-        },
+/**
+ * User Story 7 — save the deployment configuration (FR-018). The backend input
+ * takes raw values (`local_only`/`replicated`, `odoo`/`sage`) while the query
+ * returns the corresponding GraphQL enum names, so the page only ever submits
+ * the raw values. `createDeploymentConfiguration` answers with the mutation ids
+ * only, so the submitted values are echoed back through the action meta.
+ */
+export function createDeploymentConfiguration({
+  operatingMode,
+  externalSystem,
+  currencyCode,
+  retainedEarningsAccount,
+  clientMutationLabel,
+}) {
+  const input = [
+    `operatingMode: ${JSON.stringify(operatingMode)}`,
+    externalSystem ? `externalSystem: ${JSON.stringify(externalSystem)}` : null,
+    `currencyCode: ${JSON.stringify(currencyCode)}`,
+    `retainedEarningsAccountId: ${JSON.stringify(retainedEarningsAccount?.uuid ?? null)}`,
+  ]
+    .filter(Boolean)
+    .join(",\n          ");
+  const mutation = formatMutation("createDeploymentConfiguration", input, clientMutationLabel);
+  return graphql(
+    mutation.payload,
+    [
+      `${ACTION_TYPE.CREATE_DEPLOYMENT_CONFIGURATION}_REQ`,
+      `${ACTION_TYPE.CREATE_DEPLOYMENT_CONFIGURATION}_RESP`,
+      `${ACTION_TYPE.CREATE_DEPLOYMENT_CONFIGURATION}_ERR`,
+    ],
+    {
+      clientMutationId: mutation.clientMutationId,
+      clientMutationLabel,
+      requestedDateTime: new Date(),
+      deploymentConfiguration: {
+        operatingMode,
+        externalSystem: externalSystem || null,
+        currencyCode,
+        retainedEarningsAccount: retainedEarningsAccount ?? null,
       },
-    });
-  };
-}
-
-/** Demo-only save action; reducer handling is identical to the backend response shape. */
-export function configureDeploymentMock(operatingMode, externalSystem, currencyCode, retainedEarningsAccountId) {
-  return (dispatch) => {
-    dispatch({ type: `${ACTION_TYPE.CONFIGURE_DEPLOYMENT}_REQ` });
-    dispatch({
-      type: `${ACTION_TYPE.CONFIGURE_DEPLOYMENT}_RESP`,
-      payload: {
-        data: {
-          configureDeployment: {
-            errors: [],
-            deploymentConfiguration: {
-              operatingMode,
-              externalSystem,
-              currencyCode,
-              retainedEarningsAccount: {
-                id: retainedEarningsAccountId,
-                code: retainedEarningsAccountId === "110" ? "110000" : "105000",
-                name: retainedEarningsAccountId === "110" ? "Capital reserve" : "Retained earnings",
-              },
-            },
-          },
-        },
-      },
-    });
-  };
+    },
+  );
 }

@@ -14,9 +14,7 @@ export const ACTION_TYPE = {
   FUNDER_ACTIVITY_REPORT: "LEDGER_FUNDER_ACTIVITY_REPORT",
   MANUAL_REVIEW_QUEUE: "LEDGER_MANUAL_REVIEW_QUEUE",
   DEPLOYMENT_CONFIGURATION: "LEDGER_DEPLOYMENT_CONFIGURATION",
-  EXTERNAL_SYSTEMS: "LEDGER_EXTERNAL_SYSTEMS",
-  CURRENCY_CODES: "LEDGER_CURRENCY_CODES",
-  CHART_OF_ACCOUNTS: "LEDGER_CHART_OF_ACCOUNTS",
+  ACCOUNT_OPTIONS: "LEDGER_ACCOUNT_OPTIONS",
   OPEN_ACCOUNTING_PERIOD: "LEDGER_OPEN_ACCOUNTING_PERIOD",
   LOCK_ACCOUNTING_PERIOD: "LEDGER_LOCK_ACCOUNTING_PERIOD",
   CLOSE_ACCOUNTING_PERIOD: "LEDGER_CLOSE_ACCOUNTING_PERIOD",
@@ -68,9 +66,7 @@ const initialState = {
 
   deploymentConfiguration: { isFetching: false, isFetched: false, error: null, data: null, submitting: false },
 
-  externalSystems: { isFetching: false, isFetched: false, error: null, items: [] },
-  currencyCodes: { isFetching: false, isFetched: false, error: null, items: [] },
-  chartOfAccounts: { isFetching: false, isFetched: false, error: null, items: [] },
+  accountOptions: { isFetching: false, isFetched: false, error: null, items: [] },
 };
 
 const decodeLedgerReferenceId = (id) => {
@@ -138,18 +134,42 @@ const mapLedgerEntryNode = (node) => {
 
 const firstErrorMessage = (errors) => (errors && errors.length ? errors[0].message : null);
 
+// The backend exposes `operatingMode`/`externalSystem` as GraphQL enum NAMES
+// (LOCAL_ONLY, ODOO, ...) on read but expects the raw stored values
+// (local_only, odoo, ...) on write: normalize on ingest so the form always
+// holds the value it must submit.
+const OPERATING_MODE_BY_ENUM = {
+  LOCAL_ONLY: "local_only",
+  REPLICATED: "replicated",
+  local_only: "local_only",
+  replicated: "replicated",
+};
+
+const EXTERNAL_SYSTEM_BY_ENUM = {
+  ODOO: "odoo",
+  SAGE: "sage",
+  odoo: "odoo",
+  sage: "sage",
+};
+
 const mapDeploymentConfiguration = (configuration) => {
   if (!configuration) return configuration;
   return {
     ...configuration,
+    operatingMode: OPERATING_MODE_BY_ENUM[configuration.operatingMode] ?? configuration.operatingMode,
+    externalSystem: configuration.externalSystem
+      ? EXTERNAL_SYSTEM_BY_ENUM[configuration.externalSystem] ?? configuration.externalSystem
+      : null,
     retainedEarningsAccount: configuration.retainedEarningsAccount
       ? {
           ...configuration.retainedEarningsAccount,
-          id: decodeId(configuration.retainedEarningsAccount.id),
+          id: decodeLedgerReferenceId(configuration.retainedEarningsAccount.id),
         }
       : configuration.retainedEarningsAccount,
   };
 };
+
+const mapAccountOption = (node) => ({ ...node, id: decodeLedgerReferenceId(node?.id) });
 
 // Mock review items use readable ids (e.g. "review-1"), while GraphQL
 // responses use openIMIS base64 ids. Keep both forms valid in the reducer.
@@ -519,13 +539,11 @@ function reducer(state = initialState, action) {
       return {
         ...state,
         deploymentConfiguration: { ...state.deploymentConfiguration, isFetching: true, isFetched: false, error: null },
-        externalSystems: { ...state.externalSystems, isFetching: true, isFetched: false, error: null },
-        currencyCodes: { ...state.currencyCodes, isFetching: true, isFetched: false, error: null },
-        chartOfAccounts: { ...state.chartOfAccounts, isFetching: true, isFetched: false, error: null },
       };
     case resp(ACTION_TYPE.DEPLOYMENT_CONFIGURATION): {
-      const data = action.payload?.data;
+      const connection = action.payload?.data?.deploymentConfiguration;
       const gqlError = formatGraphQLError(action.payload)?.message ?? null;
+      const node = connection?.edges?.[0]?.node ?? null;
       return {
         ...state,
         deploymentConfiguration: {
@@ -533,48 +551,68 @@ function reducer(state = initialState, action) {
           isFetching: false,
           isFetched: true,
           error: gqlError,
-          data: mapDeploymentConfiguration(data?.deploymentConfiguration),
-        },
-        externalSystems: { isFetching: false, isFetched: true, error: gqlError, items: data?.externalSystems || [] },
-        currencyCodes: { isFetching: false, isFetched: true, error: gqlError, items: data?.currencyCodes || [] },
-        chartOfAccounts: {
-          isFetching: false,
-          isFetched: true,
-          error: gqlError,
-          items: (data?.chartOfAccounts || []).map((a) => ({ ...a, id: decodeId(a.id) })),
+          data: mapDeploymentConfiguration(node),
         },
       };
     }
-    case err(ACTION_TYPE.DEPLOYMENT_CONFIGURATION): {
-      const serverError = formatServerError(action.payload)?.message ?? null;
+    case err(ACTION_TYPE.DEPLOYMENT_CONFIGURATION):
       return {
         ...state,
-        deploymentConfiguration: { ...state.deploymentConfiguration, isFetching: false, error: serverError },
-        externalSystems: { ...state.externalSystems, isFetching: false, error: serverError },
-        currencyCodes: { ...state.currencyCodes, isFetching: false, error: serverError },
-        chartOfAccounts: { ...state.chartOfAccounts, isFetching: false, error: serverError },
+        deploymentConfiguration: {
+          ...state.deploymentConfiguration,
+          isFetching: false,
+          error: formatServerError(action.payload)?.message ?? null,
+        },
       };
-    }
 
-    case req(ACTION_TYPE.CONFIGURE_DEPLOYMENT):
+    // Foundational: chart of accounts shared by every account picker.
+    case req(ACTION_TYPE.ACCOUNT_OPTIONS):
+      return { ...state, accountOptions: { ...state.accountOptions, isFetching: true, isFetched: false, error: null } };
+    case resp(ACTION_TYPE.ACCOUNT_OPTIONS):
+      return {
+        ...state,
+        accountOptions: {
+          isFetching: false,
+          isFetched: true,
+          error: formatGraphQLError(action.payload)?.message ?? null,
+          items: (action.payload?.data?.accounts?.edges || []).map((edge) => mapAccountOption(edge.node)),
+        },
+      };
+    case err(ACTION_TYPE.ACCOUNT_OPTIONS):
+      return {
+        ...state,
+        accountOptions: {
+          ...state.accountOptions,
+          isFetching: false,
+          error: formatServerError(action.payload)?.message ?? null,
+        },
+      };
+
+    case req(ACTION_TYPE.CREATE_DEPLOYMENT_CONFIGURATION):
       return { ...state, deploymentConfiguration: { ...state.deploymentConfiguration, submitting: true, error: null } };
-    case resp(ACTION_TYPE.CONFIGURE_DEPLOYMENT): {
-      const result = action.payload?.data?.configureDeployment;
-      const message = firstErrorMessage(result?.errors);
+    case resp(ACTION_TYPE.CREATE_DEPLOYMENT_CONFIGURATION): {
+      // createDeploymentConfiguration only answers with the mutation ids: the
+      // submitted values (echoed through the action meta) become the current
+      // configuration until the next read.
+      const message = firstErrorMessage(action.payload?.data?.createDeploymentConfiguration?.errors);
       if (message) {
-        return { ...state, deploymentConfiguration: { ...state.deploymentConfiguration, submitting: false, error: message } };
+        return {
+          ...state,
+          deploymentConfiguration: { ...state.deploymentConfiguration, submitting: false, error: message },
+        };
       }
+      const submitted = action.meta?.deploymentConfiguration;
       return {
         ...state,
         deploymentConfiguration: {
           ...state.deploymentConfiguration,
           submitting: false,
           error: null,
-          data: mapDeploymentConfiguration(result?.deploymentConfiguration) || state.deploymentConfiguration.data,
+          data: submitted ? mapDeploymentConfiguration(submitted) : state.deploymentConfiguration.data,
         },
       };
     }
-    case err(ACTION_TYPE.CONFIGURE_DEPLOYMENT):
+    case err(ACTION_TYPE.CREATE_DEPLOYMENT_CONFIGURATION):
       return {
         ...state,
         deploymentConfiguration: {

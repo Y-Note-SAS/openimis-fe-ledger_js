@@ -541,56 +541,53 @@ describe("Reducer", () => {
     const action = { type: `${ACTION_TYPE.DEPLOYMENT_CONFIGURATION}_REQ` };
     const state = reducer(initialState, action);
     expect(state.deploymentConfiguration.isFetching).toBe(true);
-    expect(state.externalSystems.isFetching).toBe(true);
-    expect(state.currencyCodes.isFetching).toBe(true);
-    expect(state.chartOfAccounts.isFetching).toBe(true);
+    expect(state.deploymentConfiguration.isFetched).toBe(false);
   });
 
-  it("handles LEDGER_DEPLOYMENT_CONFIGURATION_RESP", () => {
+  it("handles LEDGER_DEPLOYMENT_CONFIGURATION_RESP and maps enum names back to stored values", () => {
     const action = {
       type: `${ACTION_TYPE.DEPLOYMENT_CONFIGURATION}_RESP`,
       payload: {
         data: {
-          deploymentConfiguration: { operatingMode: "single" },
-          externalSystems: [{ code: "SYS1", label: "System 1" }],
-          currencyCodes: [{ code: "USD", label: "USD" }],
-          chartOfAccounts: [{ id: "QWNjb3VudGluZ1BlcmlvZDox", code: "4010", name: "Revenue" }]
-        }
-      }
+          deploymentConfiguration: {
+            totalCount: 1,
+            edges: [
+              {
+                node: {
+                  id: "Q29uZmlnOjE=",
+                  operatingMode: "LOCAL_ONLY",
+                  externalSystem: "ODOO",
+                  currencyCode: "XAF",
+                  retainedEarningsAccount: { id: "QWNjb3VudDox", uuid: "uuid-1", code: "1200", name: "Reserves" },
+                },
+              },
+            ],
+          },
+        },
+      },
     };
     const state = reducer(initialState, action);
     expect(state.deploymentConfiguration.isFetching).toBe(false);
     expect(state.deploymentConfiguration.isFetched).toBe(true);
-    expect(state.deploymentConfiguration.data.operatingMode).toBe("single");
-    expect(state.externalSystems.items.length).toBe(1);
-    expect(state.currencyCodes.items.length).toBe(1);
-    expect(state.chartOfAccounts.items.length).toBe(1);
-    expect(state.chartOfAccounts.items[0].id).toBe("QWNjb3VudGluZ1BlcmlvZDox");
-  });
-
-  it("handles LEDGER_CONFIGURE_DEPLOYMENT_REQ", () => {
-    const action = { type: `${ACTION_TYPE.CONFIGURE_DEPLOYMENT}_REQ` };
-    const state = reducer(initialState, action);
-    expect(state.deploymentConfiguration.submitting).toBe(true);
     expect(state.deploymentConfiguration.error).toBe(null);
+    expect(state.deploymentConfiguration.data.operatingMode).toBe("local_only");
+    expect(state.deploymentConfiguration.data.externalSystem).toBe("odoo");
+    expect(state.deploymentConfiguration.data.currencyCode).toBe("XAF");
+    expect(state.deploymentConfiguration.data.retainedEarningsAccount.uuid).toBe("uuid-1");
   });
 
-  it("handles LEDGER_CONFIGURE_DEPLOYMENT_RESP", () => {
+  it("keeps a null externalSystem when the configuration is not replicated", () => {
     const action = {
-      type: `${ACTION_TYPE.CONFIGURE_DEPLOYMENT}_RESP`,
+      type: `${ACTION_TYPE.DEPLOYMENT_CONFIGURATION}_RESP`,
       payload: {
         data: {
-          configureDeployment: {
-            deploymentConfiguration: { operatingMode: "single", currencyCode: "USD" },
-            errors: []
-          }
-        }
-      }
+          deploymentConfiguration: { edges: [{ node: { operatingMode: "REPLICATED", externalSystem: null } }] },
+        },
+      },
     };
     const state = reducer(initialState, action);
-    expect(state.deploymentConfiguration.submitting).toBe(false);
-    expect(state.deploymentConfiguration.error).toBe(null);
-    expect(state.deploymentConfiguration.data.operatingMode).toBe("single");
+    expect(state.deploymentConfiguration.data.operatingMode).toBe("replicated");
+    expect(state.deploymentConfiguration.data.externalSystem).toBe(null);
   });
 
   it("handles LEDGER_DEPLOYMENT_CONFIGURATION_ERR", () => {
@@ -600,12 +597,110 @@ describe("Reducer", () => {
     };
     const state = reducer(initialState, action);
     expect(state.deploymentConfiguration.error).toBe("Network error");
-    expect(state.externalSystems.error).toBe("Network error");
+    expect(state.deploymentConfiguration.isFetching).toBe(false);
   });
 
-  it("handles LEDGER_CONFIGURE_DEPLOYMENT_ERR", () => {
+  it("handles LEDGER_ACCOUNT_OPTIONS_REQ", () => {
+    const action = { type: `${ACTION_TYPE.ACCOUNT_OPTIONS}_REQ` };
+    const state = reducer(initialState, action);
+    expect(state.accountOptions.isFetching).toBe(true);
+    expect(state.accountOptions.isFetched).toBe(false);
+  });
+
+  it("handles LEDGER_ACCOUNT_OPTIONS_RESP and decodes the relay ids", () => {
     const action = {
-      type: `${ACTION_TYPE.CONFIGURE_DEPLOYMENT}_ERR`,
+      type: `${ACTION_TYPE.ACCOUNT_OPTIONS}_RESP`,
+      payload: {
+        data: {
+          accounts: {
+            totalCount: 1,
+            edges: [
+              {
+                node: {
+                  id: btoa("AccountType:uuid-1"),
+                  uuid: "uuid-1",
+                  code: "1200",
+                  name: "Reserves",
+                  type: "EQ",
+                  currencies: '["XAF"]',
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+    const state = reducer(initialState, action);
+    expect(state.accountOptions.isFetched).toBe(true);
+    expect(state.accountOptions.items).toHaveLength(1);
+    expect(state.accountOptions.items[0].id).toBe("uuid-1");
+    expect(state.accountOptions.items[0].uuid).toBe("uuid-1");
+  });
+
+  it("handles LEDGER_ACCOUNT_OPTIONS_ERR", () => {
+    const action = { type: `${ACTION_TYPE.ACCOUNT_OPTIONS}_ERR`, payload: { message: "Network error" } };
+    const state = reducer(initialState, action);
+    expect(state.accountOptions.error).toBe("Network error");
+  });
+
+  it("handles LEDGER_CREATE_DEPLOYMENT_CONFIGURATION_REQ", () => {
+    const action = { type: `${ACTION_TYPE.CREATE_DEPLOYMENT_CONFIGURATION}_REQ` };
+    const state = reducer(initialState, action);
+    expect(state.deploymentConfiguration.submitting).toBe(true);
+    expect(state.deploymentConfiguration.error).toBe(null);
+  });
+
+  it("handles LEDGER_CREATE_DEPLOYMENT_CONFIGURATION_RESP with the submitted values", () => {
+    const retainedEarningsAccount = { id: "AccountType:uuid-1", uuid: "uuid-1", code: "1200", name: "Reserves" };
+    const action = {
+      type: `${ACTION_TYPE.CREATE_DEPLOYMENT_CONFIGURATION}_RESP`,
+      payload: { data: { createDeploymentConfiguration: { internalId: "1", clientMutationId: "cid" } } },
+      meta: {
+        deploymentConfiguration: {
+          operatingMode: "replicated",
+          externalSystem: "sage",
+          currencyCode: "EUR",
+          retainedEarningsAccount,
+        },
+      },
+    };
+    const state = reducer(initialState, action);
+    expect(state.deploymentConfiguration.submitting).toBe(false);
+    expect(state.deploymentConfiguration.error).toBe(null);
+    expect(state.deploymentConfiguration.data).toMatchObject({
+      operatingMode: "replicated",
+      externalSystem: "sage",
+      currencyCode: "EUR",
+    });
+    expect(state.deploymentConfiguration.data.retainedEarningsAccount).toEqual(retainedEarningsAccount);
+  });
+
+  it("handles LEDGER_CREATE_DEPLOYMENT_CONFIGURATION_RESP backend errors", () => {
+    const action = {
+      type: `${ACTION_TYPE.CREATE_DEPLOYMENT_CONFIGURATION}_RESP`,
+      payload: {
+        data: {
+          createDeploymentConfiguration: {
+            internalId: null,
+            errors: [
+              {
+                field: "retainedEarningsAccountId",
+                message: "retained earnings account type should not be income / expense",
+              },
+            ],
+          },
+        },
+      },
+      meta: { deploymentConfiguration: { operatingMode: "local_only" } },
+    };
+    const state = reducer(initialState, action);
+    expect(state.deploymentConfiguration.submitting).toBe(false);
+    expect(state.deploymentConfiguration.error).toBe("retained earnings account type should not be income / expense");
+  });
+
+  it("handles LEDGER_CREATE_DEPLOYMENT_CONFIGURATION_ERR", () => {
+    const action = {
+      type: `${ACTION_TYPE.CREATE_DEPLOYMENT_CONFIGURATION}_ERR`,
       payload: { message: "Network error" },
     };
     const state = reducer(initialState, action);

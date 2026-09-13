@@ -29,9 +29,11 @@ import {
   reopenAccountingPeriod,
   exportAccountingPeriod,
   pollExportJob,
-  fetchLedgerDeploymentReferenceData,
-  configureDeployment,
+  fetchLedgerDeploymentConfiguration,
+  fetchAccountOptions,
+  createDeploymentConfiguration,
 } from "../src/actions";
+import { graphql, formatMutation } from "@openimis/fe-core";
 import reducer, { ACTION_TYPE } from "../src/reducer";
 import { EXPORT_FORMAT } from "../src/constants";
 
@@ -244,10 +246,16 @@ describe("Actions - Period export", () => {
 });
 
 describe("Actions - Deployment configuration", () => {
-  it("builds the deployment reference-data query action", () => {
-    const action = fetchLedgerDeploymentReferenceData();
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
 
-    expect(action.operation).toContain("LedgerDeploymentReferenceData");
+  it("builds the deployment configuration query action (connection, latest row first)", () => {
+    const action = fetchLedgerDeploymentConfiguration();
+
+    expect(action.operation).toContain("LedgerDeploymentConfiguration");
+    expect(action.operation).toContain("deploymentConfiguration(first: 1, orderBy:");
+    expect(action.operation).toContain("retainedEarningsAccount");
     expect(action.variables).toEqual({});
     expect(action.actionTypes).toEqual([
       `${ACTION_TYPE.DEPLOYMENT_CONFIGURATION}_REQ`,
@@ -256,21 +264,64 @@ describe("Actions - Deployment configuration", () => {
     ]);
   });
 
-  it("builds the deployment configuration mutation action", () => {
-    const action = configureDeployment("replicated", "odoo", "XAF", "account-1");
+  it("builds the chart-of-accounts query action used by the account pickers", () => {
+    const action = fetchAccountOptions();
 
-    expect(action.operation).toContain("ConfigureDeployment");
-    expect(action.variables).toEqual({
+    expect(action.operation).toContain("AccountOptions");
+    expect(action.operation).toContain("accounts(first: $first)");
+    expect(action.variables).toEqual({ first: 100 });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.ACCOUNT_OPTIONS}_REQ`,
+      `${ACTION_TYPE.ACCOUNT_OPTIONS}_RESP`,
+      `${ACTION_TYPE.ACCOUNT_OPTIONS}_ERR`,
+    ]);
+  });
+
+  it("submits the deployment configuration with raw values and the retained earnings account uuid", () => {
+    const retainedEarningsAccount = { id: "AccountType:uuid-1", uuid: "uuid-1", code: "1200", name: "Reserves" };
+
+    const action = createDeploymentConfiguration({
       operatingMode: "replicated",
       externalSystem: "odoo",
       currencyCode: "XAF",
-      retainedEarningsAccountId: "account-1",
+      retainedEarningsAccount,
+      clientMutationLabel: "Save configuration",
     });
+
+    expect(formatMutation).toHaveBeenCalledTimes(1);
+    const [mutationName, input, label] = formatMutation.mock.calls[0];
+    expect(mutationName).toBe("createDeploymentConfiguration");
+    expect(input).toContain('operatingMode: "replicated"');
+    expect(input).toContain('externalSystem: "odoo"');
+    expect(input).toContain('currencyCode: "XAF"');
+    expect(input).toContain('retainedEarningsAccountId: "uuid-1"');
+    expect(label).toBe("Save configuration");
+
     expect(action.actionTypes).toEqual([
-      `${ACTION_TYPE.CONFIGURE_DEPLOYMENT}_REQ`,
-      `${ACTION_TYPE.CONFIGURE_DEPLOYMENT}_RESP`,
-      `${ACTION_TYPE.CONFIGURE_DEPLOYMENT}_ERR`,
+      `${ACTION_TYPE.CREATE_DEPLOYMENT_CONFIGURATION}_REQ`,
+      `${ACTION_TYPE.CREATE_DEPLOYMENT_CONFIGURATION}_RESP`,
+      `${ACTION_TYPE.CREATE_DEPLOYMENT_CONFIGURATION}_ERR`,
     ]);
+    expect(action.params.deploymentConfiguration).toEqual({
+      operatingMode: "replicated",
+      externalSystem: "odoo",
+      currencyCode: "XAF",
+      retainedEarningsAccount,
+    });
+  });
+
+  it("omits externalSystem when the operating mode is local_only", () => {
+    createDeploymentConfiguration({
+      operatingMode: "local_only",
+      externalSystem: null,
+      currencyCode: "XAF",
+      retainedEarningsAccount: { uuid: "uuid-1" },
+      clientMutationLabel: "Save configuration",
+    });
+
+    const [, input] = formatMutation.mock.calls[0];
+    expect(input).not.toContain("externalSystem");
+    expect(graphql).toHaveBeenCalledTimes(1);
   });
 });
 

@@ -1,16 +1,20 @@
 import React, { useEffect, useMemo, useState } from "react";
-import { Alert, Box, Button, Divider, Grid, MenuItem, Paper, TextField, Typography } from "@mui/material";
+import { Alert, Autocomplete, Box, Button, Divider, Grid, MenuItem, Paper, TextField, Typography } from "@mui/material";
 import { styled } from "@mui/material/styles";
 import { injectIntl } from "react-intl";
 import { connect } from "react-redux";
 import { GRID_RESPONSIVE_STANDARD, Helmet, withModulesManager, formatMessage } from "@openimis/fe-core";
 import ForwardOnlyModeWarningDialog from "../components/ForwardOnlyModeWarningDialog";
-import { OPERATING_MODE } from "../constants";
-import { hasLedgerAdminRight } from "../utils/permissions";
+import AccountPicker from "../pickers/AccountPicker";
 import {
-  configureDeployment,
-  fetchLedgerDeploymentReferenceData,
-} from "../actions";
+  DEFAULT_CURRENCY_CODE,
+  EXTERNAL_SYSTEM,
+  OPERATING_MODE,
+  RETAINED_EARNINGS_EXCLUDED_ACCOUNT_TYPES,
+} from "../constants";
+import { collectCurrencyCodes } from "../utils/currencies";
+import { hasLedgerAdminRight } from "../utils/permissions";
+import { createDeploymentConfiguration, fetchLedgerDeploymentConfiguration } from "../actions";
 
 const StyledPage = styled("div")(({ theme }) => ({
   "& .page": theme.page ?? {},
@@ -53,43 +57,40 @@ const DeploymentConfigurationPage = ({
   intl,
   rights,
   deploymentConfiguration,
-  externalSystems,
-  currencyCodes,
-  chartOfAccounts,
-  fetchLedgerDeploymentReferenceData: loadReferenceData,
-  configureDeployment: saveDeployment,
+  accountOptions,
+  fetchLedgerDeploymentConfiguration: loadConfiguration,
+  createDeploymentConfiguration: saveConfiguration,
 }) => {
   const [operatingMode, setOperatingMode] = useState(OPERATING_MODE.LOCAL_ONLY);
   const [externalSystem, setExternalSystem] = useState("");
-  const [currencyCode, setCurrencyCode] = useState("");
-  const [retainedEarningsAccountId, setRetainedEarningsAccountId] = useState("");
+  const [currencyCode, setCurrencyCode] = useState(DEFAULT_CURRENCY_CODE);
+  const [retainedEarningsAccount, setRetainedEarningsAccount] = useState(null);
   const [warningOpen, setWarningOpen] = useState(false);
   const [pendingSave, setPendingSave] = useState(false);
   const isAdmin = hasLedgerAdminRight(rights);
 
   useEffect(() => {
     if (isAdmin) {
-      loadReferenceData();
+      loadConfiguration();
     }
-  }, [isAdmin, loadReferenceData]);
+  }, [isAdmin, loadConfiguration]);
 
   useEffect(() => {
     const data = deploymentConfiguration?.data;
     if (!data) return;
     setOperatingMode(data.operatingMode || OPERATING_MODE.LOCAL_ONLY);
     setExternalSystem(data.externalSystem || "");
-    setCurrencyCode(data.currencyCode || "");
-    setRetainedEarningsAccountId(data.retainedEarningsAccount?.id || "");
+    setCurrencyCode(data.currencyCode || DEFAULT_CURRENCY_CODE);
+    setRetainedEarningsAccount(data.retainedEarningsAccount || null);
   }, [deploymentConfiguration?.data]);
 
-  const currentOperatingMode =
-    deploymentConfiguration?.data?.operatingMode || OPERATING_MODE.LOCAL_ONLY;
+  const currentOperatingMode = deploymentConfiguration?.data?.operatingMode || OPERATING_MODE.LOCAL_ONLY;
   const submitting = deploymentConfiguration?.submitting || false;
   const error = deploymentConfiguration?.error;
-  const systems = externalSystems?.items || [];
-  const currencies = currencyCodes?.items || [];
-  const accounts = chartOfAccounts?.items || [];
-  const canSave = Boolean(currencyCode && retainedEarningsAccountId && (operatingMode !== OPERATING_MODE.REPLICATED || externalSystem));
+  const accounts = accountOptions?.items || [];
+  const canSave = Boolean(
+    currencyCode && retainedEarningsAccount?.uuid && (operatingMode !== OPERATING_MODE.REPLICATED || externalSystem),
+  );
 
   const modeOptions = useMemo(
     () => [
@@ -105,6 +106,22 @@ const DeploymentConfigurationPage = ({
     [intl],
   );
 
+  // The backend exposes no currency reference query: the selectable codes are
+  // the ones already used by the chart of accounts plus the configured code,
+  // and any other ISO code can be typed in (freeSolo).
+  const currencyOptions = useMemo(
+    () => Array.from(new Set([currencyCode, ...collectCurrencyCodes(accounts)].filter(Boolean))),
+    [currencyCode, accounts],
+  );
+
+  const systemOptions = useMemo(
+    () => [
+      { value: EXTERNAL_SYSTEM.ODOO, label: formatMessage(intl, "ledger", "ledger.deployment.externalSystems.odoo") },
+      { value: EXTERNAL_SYSTEM.SAGE, label: formatMessage(intl, "ledger", "ledger.deployment.externalSystems.sage") },
+    ],
+    [intl],
+  );
+
   if (!isAdmin) {
     return <Alert severity="error">{formatMessage(intl, "ledger", "ledger.accessDenied")}</Alert>;
   }
@@ -116,14 +133,26 @@ const DeploymentConfigurationPage = ({
       setWarningOpen(true);
       return;
     }
-    saveDeployment(operatingMode, externalSystem || null, currencyCode, retainedEarningsAccountId);
+    saveConfiguration({
+      operatingMode,
+      externalSystem: externalSystem || null,
+      currencyCode,
+      retainedEarningsAccount,
+      clientMutationLabel: formatMessage(intl, "ledger", "ledger.deployment.save"),
+    });
   };
 
   const confirmModeChange = () => {
     setWarningOpen(false);
     if (!pendingSave) return;
     setPendingSave(false);
-    saveDeployment(operatingMode, externalSystem || null, currencyCode, retainedEarningsAccountId);
+    saveConfiguration({
+      operatingMode,
+      externalSystem: externalSystem || null,
+      currencyCode,
+      retainedEarningsAccount,
+      clientMutationLabel: formatMessage(intl, "ledger", "ledger.deployment.save"),
+    });
   };
 
   return (
@@ -165,45 +194,39 @@ const DeploymentConfigurationPage = ({
                     value={externalSystem}
                     onChange={(event) => setExternalSystem(event.target.value)}
                     disabled={operatingMode !== OPERATING_MODE.REPLICATED}
+                    inputProps={{ "aria-label": "ledger.deployment.externalSystem" }}
                   >
-                    {systems.map((system) => (
-                      <MenuItem key={system.code} value={system.code}>
+                    {systemOptions.map((system) => (
+                      <MenuItem key={system.value} value={system.value}>
                         {system.label}
                       </MenuItem>
                     ))}
                   </TextField>
                 </Grid>
                 <Grid size={GRID_RESPONSIVE_STANDARD} className="item">
-                  <TextField
-                    select
-                    fullWidth
-                    variant="standard"
-                    label={formatMessage(intl, "ledger", "ledger.deployment.currencyCode")}
-                    value={currencyCode}
-                    onChange={(event) => setCurrencyCode(event.target.value)}
-                  >
-                    {currencies.map((currency) => (
-                      <MenuItem key={currency.code} value={currency.code}>
-                        {currency.label} ({currency.code})
-                      </MenuItem>
-                    ))}
-                  </TextField>
+                  <Autocomplete
+                    freeSolo
+                    openOnFocus
+                    options={currencyOptions}
+                    value={currencyCode || null}
+                    onChange={(_, newValue) => setCurrencyCode(newValue || "")}
+                    getOptionLabel={(option) => option || ""}
+                    renderInput={(params) => (
+                      <TextField
+                        {...params}
+                        variant="standard"
+                        label={formatMessage(intl, "ledger", "ledger.deployment.currencyCode")}
+                      />
+                    )}
+                  />
                 </Grid>
                 <Grid size={GRID_RESPONSIVE_STANDARD} className="item">
-                  <TextField
-                    select
-                    fullWidth
-                    variant="standard"
+                  <AccountPicker
                     label={formatMessage(intl, "ledger", "ledger.deployment.retainedEarningsAccount")}
-                    value={retainedEarningsAccountId}
-                    onChange={(event) => setRetainedEarningsAccountId(event.target.value)}
-                  >
-                    {accounts.map((account) => (
-                      <MenuItem key={account.id} value={account.id}>
-                        {account.code} — {account.name}
-                      </MenuItem>
-                    ))}
-                  </TextField>
+                    value={retainedEarningsAccount}
+                    onChange={setRetainedEarningsAccount}
+                    excludeTypes={RETAINED_EARNINGS_EXCLUDED_ACCOUNT_TYPES}
+                  />
                 </Grid>
                 <Grid size={GRID_RESPONSIVE_STANDARD} className="item">
                   <Button variant="contained" disabled={!canSave || submitting} onClick={submit}>
@@ -239,15 +262,15 @@ const DeploymentConfigurationPage = ({
 const mapStateToProps = (state) => ({
   rights: state.core?.user?.i_user?.rights || [],
   deploymentConfiguration: state.ledger?.deploymentConfiguration,
-  externalSystems: state.ledger?.externalSystems,
-  currencyCodes: state.ledger?.currencyCodes,
-  chartOfAccounts: state.ledger?.chartOfAccounts,
+  accountOptions: state.ledger?.accountOptions,
 });
 
 const mapDispatchToProps = {
-  fetchLedgerDeploymentReferenceData,
-  configureDeployment,
+  fetchLedgerDeploymentConfiguration,
+  createDeploymentConfiguration,
 };
 
 export { DeploymentConfigurationPage };
-export default withModulesManager(injectIntl(connect(mapStateToProps, mapDispatchToProps)(DeploymentConfigurationPage)));
+export default withModulesManager(
+  injectIntl(connect(mapStateToProps, mapDispatchToProps)(DeploymentConfigurationPage)),
+);

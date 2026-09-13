@@ -10,6 +10,7 @@ import PeriodExportPage from "./pages/PeriodExportPage";
 import DeploymentConfigurationPage from "./pages/DeploymentConfigurationPage";
 import AccountingPeriodPicker from "./pickers/AccountingPeriodPicker";
 import LedgerJournalPicker from "./pickers/LedgerJournalPicker";
+import AccountPicker from "./pickers/AccountPicker";
 import PartyPicker from "./pickers/PartyPicker";
 import FunderPicker from "./pickers/FunderPicker";
 import { buildLedgerSubMenuEntry } from "./menus/LedgerMainMenu";
@@ -98,6 +99,7 @@ const DEFAULT_CONFIG = {
     { key: "ledger.route.deploymentConfiguration", ref: ROUTE_DEPLOYMENT_CONFIGURATION },
     { key: "ledger.AccountingPeriodPicker", ref: AccountingPeriodPicker },
     { key: "ledger.LedgerJournalPicker", ref: LedgerJournalPicker },
+    { key: "ledger.AccountPicker", ref: AccountPicker },
     { key: "ledger.PartyPicker", ref: PartyPicker },
     { key: "ledger.FunderPicker", ref: FunderPicker },
   ],

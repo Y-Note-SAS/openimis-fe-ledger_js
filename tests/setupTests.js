@@ -56,11 +56,16 @@ vi.mock("@mui/material", () => ({
     inputValue = "",
     onInputChange,
     onChange,
-    getOptionLabel = (option) => option?.label || "",
+    getOptionLabel = (option) => (typeof option === "string" ? option : option?.label || ""),
     renderInput,
     readOnly,
-  }) =>
-    React.createElement(
+  }) => {
+    const optionValue = (option) => {
+      if (option === null || option === undefined) return "";
+      if (typeof option !== "object") return String(option);
+      return String(option.value ?? option.uuid ?? option.code ?? option.id ?? "");
+    };
+    return React.createElement(
       "div",
       null,
       renderInput
@@ -76,9 +81,11 @@ vi.mock("@mui/material", () => ({
         "select",
         {
           "aria-label": "autocomplete-options",
-          value: value?.value ?? "",
+          value: optionValue(value),
           onChange: (event) => {
-            const selected = options.find((option) => String(option?.value ?? "") === event.target.value) ?? null;
+            const selected =
+              options.find((option) => optionValue(option) === event.target.value) ??
+              (event.target.value ? event.target.value : null);
             onChange?.(event, selected);
           },
         },
@@ -88,15 +95,16 @@ vi.mock("@mui/material", () => ({
             React.createElement(
               "option",
               {
-                key: String(option?.value || option?.analyticValueId || option?.id) || `option-${index}`,
-                value: option?.value ?? "",
+                key: optionValue(option) || `option-${index}`,
+                value: optionValue(option),
               },
               getOptionLabel(option),
             ),
           ),
         ],
       ),
-    ),
+    );
+  },
   TextField: ({ label, inputProps = {}, select, children, fullWidth, multiline, minRows, margin, ...props }) =>
     select
       ? React.createElement("select", { "aria-label": label, ...inputProps, ...props }, children)
