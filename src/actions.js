@@ -114,6 +114,46 @@ const JOURNALS_BY_TYPE_QUERY = `
   }
 `;
 
+// Journal management list (ticket 37990): same connection as the journal
+// picker, plus the default debit/credit accounts shown in the table. The
+// backend filters by journal type through the prefixed `type_Id`/`type_Code`
+// args and the connection exposes no `orderBy`.
+const JOURNALS_LIST_QUERY = `
+  query JournalsList(
+    $first: Int, $after: String, $before: String, $last: Int,
+    $name: String, $code: String, $typeId: ID
+  ) {
+    ledgerJournal(
+      first: $first, after: $after, before: $before, last: $last,
+      name: $name, code: $code, type_Id: $typeId
+    ) {
+      totalCount
+      pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
+      edges {
+        node {
+          id name code
+          type { id code type altLanguage }
+          defaultDebitAccountId { id uuid code name }
+          defaultCreditAccountId { id uuid code name }
+        }
+      }
+    }
+  }
+`;
+
+// Journal types are seeded by the backend migration and drive both the
+// "journal type" picker of the creation form and the type filter of the list.
+const JOURNAL_TYPES_QUERY = `
+  query JournalTypes($first: Int) {
+    journalTypes(first: $first) {
+      totalCount
+      edges {
+        node { id code type altLanguage }
+      }
+    }
+  }
+`;
+
 const PARTY_LEDGER_BALANCE_QUERY = `
   query PartyLedgerBalance($analyticValueId: ID!, $accountingPeriod: ID!) {
     partyLedgerBalance(analyticValueId: $analyticValueId, accountingPeriod: $accountingPeriod) {
@@ -1312,6 +1352,69 @@ export function createDeploymentConfiguration({
         currencyCode,
         retainedEarningsAccount: retainedEarningsAccount ?? null,
       },
+    },
+  );
+}
+
+/** Ticket 37990 — paginated journals list for the journals page. */
+export function fetchJournalsList(filters = {}, pageInfo = {}) {
+  const variables = {
+    first: pageInfo.first ?? null,
+    after: pageInfo.after ?? null,
+    before: pageInfo.before ?? null,
+    last: pageInfo.last ?? null,
+    name: filters.name ?? null,
+    code: filters.code ?? null,
+    typeId: filters.typeId ?? null,
+  };
+  return graphqlWithVariables(JOURNALS_LIST_QUERY, variables, [
+    `${ACTION_TYPE.JOURNALS}_REQ`,
+    `${ACTION_TYPE.JOURNALS}_RESP`,
+    `${ACTION_TYPE.JOURNALS}_ERR`,
+  ]);
+}
+
+/** Ticket 37990 — journal types (JournalTypes) used by the type picker. */
+export function fetchJournalTypes() {
+  return graphqlWithVariables(JOURNAL_TYPES_QUERY, { first: 100 }, [
+    `${ACTION_TYPE.JOURNAL_TYPES}_REQ`,
+    `${ACTION_TYPE.JOURNAL_TYPES}_RESP`,
+    `${ACTION_TYPE.JOURNAL_TYPES}_ERR`,
+  ]);
+}
+
+/**
+ * Ticket 37990 — create a journal. The backend `type` input is the JournalTypes
+ * uuid (not its code) and the default debit/credit accounts are account uuids;
+ * the response carries the mutation ids only, so callers refresh the list.
+ */
+export function createJournal({
+  name,
+  code,
+  journalType,
+  defaultDebitAccount,
+  defaultCreditAccount,
+  clientMutationLabel,
+}) {
+  const input = [
+    `name: ${JSON.stringify(name)}`,
+    `code: ${JSON.stringify(code)}`,
+    `type: ${JSON.stringify(journalType?.id ?? null)}`,
+    `defaultDebitAccountId: ${JSON.stringify(defaultDebitAccount?.uuid ?? null)}`,
+    `defaultCreditAccountId: ${JSON.stringify(defaultCreditAccount?.uuid ?? null)}`,
+  ].join(",\n          ");
+  const mutation = formatMutation("createJournal", input, clientMutationLabel);
+  return graphql(
+    mutation.payload,
+    [
+      `${ACTION_TYPE.CREATE_JOURNAL}_REQ`,
+      `${ACTION_TYPE.CREATE_JOURNAL}_RESP`,
+      `${ACTION_TYPE.CREATE_JOURNAL}_ERR`,
+    ],
+    {
+      clientMutationId: mutation.clientMutationId,
+      clientMutationLabel,
+      requestedDateTime: new Date(),
     },
   );
 }

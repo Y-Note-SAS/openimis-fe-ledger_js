@@ -537,6 +537,108 @@ describe("Reducer", () => {
     expect(state.exportJobs.error).toBe("Network error");
   });
 
+  it("handles LEDGER_JOURNALS_REQ", () => {
+    const action = { type: `${ACTION_TYPE.JOURNALS}_REQ` };
+    const state = reducer(initialState, action);
+    expect(state.journals.isFetching).toBe(true);
+    expect(state.journals.isFetched).toBe(false);
+  });
+
+  it("handles LEDGER_JOURNALS_RESP with the page info and the journal nodes", () => {
+    const action = {
+      type: `${ACTION_TYPE.JOURNALS}_RESP`,
+      payload: {
+        data: {
+          ledgerJournal: {
+            totalCount: 3,
+            pageInfo: { hasNextPage: true, hasPreviousPage: false, startCursor: "c1", endCursor: "c2" },
+            edges: [
+              {
+                node: {
+                  id: "journal-1",
+                  name: "Bank",
+                  code: "BANK",
+                  type: { id: "uuid-2", code: "bank", type: "Bank & Checks Journal" },
+                  defaultDebitAccountId: { id: "acc-1", uuid: "acc-1", code: "5120", name: "Banque" },
+                  defaultCreditAccountId: { id: "acc-2", uuid: "acc-2", code: "7010", name: "Ventes" },
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+    const state = reducer(initialState, action);
+    expect(state.journals.isFetched).toBe(true);
+    expect(state.journals.items).toHaveLength(1);
+    expect(state.journals.items[0].type.code).toBe("bank");
+    expect(state.journals.pageInfo).toEqual({
+      totalCount: 3,
+      hasNextPage: true,
+      hasPreviousPage: false,
+      startCursor: "c1",
+      endCursor: "c2",
+    });
+  });
+
+  it("handles LEDGER_JOURNALS_ERR", () => {
+    const action = { type: `${ACTION_TYPE.JOURNALS}_ERR`, payload: { message: "Network error" } };
+    const state = reducer(initialState, action);
+    expect(state.journals.error).toBe("Network error");
+  });
+
+  it("handles LEDGER_JOURNAL_TYPES_RESP decoding the relay ids for the mutation", () => {
+    const action = {
+      type: `${ACTION_TYPE.JOURNAL_TYPES}_RESP`,
+      payload: {
+        data: {
+          journalTypes: {
+            totalCount: 1,
+            edges: [{ node: { id: btoa("JournalTypeGQLType:uuid-2"), code: "bank", type: "Bank", altLanguage: "Banque" } }],
+          },
+        },
+      },
+    };
+    const state = reducer(initialState, action);
+    expect(state.journalTypes.isFetched).toBe(true);
+    expect(state.journalTypes.items[0]).toMatchObject({ id: "uuid-2", code: "bank", altLanguage: "Banque" });
+  });
+
+  it("handles LEDGER_JOURNAL_TYPES_ERR", () => {
+    const action = { type: `${ACTION_TYPE.JOURNAL_TYPES}_ERR`, payload: { message: "Network error" } };
+    const state = reducer(initialState, action);
+    expect(state.journalTypes.error).toBe("Network error");
+  });
+
+  it("handles LEDGER_CREATE_JOURNAL_RESP by stamping the creation time", () => {
+    const action = { type: `${ACTION_TYPE.CREATE_JOURNAL}_RESP`, payload: { data: { createJournal: {} } } };
+    const state = reducer(initialState, action);
+    expect(state.journalMutation.submitting).toBe(false);
+    expect(state.journalMutation.error).toBe(null);
+    expect(state.journalMutation.lastCreatedAt).toEqual(expect.any(Number));
+  });
+
+  it("handles LEDGER_CREATE_JOURNAL_RESP backend errors", () => {
+    const action = {
+      type: `${ACTION_TYPE.CREATE_JOURNAL}_RESP`,
+      payload: {
+        data: {
+          createJournal: { errors: [{ field: "code", message: "The specified journal type was not found" }] },
+        },
+      },
+    };
+    const state = reducer(initialState, action);
+    expect(state.journalMutation.error).toBe("The specified journal type was not found");
+    expect(state.journalMutation.lastCreatedAt).toBe(null);
+  });
+
+  it("handles LEDGER_CREATE_JOURNAL_ERR", () => {
+    const action = { type: `${ACTION_TYPE.CREATE_JOURNAL}_ERR`, payload: { message: "Network error" } };
+    const state = reducer(initialState, action);
+    expect(state.journalMutation.submitting).toBe(false);
+    expect(state.journalMutation.error).toBe("Network error");
+  });
+
   it("handles LEDGER_DEPLOYMENT_CONFIGURATION_REQ", () => {
     const action = { type: `${ACTION_TYPE.DEPLOYMENT_CONFIGURATION}_REQ` };
     const state = reducer(initialState, action);

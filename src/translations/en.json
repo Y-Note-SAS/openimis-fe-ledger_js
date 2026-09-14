@@ -8,7 +8,8 @@
       "accountingPeriods": "Accounting Periods",
       "manualReviewQueue": "Review Queue",
       "periodExport": "Period Export",
-      "deploymentConfiguration": "Deployment Configuration"
+      "deploymentConfiguration": "Deployment Configuration",
+      "journals": "Journals"
     },
     "any": "Any",
     "accessDenied": "Access denied. You are not authorized to view this page.",
@@ -28,7 +29,8 @@
       },
       "noOptions": "No results",
       "loading": "Loading...",
-      "account": "Account"
+      "account": "Account",
+      "journalType": "Journal type"
     },
     "entry": {
       "journal": "Journal",
@@ -208,6 +210,47 @@
       "externalSystems": {
         "odoo": "Odoo",
         "sage": "Sage"
+      }
+    },
+    "journalType": {
+      "sales": "Sales",
+      "sales_credit_note": "Sales Credit Note / Sales Returns",
+      "purchase": "Purchases Journal",
+      "purchase_credit_note": "Purchase Credit Note / Purchase Returns",
+      "cash": "Cash Journal",
+      "bank": "Bank & Checks Journal",
+      "general": "General Journal",
+      "close": "Opening/Closing journal",
+      "treasury": "Treasury"
+    },
+    "journals": {
+      "pageTitle": "Journals",
+      "tableTitle": "Journals ({count})",
+      "empty": "No journal to display.",
+      "adminOnlyNotice": "Only ledger administrators can create journals.",
+      "rejectionTitle": "The journal could not be created",
+      "mutationLabel": "Create journal",
+      "create": {
+        "title": "New journal",
+        "submit": "Create journal",
+        "mutationLabel": "Create journal"
+      },
+      "form": {
+        "name": "Name",
+        "code": "Code",
+        "defaultDebitAccount": "Default debit account",
+        "defaultCreditAccount": "Default credit account"
+      },
+      "filter": {
+        "name": "Name",
+        "code": "Code"
+      },
+      "table": {
+        "code": "Code",
+        "name": "Name",
+        "type": "Type",
+        "defaultDebitAccount": "Default debit account",
+        "defaultCreditAccount": "Default credit account"
       }
     }
   }

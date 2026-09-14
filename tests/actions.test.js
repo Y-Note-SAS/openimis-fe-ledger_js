@@ -32,6 +32,9 @@ import {
   fetchLedgerDeploymentConfiguration,
   fetchAccountOptions,
   createDeploymentConfiguration,
+  fetchJournalsList,
+  fetchJournalTypes,
+  createJournal,
 } from "../src/actions";
 import { graphql, formatMutation } from "@openimis/fe-core";
 import reducer, { ACTION_TYPE } from "../src/reducer";
@@ -322,6 +325,91 @@ describe("Actions - Deployment configuration", () => {
     const [, input] = formatMutation.mock.calls[0];
     expect(input).not.toContain("externalSystem");
     expect(graphql).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Actions - Journals management", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("builds the paginated journals query with the type id filter", () => {
+    const action = fetchJournalsList(
+      { name: "Bank", code: "BANK", typeId: "uuid-2" },
+      { first: 10, after: "cursor-1" },
+    );
+
+    expect(action.operation).toContain("query JournalsList");
+    expect(action.operation).toContain("type_Id: $typeId");
+    expect(action.operation).toContain("defaultDebitAccountId { id uuid code name }");
+    expect(action.variables).toEqual({
+      first: 10,
+      after: "cursor-1",
+      before: null,
+      last: null,
+      name: "Bank",
+      code: "BANK",
+      typeId: "uuid-2",
+    });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.JOURNALS}_REQ`,
+      `${ACTION_TYPE.JOURNALS}_RESP`,
+      `${ACTION_TYPE.JOURNALS}_ERR`,
+    ]);
+  });
+
+  it("queries the first journals page without filters by default", () => {
+    const action = fetchJournalsList({}, {});
+
+    expect(action.variables).toEqual({
+      first: null,
+      after: null,
+      before: null,
+      last: null,
+      name: null,
+      code: null,
+      typeId: null,
+    });
+  });
+
+  it("builds the journal types query", () => {
+    const action = fetchJournalTypes();
+
+    expect(action.operation).toContain("query JournalTypes");
+    expect(action.operation).toContain("journalTypes(first: $first)");
+    expect(action.variables).toEqual({ first: 100 });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.JOURNAL_TYPES}_REQ`,
+      `${ACTION_TYPE.JOURNAL_TYPES}_RESP`,
+      `${ACTION_TYPE.JOURNAL_TYPES}_ERR`,
+    ]);
+  });
+
+  it("creates a journal with the journal type uuid and the account uuids", () => {
+    const action = createJournal({
+      name: "Bank",
+      code: "BANK",
+      journalType: { id: "uuid-2", code: "bank" },
+      defaultDebitAccount: { uuid: "debit-uuid", code: "5120" },
+      defaultCreditAccount: { uuid: "credit-uuid", code: "7010" },
+      clientMutationLabel: "Create journal",
+    });
+
+    expect(formatMutation).toHaveBeenCalledTimes(1);
+    const [mutationName, input, label] = formatMutation.mock.calls[0];
+    expect(mutationName).toBe("createJournal");
+    expect(input).toContain('name: "Bank"');
+    expect(input).toContain('code: "BANK"');
+    expect(input).toContain('type: "uuid-2"');
+    expect(input).toContain('defaultDebitAccountId: "debit-uuid"');
+    expect(input).toContain('defaultCreditAccountId: "credit-uuid"');
+    expect(input).not.toContain("sequence");
+    expect(label).toBe("Create journal");
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.CREATE_JOURNAL}_REQ`,
+      `${ACTION_TYPE.CREATE_JOURNAL}_RESP`,
+      `${ACTION_TYPE.CREATE_JOURNAL}_ERR`,
+    ]);
   });
 });
 
