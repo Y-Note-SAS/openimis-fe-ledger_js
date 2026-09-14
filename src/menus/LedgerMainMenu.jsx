@@ -39,6 +39,10 @@ export const buildLedgerSubMenuEntry = (routes) => ({
       route: routes.ROUTE_PERIOD_EXPORT,
     },
     {
+      text: "ledger.menu.accounts",
+      route: routes.ROUTE_ACCOUNTS,
+    },
+    {
       text: "ledger.menu.deploymentConfiguration",
       route: routes.ROUTE_DEPLOYMENT_CONFIGURATION,
     },

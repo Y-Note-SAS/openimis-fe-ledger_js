@@ -32,6 +32,8 @@ import {
   fetchLedgerDeploymentConfiguration,
   fetchAccountOptions,
   createDeploymentConfiguration,
+  fetchAccounts,
+  createAccount,
 } from "../src/actions";
 import { graphql, formatMutation } from "@openimis/fe-core";
 import reducer, { ACTION_TYPE } from "../src/reducer";
@@ -322,6 +324,81 @@ describe("Actions - Deployment configuration", () => {
     const [, input] = formatMutation.mock.calls[0];
     expect(input).not.toContain("externalSystem");
     expect(graphql).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("Actions - Accounts management", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("builds the paginated accounts query with every filter", () => {
+    const action = fetchAccounts(
+      { code: "1200", fullCode: "1200", type: "EQ", isBankAccount: true },
+      { first: 20, after: "cursor-1" },
+    );
+
+    expect(action.operation).toContain("query Accounts");
+    expect(action.operation).toContain("accounts(");
+    expect(action.variables).toEqual({
+      first: 20,
+      after: "cursor-1",
+      before: null,
+      last: null,
+      code: "1200",
+      fullCode: "1200",
+      type: "EQ",
+      isBankAccount: true,
+    });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.ACCOUNTS}_REQ`,
+      `${ACTION_TYPE.ACCOUNTS}_RESP`,
+      `${ACTION_TYPE.ACCOUNTS}_ERR`,
+    ]);
+  });
+
+  it("queries the first page with no filter when nothing is applied", () => {
+    const action = fetchAccounts({}, {});
+
+    expect(action.variables).toEqual({
+      first: null,
+      after: null,
+      before: null,
+      last: null,
+      code: null,
+      fullCode: null,
+      type: null,
+      isBankAccount: null,
+    });
+  });
+
+  it("creates an account with the currencies serialized as a JSON string", () => {
+    const action = createAccount({
+      name: "Caisse",
+      code: "570",
+      fullCode: "570",
+      type: "AS",
+      isBankAccount: false,
+      currencies: ["XAF", "EUR"],
+      clientMutationLabel: "Create account",
+    });
+
+    expect(formatMutation).toHaveBeenCalledTimes(1);
+    const [mutationName, input, label] = formatMutation.mock.calls[0];
+    expect(mutationName).toBe("createAccount");
+    expect(input).toContain('name: "Caisse"');
+    expect(input).toContain('code: "570"');
+    expect(input).toContain('fullCode: "570"');
+    expect(input).toContain('type: "AS"');
+    expect(input).toContain("isBankAccount: false");
+    expect(input).toContain('currencies: "[\\"XAF\\",\\"EUR\\"]"');
+    expect(label).toBe("Create account");
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.CREATE_ACCOUNT}_REQ`,
+      `${ACTION_TYPE.CREATE_ACCOUNT}_RESP`,
+      `${ACTION_TYPE.CREATE_ACCOUNT}_ERR`,
+    ]);
+    expect(action.params.clientMutationId).toBe("mock-client-mutation-id");
   });
 });
 

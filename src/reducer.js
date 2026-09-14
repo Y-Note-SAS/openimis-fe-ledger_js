@@ -1,5 +1,7 @@
 import { formatServerError, formatGraphQLError, decodeId } from "@openimis/fe-core";
 import { computeLedgerEntryTotals } from "./utils/ledgerEntryTotals";
+import { parseCurrencies } from "./utils/currencies";
+import { firstErrorMessage } from "./utils/graphqlErrors";
 
 // Flux Standard Action triplet suffixes, consistent with every other
 // openimis-fe-* module in this environment (research.md §1).
@@ -15,6 +17,8 @@ export const ACTION_TYPE = {
   MANUAL_REVIEW_QUEUE: "LEDGER_MANUAL_REVIEW_QUEUE",
   DEPLOYMENT_CONFIGURATION: "LEDGER_DEPLOYMENT_CONFIGURATION",
   ACCOUNT_OPTIONS: "LEDGER_ACCOUNT_OPTIONS",
+  ACCOUNTS: "LEDGER_ACCOUNTS",
+  CREATE_ACCOUNT: "LEDGER_CREATE_ACCOUNT",
   OPEN_ACCOUNTING_PERIOD: "LEDGER_OPEN_ACCOUNTING_PERIOD",
   LOCK_ACCOUNTING_PERIOD: "LEDGER_LOCK_ACCOUNTING_PERIOD",
   CLOSE_ACCOUNTING_PERIOD: "LEDGER_CLOSE_ACCOUNTING_PERIOD",
@@ -67,6 +71,15 @@ const initialState = {
   deploymentConfiguration: { isFetching: false, isFetched: false, error: null, data: null, submitting: false },
 
   accountOptions: { isFetching: false, isFetched: false, error: null, items: [] },
+
+  accounts: {
+    isFetching: false,
+    isFetched: false,
+    error: null,
+    items: [],
+    pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },
+  },
+  accountMutation: { submitting: false, error: null, lastCreatedAt: null },
 };
 
 const decodeLedgerReferenceId = (id) => {
@@ -132,8 +145,6 @@ const mapLedgerEntryNode = (node) => {
   };
 };
 
-const firstErrorMessage = (errors) => (errors && errors.length ? errors[0].message : null);
-
 // The backend exposes `operatingMode`/`externalSystem` as GraphQL enum NAMES
 // (LOCAL_ONLY, ODOO, ...) on read but expects the raw stored values
 // (local_only, odoo, ...) on write: normalize on ingest so the form always
@@ -170,6 +181,13 @@ const mapDeploymentConfiguration = (configuration) => {
 };
 
 const mapAccountOption = (node) => ({ ...node, id: decodeLedgerReferenceId(node?.id) });
+
+// hordak stores `currencies` in a JSON field exposed as a GraphQL JSONString:
+// normalize it to an array so the views can render it directly.
+const mapAccountNode = (node) => ({
+  ...mapAccountOption(node),
+  currencies: parseCurrencies(node?.currencies),
+});
 
 // Mock review items use readable ids (e.g. "review-1"), while GraphQL
 // responses use openIMIS base64 ids. Keep both forms valid in the reducer.
@@ -533,6 +551,66 @@ function reducer(state = initialState, action) {
     case err(ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD):
     case err(ACTION_TYPE.EXPORT_SEQUENCES):
       return { ...state, exportJobs: { ...state.exportJobs, error: formatServerError(action.payload)?.message ?? null } };
+
+    // --- Ticket 37991: Accounts management --------------------------------
+    case req(ACTION_TYPE.ACCOUNTS):
+      return {
+        ...state,
+        accounts: { ...state.accounts, isFetching: true, isFetched: false, error: null },
+      };
+    case resp(ACTION_TYPE.ACCOUNTS): {
+      const connection = action.payload?.data?.accounts;
+      return {
+        ...state,
+        accounts: {
+          isFetching: false,
+          isFetched: true,
+          error: formatGraphQLError(action.payload)?.message ?? null,
+          items: (connection?.edges || []).map((edge) => mapAccountNode(edge.node)),
+          pageInfo: {
+            totalCount: connection?.totalCount ?? 0,
+            hasNextPage: connection?.pageInfo?.hasNextPage ?? false,
+            hasPreviousPage: connection?.pageInfo?.hasPreviousPage ?? false,
+            startCursor: connection?.pageInfo?.startCursor ?? null,
+            endCursor: connection?.pageInfo?.endCursor ?? null,
+          },
+        },
+      };
+    }
+    case err(ACTION_TYPE.ACCOUNTS):
+      return {
+        ...state,
+        accounts: {
+          ...state.accounts,
+          isFetching: false,
+          error: formatServerError(action.payload)?.message ?? null,
+        },
+      };
+
+    case req(ACTION_TYPE.CREATE_ACCOUNT):
+      return { ...state, accountMutation: { ...state.accountMutation, submitting: true, error: null } };
+    case resp(ACTION_TYPE.CREATE_ACCOUNT): {
+      const result = action.payload?.data?.createAccount;
+      const message = firstErrorMessage(result?.errors);
+      if (message) {
+        return { ...state, accountMutation: { ...state.accountMutation, submitting: false, error: message } };
+      }
+      // The mutation only answers with the mutation ids: the page refreshes the
+      // paginated list (and resets the creation form) on `lastCreatedAt`.
+      return {
+        ...state,
+        accountMutation: { submitting: false, error: null, lastCreatedAt: Date.now() },
+      };
+    }
+    case err(ACTION_TYPE.CREATE_ACCOUNT):
+      return {
+        ...state,
+        accountMutation: {
+          ...state.accountMutation,
+          submitting: false,
+          error: formatServerError(action.payload)?.message ?? null,
+        },
+      };
 
     // --- User Story 7: Deployment Configuration ----------------------------
     case req(ACTION_TYPE.DEPLOYMENT_CONFIGURATION):
