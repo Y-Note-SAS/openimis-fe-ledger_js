@@ -698,6 +698,113 @@ describe("Reducer", () => {
     expect(state.deploymentConfiguration.error).toBe("retained earnings account type should not be income / expense");
   });
 
+  it("handles LEDGER_ACCOUNTS_REQ", () => {
+    const action = { type: `${ACTION_TYPE.ACCOUNTS}_REQ` };
+    const state = reducer(initialState, action);
+    expect(state.accounts.isFetching).toBe(true);
+    expect(state.accounts.isFetched).toBe(false);
+  });
+
+  it("handles LEDGER_ACCOUNTS_RESP with the page info and parsed currencies", () => {
+    const action = {
+      type: `${ACTION_TYPE.ACCOUNTS}_RESP`,
+      payload: {
+        data: {
+          accounts: {
+            totalCount: 12,
+            pageInfo: {
+              hasNextPage: true,
+              hasPreviousPage: false,
+              startCursor: "cursor-1",
+              endCursor: "cursor-2",
+            },
+            edges: [
+              {
+                node: {
+                  id: btoa("AccountType:uuid-1"),
+                  uuid: "uuid-1",
+                  name: "Reserves",
+                  code: "1200",
+                  fullCode: "1200",
+                  type: "EQ",
+                  isBankAccount: false,
+                  currencies: '["XAF","EUR"]',
+                  level: 1,
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+    const state = reducer(initialState, action);
+    expect(state.accounts.isFetching).toBe(false);
+    expect(state.accounts.isFetched).toBe(true);
+    expect(state.accounts.error).toBe(null);
+    expect(state.accounts.items).toHaveLength(1);
+    expect(state.accounts.items[0]).toMatchObject({
+      id: "uuid-1",
+      uuid: "uuid-1",
+      code: "1200",
+      type: "EQ",
+      currencies: ["XAF", "EUR"],
+    });
+    expect(state.accounts.pageInfo).toEqual({
+      totalCount: 12,
+      hasNextPage: true,
+      hasPreviousPage: false,
+      startCursor: "cursor-1",
+      endCursor: "cursor-2",
+    });
+  });
+
+  it("handles LEDGER_ACCOUNTS_ERR", () => {
+    const action = { type: `${ACTION_TYPE.ACCOUNTS}_ERR`, payload: { message: "Network error" } };
+    const state = reducer(initialState, action);
+    expect(state.accounts.isFetching).toBe(false);
+    expect(state.accounts.error).toBe("Network error");
+  });
+
+  it("handles LEDGER_CREATE_ACCOUNT_REQ", () => {
+    const action = { type: `${ACTION_TYPE.CREATE_ACCOUNT}_REQ` };
+    const state = reducer(initialState, action);
+    expect(state.accountMutation.submitting).toBe(true);
+    expect(state.accountMutation.error).toBe(null);
+  });
+
+  it("handles LEDGER_CREATE_ACCOUNT_RESP by stamping the creation time", () => {
+    const action = {
+      type: `${ACTION_TYPE.CREATE_ACCOUNT}_RESP`,
+      payload: { data: { createAccount: { internalId: "1", clientMutationId: "cid" } } },
+    };
+    const state = reducer(initialState, action);
+    expect(state.accountMutation.submitting).toBe(false);
+    expect(state.accountMutation.error).toBe(null);
+    expect(state.accountMutation.lastCreatedAt).toEqual(expect.any(Number));
+  });
+
+  it("handles LEDGER_CREATE_ACCOUNT_RESP backend errors", () => {
+    const action = {
+      type: `${ACTION_TYPE.CREATE_ACCOUNT}_RESP`,
+      payload: {
+        data: {
+          createAccount: { internalId: null, errors: [{ field: "code", message: "The code is already used" }] },
+        },
+      },
+    };
+    const state = reducer(initialState, action);
+    expect(state.accountMutation.submitting).toBe(false);
+    expect(state.accountMutation.error).toBe("The code is already used");
+    expect(state.accountMutation.lastCreatedAt).toBe(null);
+  });
+
+  it("handles LEDGER_CREATE_ACCOUNT_ERR", () => {
+    const action = { type: `${ACTION_TYPE.CREATE_ACCOUNT}_ERR`, payload: { message: "Network error" } };
+    const state = reducer(initialState, action);
+    expect(state.accountMutation.submitting).toBe(false);
+    expect(state.accountMutation.error).toBe("Network error");
+  });
+
   it("handles LEDGER_CREATE_DEPLOYMENT_CONFIGURATION_ERR", () => {
     const action = {
       type: `${ACTION_TYPE.CREATE_DEPLOYMENT_CONFIGURATION}_ERR`,

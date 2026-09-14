@@ -8,6 +8,7 @@ import AccountingPeriodsPage from "./pages/AccountingPeriodsPage";
 import ManualReviewQueuePage from "./pages/ManualReviewQueuePage";
 import PeriodExportPage from "./pages/PeriodExportPage";
 import DeploymentConfigurationPage from "./pages/DeploymentConfigurationPage";
+import AccountsPage from "./pages/AccountsPage";
 import AccountingPeriodPicker from "./pickers/AccountingPeriodPicker";
 import LedgerJournalPicker from "./pickers/LedgerJournalPicker";
 import AccountPicker from "./pickers/AccountPicker";
@@ -24,6 +25,7 @@ const ROUTE_ACCOUNTING_PERIODS = "ledger/periods";
 const ROUTE_MANUAL_REVIEW_QUEUE = "ledger/review-queue";
 const ROUTE_PERIOD_EXPORT = "ledger/export";
 const ROUTE_DEPLOYMENT_CONFIGURATION = "ledger/deployment";
+const ROUTE_ACCOUNTS = "ledger/accounts";
 
 const READ_RIGHTS = [RIGHT_LEDGER_REPORTING, RIGHT_LEDGER_ADMIN];
 const ADMIN_ONLY_RIGHTS = [RIGHT_LEDGER_ADMIN];
@@ -81,6 +83,14 @@ const DEFAULT_CONFIG = {
       text: "ledger.menu.periodExport",
     },
     {
+      path: ROUTE_ACCOUNTS,
+      id: "ledger.accounts",
+      component: AccountsPage,
+      rights: READ_RIGHTS,
+      icon: "AccountTree",
+      text: "ledger.menu.accounts",
+    },
+    {
       path: ROUTE_DEPLOYMENT_CONFIGURATION,
       id: "ledger.deploymentConfiguration",
       component: DeploymentConfigurationPage,
@@ -96,6 +106,7 @@ const DEFAULT_CONFIG = {
     { key: "ledger.route.accountingPeriods", ref: ROUTE_ACCOUNTING_PERIODS },
     { key: "ledger.route.manualReviewQueue", ref: ROUTE_MANUAL_REVIEW_QUEUE },
     { key: "ledger.route.periodExport", ref: ROUTE_PERIOD_EXPORT },
+    { key: "ledger.route.accounts", ref: ROUTE_ACCOUNTS },
     { key: "ledger.route.deploymentConfiguration", ref: ROUTE_DEPLOYMENT_CONFIGURATION },
     { key: "ledger.AccountingPeriodPicker", ref: AccountingPeriodPicker },
     { key: "ledger.LedgerJournalPicker", ref: LedgerJournalPicker },
@@ -111,6 +122,7 @@ const DEFAULT_CONFIG = {
       ROUTE_ACCOUNTING_PERIODS,
       ROUTE_MANUAL_REVIEW_QUEUE,
       ROUTE_PERIOD_EXPORT,
+      ROUTE_ACCOUNTS,
       ROUTE_DEPLOYMENT_CONFIGURATION,
     }),
   ],

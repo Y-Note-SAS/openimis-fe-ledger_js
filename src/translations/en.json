@@ -8,7 +8,8 @@
       "accountingPeriods": "Accounting Periods",
       "manualReviewQueue": "Review Queue",
       "periodExport": "Period Export",
-      "deploymentConfiguration": "Deployment Configuration"
+      "deploymentConfiguration": "Deployment Configuration",
+      "accounts": "Accounts"
     },
     "any": "Any",
     "accessDenied": "Access denied. You are not authorized to view this page.",
@@ -208,6 +209,49 @@
       "externalSystems": {
         "odoo": "Odoo",
         "sage": "Sage"
+      }
+    },
+    "yes": "Yes",
+    "no": "No",
+    "accountType": "Account type",
+    "accountTypeValue": {
+      "AS": "Asset",
+      "LI": "Liability",
+      "IN": "Income",
+      "EX": "Expense",
+      "EQ": "Equity",
+      "TR": "Currency Trading"
+    },
+    "accounts": {
+      "pageTitle": "Chart of Accounts",
+      "tableTitle": "Accounts ({count})",
+      "empty": "No account to display.",
+      "adminOnlyNotice": "Only ledger administrators can create accounts.",
+      "rejectionTitle": "The account could not be created",
+      "mutationLabel": "Create account",
+      "create": {
+        "title": "New account",
+        "submit": "Create account",
+        "mutationLabel": "Create account"
+      },
+      "form": {
+        "name": "Name",
+        "code": "Code",
+        "fullCode": "Full code",
+        "isBankAccount": "Bank account",
+        "currencies": "Currencies"
+      },
+      "filter": {
+        "code": "Code",
+        "isBankAccount": "Bank account"
+      },
+      "table": {
+        "code": "Code",
+        "fullCode": "Full code",
+        "name": "Name",
+        "type": "Type",
+        "isBankAccount": "Bank account",
+        "currencies": "Currencies"
       }
     }
   }
