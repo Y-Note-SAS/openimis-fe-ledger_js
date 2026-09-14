@@ -160,6 +160,66 @@ describe("Reducer", () => {
     expect(entry.totals).toEqual({ debit: 100, credit: 0, balance: 100 });
   });
 
+  it("reports the entry-level party/funder on every leg of the expandable detail", () => {
+    const action = {
+      type: `${ACTION_TYPE.LEDGER_ENTRIES}_RESP`,
+      payload: {
+        data: {
+          ledgerEntries: {
+            totalCount: 1,
+            pageInfo: {},
+            edges: [
+              {
+                node: {
+                  id: "TGVkZ2VyRW50cnk6Mw==",
+                  party: { id: "QW5hbHl0aWNWYWx1ZTox", displayName: "District Hospital" },
+                  funder: { id: "QW5hbHl0aWNWYWx1ZToy", displayName: "GIZ" },
+                  transaction: {
+                    balance: "FCFA0",
+                    legs: {
+                      edges: [
+                        {
+                          node: {
+                            id: "TGVnOjQ=",
+                            account: { id: "QWNjb3VudDox", code: "4010", name: "Debit" },
+                            debit: "1000.00",
+                            credit: "0",
+                          },
+                        },
+                        {
+                          node: {
+                            id: "TGVnOjU=",
+                            account: { id: "QWNjb3VudDoy", code: "5120", name: "Cash" },
+                            debit: "0",
+                            credit: "1000.00",
+                          },
+                        },
+                      ],
+                    },
+                  },
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+    const state = reducer(initialState, action);
+    const entry = state.ledgerEntries.items[0];
+    expect(entry.lines.map((line) => line.account)).toEqual([
+      { id: "QWNjb3VudDox", code: "4010", name: "Debit" },
+      { id: "QWNjb3VudDoy", code: "5120", name: "Cash" },
+    ]);
+    expect(entry.lines.map((line) => line.partyTag)).toEqual([
+      { analyticValueId: "QW5hbHl0aWNWYWx1ZTox", displayName: "District Hospital" },
+      { analyticValueId: "QW5hbHl0aWNWYWx1ZTox", displayName: "District Hospital" },
+    ]);
+    expect(entry.lines.map((line) => line.funderTag)).toEqual([
+      { analyticValueId: "QW5hbHl0aWNWYWx1ZToy", displayName: "GIZ" },
+      { analyticValueId: "QW5hbHl0aWNWYWx1ZToy", displayName: "GIZ" },
+    ]);
+  });
+
   it("handles LEDGER_LEDGER_ENTRIES_ERR", () => {
     const action = {
       type: `${ACTION_TYPE.LEDGER_ENTRIES}_ERR`,

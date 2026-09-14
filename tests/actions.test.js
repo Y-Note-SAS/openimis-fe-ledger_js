@@ -378,7 +378,10 @@ describe("Actions - Real API calls", () => {
     expect(thunkAction.operation).toContain("legs");
     expect(thunkAction.operation).toContain("debit");
     expect(thunkAction.operation).toContain("credit");
-    expect(thunkAction.operation).toContain("account { code name }");
+    expect(thunkAction.operation).toContain("account { id name code }");
+    // Entry-level party/funder feed the expandable details.
+    expect(thunkAction.operation).toContain("party { id displayName }");
+    expect(thunkAction.operation).toContain("funder { id displayName }");
     expect(thunkAction.operation).toContain("accountingPeriod { id code name status }");
     expect(thunkAction.variables).toEqual({
       journal: "BANK",

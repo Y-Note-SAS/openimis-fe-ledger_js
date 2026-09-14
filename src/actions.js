@@ -8,9 +8,10 @@ import { EXPORT_JOB_POLL_INTERVAL_MS, MOCK_EXPORT_POLL_INTERVAL_MS } from "./con
 // resolver args (party/funder). LedgerEntryGQLType exposes the whole
 // transaction, so the entry legs (debit/credit/account) are fetched with the
 // list: they feed both the debit/credit/balance columns and the expanded row
-// detail (there is no separate detail query). The legacy design contract in
-// contracts/graphql-operations.md described the pre-stub schema and is no
-// longer the source of truth for these operations.
+// detail (there is no separate detail query). The entry-level `party`/`funder`
+// analytic values it exposes feed those expanded rows. The legacy design
+// contract in contracts/graphql-operations.md described the pre-stub schema and
+// is no longer the source of truth for these operations.
 
 const LEDGER_ENTRIES_QUERY = `
   query LedgerEntries(
@@ -27,6 +28,8 @@ const LEDGER_ENTRIES_QUERY = `
       edges {
         node {
           id
+          party { id displayName }
+          funder { id displayName }
           transaction {
             balance
             legs {
@@ -35,7 +38,7 @@ const LEDGER_ENTRIES_QUERY = `
                   id
                   debit
                   credit
-                  account { code name }
+                  account { id name code }
                 }
               }
             }

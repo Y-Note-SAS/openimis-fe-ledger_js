@@ -97,13 +97,18 @@ const mapAnalyticTag = (analyticTags, axisCode) => {
   return value ? { analyticValueId: value.id, displayName: value.displayName } : null;
 };
 
-const mapLedgerEntryLine = (line) => ({
+// Entry-level party/funder: the whole transaction is tagged server-side, so a
+// leg without its own analytic tag reuses the tag carried by the entry.
+const mapEntryTag = (value) =>
+  value ? { analyticValueId: value.id, displayName: value.displayName } : null;
+
+const mapLedgerEntryLine = (line, entryTags = {}) => ({
   id: decodeLedgerReferenceId(line.id),
   account: line.account,
   debit: line.debit,
   credit: line.credit,
-  partyTag: line.partyTag || mapAnalyticTag(line.analyticTags, "party"),
-  funderTag: line.funderTag || mapAnalyticTag(line.analyticTags, "funder"),
+  partyTag: line.partyTag || mapAnalyticTag(line.analyticTags, "party") || entryTags.partyTag || null,
+  funderTag: line.funderTag || mapAnalyticTag(line.analyticTags, "funder") || entryTags.funderTag || null,
 });
 
 const mapLedgerEntryNode = (node) => {
@@ -113,7 +118,11 @@ const mapLedgerEntryNode = (node) => {
   const legs = node?.transaction?.legs;
   const rawLines =
     node?.lines || (Array.isArray(legs) ? legs : legs?.edges?.map((edge) => edge?.node)) || [];
-  const lines = rawLines.filter(Boolean).map(mapLedgerEntryLine);
+  const entryTags = {
+    partyTag: mapEntryTag(node?.party),
+    funderTag: mapEntryTag(node?.funder),
+  };
+  const lines = rawLines.filter(Boolean).map((line) => mapLedgerEntryLine(line, entryTags));
   return {
     id: decodeLedgerReferenceId(node.id),
     journal: node.journal,
