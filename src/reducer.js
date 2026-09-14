@@ -1,5 +1,6 @@
 import { formatServerError, formatGraphQLError, decodeId } from "@openimis/fe-core";
 import { computeLedgerEntryTotals } from "./utils/ledgerEntryTotals";
+import { firstErrorMessage } from "./utils/graphqlErrors";
 
 // Flux Standard Action triplet suffixes, consistent with every other
 // openimis-fe-* module in this environment (research.md §1).
@@ -11,6 +12,9 @@ export const ACTION_TYPE = {
   PARTY_LEDGER_BALANCE_RESET: "LEDGER_PARTY_LEDGER_BALANCE_RESET",
   FUNDER_SEARCH: "LEDGER_FUNDER_SEARCH",
   JOURNAL_SEARCH: "LEDGER_JOURNAL_SEARCH",
+  JOURNALS: "LEDGER_JOURNALS",
+  JOURNAL_TYPES: "LEDGER_JOURNAL_TYPES",
+  CREATE_JOURNAL: "LEDGER_CREATE_JOURNAL",
   FUNDER_ACTIVITY_REPORT: "LEDGER_FUNDER_ACTIVITY_REPORT",
   MANUAL_REVIEW_QUEUE: "LEDGER_MANUAL_REVIEW_QUEUE",
   DEPLOYMENT_CONFIGURATION: "LEDGER_DEPLOYMENT_CONFIGURATION",
@@ -55,6 +59,16 @@ const initialState = {
   funderActivityReport: { isFetching: false, isFetched: false, error: null, data: null },
 
   journalSearch: { isFetching: false, isFetched: false, error: null, results: [], fetchedType: null },
+
+  journals: {
+    isFetching: false,
+    isFetched: false,
+    error: null,
+    items: [],
+    pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },
+  },
+  journalTypes: { isFetching: false, isFetched: false, error: null, items: [] },
+  journalMutation: { submitting: false, error: null, lastCreatedAt: null },
 
   accountingPeriods: { isFetching: false, isFetched: false, error: null, items: [] },
   periodMutation: { submitting: false, error: null, lastRejectionReason: null },
@@ -131,8 +145,6 @@ const mapLedgerEntryNode = (node) => {
     totals: computeLedgerEntryTotals(lines),
   };
 };
-
-const firstErrorMessage = (errors) => (errors && errors.length ? errors[0].message : null);
 
 // The backend exposes `operatingMode`/`externalSystem` as GraphQL enum NAMES
 // (LOCAL_ONLY, ODOO, ...) on read but expects the raw stored values
@@ -533,6 +545,92 @@ function reducer(state = initialState, action) {
     case err(ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD):
     case err(ACTION_TYPE.EXPORT_SEQUENCES):
       return { ...state, exportJobs: { ...state.exportJobs, error: formatServerError(action.payload)?.message ?? null } };
+
+    // --- Ticket 37990: Journals management --------------------------------
+    case req(ACTION_TYPE.JOURNALS):
+      return {
+        ...state,
+        journals: { ...state.journals, isFetching: true, isFetched: false, error: null },
+      };
+    case resp(ACTION_TYPE.JOURNALS): {
+      const connection = action.payload?.data?.ledgerJournal;
+      return {
+        ...state,
+        journals: {
+          isFetching: false,
+          isFetched: true,
+          error: formatGraphQLError(action.payload)?.message ?? null,
+          items: (connection?.edges || []).map((edge) => edge?.node).filter(Boolean),
+          pageInfo: {
+            totalCount: connection?.totalCount ?? 0,
+            hasNextPage: connection?.pageInfo?.hasNextPage ?? false,
+            hasPreviousPage: connection?.pageInfo?.hasPreviousPage ?? false,
+            startCursor: connection?.pageInfo?.startCursor ?? null,
+            endCursor: connection?.pageInfo?.endCursor ?? null,
+          },
+        },
+      };
+    }
+    case err(ACTION_TYPE.JOURNALS):
+      return {
+        ...state,
+        journals: { ...state.journals, isFetching: false, error: formatServerError(action.payload)?.message ?? null },
+      };
+
+    case req(ACTION_TYPE.JOURNAL_TYPES):
+      return {
+        ...state,
+        journalTypes: { ...state.journalTypes, isFetching: true, isFetched: false, error: null },
+      };
+    case resp(ACTION_TYPE.JOURNAL_TYPES): {
+      const connection = action.payload?.data?.journalTypes;
+      return {
+        ...state,
+        journalTypes: {
+          isFetching: false,
+          isFetched: true,
+          error: formatGraphQLError(action.payload)?.message ?? null,
+          // The mutation input expects the JournalTypes uuid: decode the relay
+          // id once, here, so pickers can submit `id` directly.
+          items: (connection?.edges || []).map((edge) => ({
+            ...edge.node,
+            id: decodeLedgerReferenceId(edge.node?.id),
+          })),
+        },
+      };
+    }
+    case err(ACTION_TYPE.JOURNAL_TYPES):
+      return {
+        ...state,
+        journalTypes: {
+          ...state.journalTypes,
+          isFetching: false,
+          error: formatServerError(action.payload)?.message ?? null,
+        },
+      };
+
+    case req(ACTION_TYPE.CREATE_JOURNAL):
+      return { ...state, journalMutation: { ...state.journalMutation, submitting: true, error: null } };
+    case resp(ACTION_TYPE.CREATE_JOURNAL): {
+      const result = action.payload?.data?.createJournal;
+      const message = firstErrorMessage(result?.errors);
+      if (message) {
+        return { ...state, journalMutation: { ...state.journalMutation, submitting: false, error: message } };
+      }
+      return {
+        ...state,
+        journalMutation: { submitting: false, error: null, lastCreatedAt: Date.now() },
+      };
+    }
+    case err(ACTION_TYPE.CREATE_JOURNAL):
+      return {
+        ...state,
+        journalMutation: {
+          ...state.journalMutation,
+          submitting: false,
+          error: formatServerError(action.payload)?.message ?? null,
+        },
+      };
 
     // --- User Story 7: Deployment Configuration ----------------------------
     case req(ACTION_TYPE.DEPLOYMENT_CONFIGURATION):
