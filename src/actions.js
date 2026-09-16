@@ -8,10 +8,9 @@ import { EXPORT_JOB_POLL_INTERVAL_MS, MOCK_EXPORT_POLL_INTERVAL_MS } from "./con
 // resolver args (party/funder). LedgerEntryGQLType exposes the whole
 // transaction, so the entry legs (debit/credit/account) are fetched with the
 // list: they feed both the debit/credit/balance columns and the expanded row
-// detail (there is no separate detail query). The entry-level `party`/`funder`
-// analytic values it exposes feed those expanded rows. The legacy design
-// contract in contracts/graphql-operations.md described the pre-stub schema and
-// is no longer the source of truth for these operations.
+// detail (there is no separate detail query). The legacy design contract in
+// contracts/graphql-operations.md described the pre-stub schema and is no
+// longer the source of truth for these operations.
 
 const LEDGER_ENTRIES_QUERY = `
   query LedgerEntries(
@@ -28,8 +27,6 @@ const LEDGER_ENTRIES_QUERY = `
       edges {
         node {
           id
-          party { id displayName }
-          funder { id displayName }
           transaction {
             balance
             legs {
@@ -38,7 +35,7 @@ const LEDGER_ENTRIES_QUERY = `
                   id
                   debit
                   credit
-                  account { id name code }
+                  account { code name }
                 }
               }
             }
@@ -112,6 +109,46 @@ const JOURNALS_BY_TYPE_QUERY = `
           id name code
           type { id code type altLanguage }
         }
+      }
+    }
+  }
+`;
+
+// Journal management list (ticket 37990): same connection as the journal
+// picker, plus the default debit/credit accounts shown in the table. The
+// backend filters by journal type through the prefixed `type_Id`/`type_Code`
+// args and the connection exposes no `orderBy`.
+const JOURNALS_LIST_QUERY = `
+  query JournalsList(
+    $first: Int, $after: String, $before: String, $last: Int,
+    $name: String, $code: String, $typeId: ID
+  ) {
+    ledgerJournal(
+      first: $first, after: $after, before: $before, last: $last,
+      name: $name, code: $code, type_Id: $typeId
+    ) {
+      totalCount
+      pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
+      edges {
+        node {
+          id name code isDeleted
+          type { id code type altLanguage }
+          defaultDebitAccountId { id uuid code name }
+          defaultCreditAccountId { id uuid code name }
+        }
+      }
+    }
+  }
+`;
+
+// Journal types are seeded by the backend migration and drive both the
+// "journal type" picker of the creation form and the type filter of the list.
+const JOURNAL_TYPES_QUERY = `
+  query JournalTypes($first: Int) {
+    journalTypes(first: $first) {
+      totalCount
+      edges {
+        node { id code type altLanguage }
       }
     }
   }
@@ -1315,6 +1352,128 @@ export function createDeploymentConfiguration({
         currencyCode,
         retainedEarningsAccount: retainedEarningsAccount ?? null,
       },
+    },
+  );
+}
+
+/** Ticket 37990 — paginated journals list for the journals page. */
+export function fetchJournalsList(filters = {}, pageInfo = {}) {
+  const variables = {
+    first: pageInfo.first ?? null,
+    after: pageInfo.after ?? null,
+    before: pageInfo.before ?? null,
+    last: pageInfo.last ?? null,
+    name: filters.name ?? null,
+    code: filters.code ?? null,
+    typeId: filters.typeId ?? null,
+  };
+  return graphqlWithVariables(JOURNALS_LIST_QUERY, variables, [
+    `${ACTION_TYPE.JOURNALS}_REQ`,
+    `${ACTION_TYPE.JOURNALS}_RESP`,
+    `${ACTION_TYPE.JOURNALS}_ERR`,
+  ]);
+}
+
+/** Ticket 37990 — journal types (JournalTypes) used by the type picker. */
+export function fetchJournalTypes() {
+  return graphqlWithVariables(JOURNAL_TYPES_QUERY, { first: 100 }, [
+    `${ACTION_TYPE.JOURNAL_TYPES}_REQ`,
+    `${ACTION_TYPE.JOURNAL_TYPES}_RESP`,
+    `${ACTION_TYPE.JOURNAL_TYPES}_ERR`,
+  ]);
+}
+
+/**
+ * Ticket 37990 — update a journal. Same input as the creation plus the
+ * `journalUuid` of the journal to update (backend UpdateJournalInputType).
+ */
+export function updateJournal({
+  journalUuid,
+  name,
+  code,
+  journalType,
+  defaultDebitAccount,
+  defaultCreditAccount,
+  clientMutationLabel,
+}) {
+  const input = [
+    `journalUuid: ${JSON.stringify(journalUuid)}`,
+    `name: ${JSON.stringify(name)}`,
+    `code: ${JSON.stringify(code)}`,
+    `type: ${JSON.stringify(journalType?.id ?? null)}`,
+    `defaultDebitAccountId: ${JSON.stringify(defaultDebitAccount?.uuid ?? null)}`,
+    `defaultCreditAccountId: ${JSON.stringify(defaultCreditAccount?.uuid ?? null)}`,
+  ].join(",\n          ");
+  const mutation = formatMutation("updateJournal", input, clientMutationLabel);
+  return graphql(
+    mutation.payload,
+    [
+      `${ACTION_TYPE.UPDATE_JOURNAL}_REQ`,
+      `${ACTION_TYPE.UPDATE_JOURNAL}_RESP`,
+      `${ACTION_TYPE.UPDATE_JOURNAL}_ERR`,
+    ],
+    {
+      clientMutationId: mutation.clientMutationId,
+      clientMutationLabel,
+      requestedDateTime: new Date(),
+    },
+  );
+}
+
+/**
+ * Ticket 37990 — delete a journal: the input is the journal uuid only (same
+ * naming pattern as updateJournal). Journals are soft-deleted server-side, so
+ * the mutations keep the ledger history intact.
+ */
+export function deleteJournal({ journalUuid, clientMutationLabel }) {
+  const mutation = formatMutation("deleteJournal", `journalUuid: ${JSON.stringify(journalUuid)}`, clientMutationLabel);
+  return graphql(
+    mutation.payload,
+    [
+      `${ACTION_TYPE.DELETE_JOURNAL}_REQ`,
+      `${ACTION_TYPE.DELETE_JOURNAL}_RESP`,
+      `${ACTION_TYPE.DELETE_JOURNAL}_ERR`,
+    ],
+    {
+      clientMutationId: mutation.clientMutationId,
+      clientMutationLabel,
+      requestedDateTime: new Date(),
+    },
+  );
+}
+
+/**
+ * Ticket 37990 — create a journal. The backend `type` input is the JournalTypes
+ * uuid (not its code) and the default debit/credit accounts are account uuids;
+ * the response carries the mutation ids only, so callers refresh the list.
+ */
+export function createJournal({
+  name,
+  code,
+  journalType,
+  defaultDebitAccount,
+  defaultCreditAccount,
+  clientMutationLabel,
+}) {
+  const input = [
+    `name: ${JSON.stringify(name)}`,
+    `code: ${JSON.stringify(code)}`,
+    `type: ${JSON.stringify(journalType?.id ?? null)}`,
+    `defaultDebitAccountId: ${JSON.stringify(defaultDebitAccount?.uuid ?? null)}`,
+    `defaultCreditAccountId: ${JSON.stringify(defaultCreditAccount?.uuid ?? null)}`,
+  ].join(",\n          ");
+  const mutation = formatMutation("createJournal", input, clientMutationLabel);
+  return graphql(
+    mutation.payload,
+    [
+      `${ACTION_TYPE.CREATE_JOURNAL}_REQ`,
+      `${ACTION_TYPE.CREATE_JOURNAL}_RESP`,
+      `${ACTION_TYPE.CREATE_JOURNAL}_ERR`,
+    ],
+    {
+      clientMutationId: mutation.clientMutationId,
+      clientMutationLabel,
+      requestedDateTime: new Date(),
     },
   );
 }
