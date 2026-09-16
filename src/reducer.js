@@ -49,7 +49,7 @@ const initialState = {
   },
 
   partySearch: { isFetching: false, isFetched: false, error: null, results: [] },
-  partyLedgerBalance: { isFetching: false, isFetched: false, error: null, data: null },
+  partyLedgerBalance: { isFetching: false, isFetched: false, error: null, items: [], pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null } },
 
   funderSearch: { isFetching: false, isFetched: false, error: null, results: [] },
   funderActivityReport: { isFetching: false, isFetched: false, error: null, data: null },
@@ -59,7 +59,7 @@ const initialState = {
   accountingPeriods: { isFetching: false, isFetched: false, error: null, items: [] },
   periodMutation: { submitting: false, error: null, lastRejectionReason: null },
 
-  manualReviewQueue: { isFetching: false, isFetched: false, error: null, items: [] },
+  manualReviewQueue: { isFetching: false, isFetched: false, error: null, items: [], pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null } },
   reviewResolution: { submitting: false, error: null },
 
   exportJobs: { byPeriodId: {}, error: null },
@@ -182,14 +182,44 @@ const mapAccountOption = (node) => ({ ...node, id: decodeLedgerReferenceId(node?
 
 // Mock review items use readable ids (e.g. "review-1"), while GraphQL
 // responses use openIMIS base64 ids. Keep both forms valid in the reducer.
-const decodeManualReviewId = (id) => {
-  if (id === null || id === undefined) return id;
-  try {
-    return decodeId(id);
-  } catch {
-    return id;
-  }
+// The review queue is a paginated connection; the page reads a flattened
+// view-model built from the replication record + its ledger entry.
+const mapManualReviewItem = (node) => {
+  const record = node?.replicationRecord || {};
+  const entry = record.ledgerEntry || null;
+  return {
+    id: node?.id,
+    status: record.status,
+    targetSystem: record.targetSystem,
+    rejectionReason: record.rejectionReason,
+    externalReference: record.externalReference,
+    createdAt: node?.createdAt,
+    resolvedAt: node?.resolvedAt,
+    resolutionNote: node?.resolutionNote,
+    correctingEntryId: node?.resolvedByTransaction?.id || null,
+    originalEntry: entry
+      ? {
+          id: entry.id,
+          postedAt: entry.postedAt,
+          sourceEventType: entry.sourceEventType,
+          sourceEventReference: entry.sourceEventReference,
+          journal: entry.journal,
+          accountingPeriod: entry.accountingPeriod,
+          partyAnalyticValueId: entry.party?.id || null,
+          accountingPeriodId: entry.accountingPeriod?.id || null,
+        }
+      : null,
+  };
 };
+
+const mapConnectionPageInfo = (connection) => ({
+  totalCount: connection?.totalCount ?? 0,
+  hasNextPage: connection?.pageInfo?.hasNextPage ?? false,
+  hasPreviousPage: connection?.pageInfo?.hasPreviousPage ?? false,
+  startCursor: connection?.pageInfo?.startCursor ?? null,
+  endCursor: connection?.pageInfo?.endCursor ?? null,
+});
+
 
 const mapAccountingPeriod = (period) =>
   period ? { ...period, id: decodeId(period.id), status: mapPeriodStatus(period.status) } : period;
@@ -198,26 +228,6 @@ const mapAccountingPeriod = (period) =>
 // `accountingPeriods.items` with the mutation's returned period, or (if the
 // backend rejected the transition) leaves items untouched and surfaces
 // `errors[0].message` verbatim into `periodMutation.lastRejectionReason` (FR-009).
-function applyPeriodTransitionResponse(state, mutationResult) {
-  const errors = mutationResult?.errors;
-  const rejectionReason = firstErrorMessage(errors);
-  if (rejectionReason) {
-    return {
-      ...state,
-      periodMutation: { submitting: false, error: rejectionReason, lastRejectionReason: rejectionReason },
-    };
-  }
-  const updated = mapAccountingPeriod(mutationResult?.accountingPeriod);
-  return {
-    ...state,
-    periodMutation: { submitting: false, error: null, lastRejectionReason: null },
-    accountingPeriods: {
-      ...state.accountingPeriods,
-      items: state.accountingPeriods.items.map((p) => (p.id === updated?.id ? { ...p, ...updated } : p)),
-    },
-  };
-}
-
 function reducer(state = initialState, action) {
   switch (action.type) {
     // --- User Story 1: General Ledger Browser --------------------------
@@ -317,7 +327,7 @@ function reducer(state = initialState, action) {
     case ACTION_TYPE.PARTY_LEDGER_BALANCE_RESET:
       return {
         ...state,
-        partyLedgerBalance: { isFetching: false, isFetched: false, error: null, data: null },
+        partyLedgerBalance: { isFetching: false, isFetched: false, error: null, items: [], pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null } },
       };
 
     case req(ACTION_TYPE.PARTY_LEDGER_BALANCE):
@@ -326,18 +336,15 @@ function reducer(state = initialState, action) {
         partyLedgerBalance: { ...state.partyLedgerBalance, isFetching: true, isFetched: false, error: null },
       };
     case resp(ACTION_TYPE.PARTY_LEDGER_BALANCE): {
-      const raw = action.payload?.data?.partyLedgerBalance;
-      const data = raw && {
-        ...raw,
-        transactions: (raw.transactions || []).map(mapLedgerEntryNode),
-      };
+      const connection = action.payload?.data?.partyLedgerBalance;
       return {
         ...state,
         partyLedgerBalance: {
           isFetching: false,
           isFetched: true,
           error: formatGraphQLError(action.payload),
-          data,
+          items: (connection?.edges || []).map((edge) => edge.node),
+          pageInfo: mapConnectionPageInfo(connection),
         },
       };
     }
@@ -413,22 +420,10 @@ function reducer(state = initialState, action) {
     // --- User Story 4: Accounting Periods lifecycle -----------------------
     case req(ACTION_TYPE.OPEN_ACCOUNTING_PERIOD):
       return { ...state, periodMutation: { submitting: true, error: null, lastRejectionReason: null } };
-    case resp(ACTION_TYPE.OPEN_ACCOUNTING_PERIOD): {
-      const result = action.payload?.data?.openAccountingPeriod;
-      const rejectionReason = firstErrorMessage(result?.errors);
-      if (rejectionReason) {
-        return {
-          ...state,
-          periodMutation: { submitting: false, error: rejectionReason, lastRejectionReason: rejectionReason },
-        };
-      }
-      const created = mapAccountingPeriod(result?.accountingPeriod);
-      return {
-        ...state,
-        periodMutation: { submitting: false, error: null, lastRejectionReason: null },
-        accountingPeriods: { ...state.accountingPeriods, items: [...state.accountingPeriods.items, created] },
-      };
-    }
+    case resp(ACTION_TYPE.OPEN_ACCOUNTING_PERIOD):
+      // The mutation payload only carries the ids; the list is refetched by the
+      // action, so just clear the submitting flag.
+      return { ...state, periodMutation: { submitting: false, error: null, lastRejectionReason: null } };
     case err(ACTION_TYPE.OPEN_ACCOUNTING_PERIOD):
       return {
         ...state,
@@ -445,11 +440,9 @@ function reducer(state = initialState, action) {
       return { ...state, periodMutation: { submitting: true, error: null, lastRejectionReason: null } };
 
     case resp(ACTION_TYPE.LOCK_ACCOUNTING_PERIOD):
-      return applyPeriodTransitionResponse(state, action.payload?.data?.lockAccountingPeriod);
     case resp(ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD):
-      return applyPeriodTransitionResponse(state, action.payload?.data?.closeAccountingPeriod);
     case resp(ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD):
-      return applyPeriodTransitionResponse(state, action.payload?.data?.reopenAccountingPeriod);
+      return { ...state, periodMutation: { submitting: false, error: null, lastRejectionReason: null } };
 
     case err(ACTION_TYPE.LOCK_ACCOUNTING_PERIOD):
     case err(ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD):
@@ -469,19 +462,19 @@ function reducer(state = initialState, action) {
         ...state,
         manualReviewQueue: { ...state.manualReviewQueue, isFetching: true, isFetched: false, error: null },
       };
-    case resp(ACTION_TYPE.MANUAL_REVIEW_QUEUE):
+    case resp(ACTION_TYPE.MANUAL_REVIEW_QUEUE): {
+      const connection = action.payload?.data?.manualReviewQueue;
       return {
         ...state,
         manualReviewQueue: {
           isFetching: false,
           isFetched: true,
           error: formatGraphQLError(action.payload),
-          items: (action.payload?.data?.manualReviewQueue || []).map((item) => ({
-            ...item,
-            id: decodeManualReviewId(item.id),
-          })),
+          items: (connection?.edges || []).map((edge) => mapManualReviewItem(edge.node)),
+          pageInfo: mapConnectionPageInfo(connection),
         },
       };
+    }
     case err(ACTION_TYPE.MANUAL_REVIEW_QUEUE):
       return {
         ...state,
@@ -490,26 +483,9 @@ function reducer(state = initialState, action) {
 
     case req(ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM):
       return { ...state, reviewResolution: { submitting: true, error: null } };
-    case resp(ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM): {
-      const result = action.payload?.data?.resolveManualReviewItem;
-      const message = firstErrorMessage(result?.errors);
-      if (message) {
-        return { ...state, reviewResolution: { submitting: false, error: message } };
-      }
-      const updated = result?.manualReviewQueueItem;
-      return {
-        ...state,
-        reviewResolution: { submitting: false, error: null },
-        manualReviewQueue: {
-          ...state.manualReviewQueue,
-          items: state.manualReviewQueue.items.map((item) =>
-            item.id === decodeManualReviewId(updated?.id)
-              ? { ...item, ...updated, id: decodeManualReviewId(updated.id) }
-              : item,
-          ),
-        },
-      };
-    }
+    case resp(ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM):
+      // Payload carries ids only; the queue is refetched by the action.
+      return { ...state, reviewResolution: { submitting: false, error: null } };
     case err(ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM):
       return { ...state, reviewResolution: { submitting: false, error: formatServerError(action.payload)?.message ?? null } };
 

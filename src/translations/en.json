@@ -69,11 +69,12 @@
       "balanceTitle": "Signed balance",
       "selectFiltersPrompt": "Select a party and an accounting period to view the period statement.",
       "statementTitle": "Period statement",
-      "emptyState": "No activity for the selected period. Carried-forward balance: {carriedForwardBalance}.",
+      "emptyState": "No balance rows for the selected party and period.",
       "selectedParty": "Selected party: {party}",
       "selectedPeriod": "Selected period: {period}",
       "noPartySelected": "No party selected",
-      "noPeriodSelected": "No period selected"
+      "noPeriodSelected": "No period selected",
+      "periodColumn": "Accounting period"
     },
     "balance": {
       "owedByParty": "Positive balance: owed by the party",
@@ -134,7 +135,9 @@
       },
       "status": {
         "pending": "Pending",
-        "resolved": "Resolved"
+        "succeeded": "Succeeded",
+        "rejected": "Rejected",
+        "unconfirmed": "Unconfirmed"
       },
       "table": {
         "status": "Status",
@@ -209,6 +212,11 @@
         "odoo": "Odoo",
         "sage": "Sage"
       }
+    },
+    "pagination": {
+      "next": "Next",
+      "first": "First",
+      "total": "{count} row(s)"
     }
   }
 }

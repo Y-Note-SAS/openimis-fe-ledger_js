@@ -19,9 +19,9 @@ import {
   Typography,
 } from "@mui/material";
 import { styled } from "@mui/material/styles";
-import { Helmet, withModulesManager, formatMessage } from "@openimis/fe-core";
+import { Helmet, withModulesManager, formatMessage, formatMessageWithValues } from "@openimis/fe-core";
 import { hasLedgerAdminRight } from "../utils/permissions";
-import { MANUAL_REVIEW_STATUS } from "../constants";
+import { DEFAULT_PAGE_SIZE, MANUAL_REVIEW_STATUS } from "../constants";
 import {
   fetchLedgerEntries,
   fetchAccountingPeriods,
@@ -80,22 +80,28 @@ const ManualReviewQueuePage = ({
   resolveManualReviewItem,
 }) => {
   const [statusFilter, setStatusFilter] = useState("");
+  const [afterCursor, setAfterCursor] = useState(null);
   const [selectedItemId, setSelectedItemId] = useState(null);
   const isAdmin = hasLedgerAdminRight(rights);
 
+  // A filter change restarts the pagination from the first page.
+  useEffect(() => {
+    setAfterCursor(null);
+  }, [statusFilter]);
+
   useEffect(() => {
     if (isAdmin) {
-      fetchManualReviewQueue(statusFilter || null);
+      fetchManualReviewQueue({ first: DEFAULT_PAGE_SIZE, after: afterCursor, status: statusFilter || null });
       fetchAccountingPeriods();
     }
-  }, [fetchAccountingPeriods, fetchManualReviewQueue, isAdmin, statusFilter]);
+  }, [fetchAccountingPeriods, fetchManualReviewQueue, isAdmin, statusFilter, afterCursor]);
 
   if (!isAdmin) {
     return <Alert severity="error">{formatMessage(intl, "ledger", "ledger.accessDenied")}</Alert>;
   }
 
   const items = manualReviewQueue?.items || [];
-  const visibleItems = statusFilter ? items.filter((item) => item.status === statusFilter) : items;
+  const pageInfo = manualReviewQueue?.pageInfo || {};
   const selectedItem = items.find((item) => item.id === selectedItemId) || null;
 
   const openResolution = (item) => {
@@ -127,8 +133,11 @@ const ManualReviewQueuePage = ({
                     inputProps={{ "aria-label": formatMessage(intl, "ledger", "ledger.reviewQueue.filter.status") }}
                   >
                     <MenuItem value="">{formatMessage(intl, "ledger", "ledger.reviewQueue.filter.all")}</MenuItem>
-                    <MenuItem value={MANUAL_REVIEW_STATUS.PENDING}>{formatMessage(intl, "ledger", "ledger.reviewQueue.status.pending")}</MenuItem>
-                    <MenuItem value={MANUAL_REVIEW_STATUS.RESOLVED}>{formatMessage(intl, "ledger", "ledger.reviewQueue.status.resolved")}</MenuItem>
+                    {Object.values(MANUAL_REVIEW_STATUS).map((status) => (
+                      <MenuItem key={status} value={status}>
+                        {formatMessage(intl, "ledger", `ledger.reviewQueue.status.${status.toLowerCase()}`)}
+                      </MenuItem>
+                    ))}
                   </Select>
                 </Grid>
               </Grid>
@@ -139,7 +148,7 @@ const ManualReviewQueuePage = ({
                 </Box>
               ) : null}
               <Box className="paperBody" sx={{ overflowX: "auto" }}>
-                {visibleItems.length === 0 ? (
+                {items.length === 0 ? (
                   <Typography variant="body2" color="text.secondary">
                     {formatMessage(intl, "ledger", "ledger.reviewQueue.empty")}
                   </Typography>
@@ -155,12 +164,12 @@ const ManualReviewQueuePage = ({
                       </TableRow>
                     </TableHead>
                     <TableBody>
-                      {visibleItems.map((item) => (
+                      {items.map((item) => (
                         <TableRow key={item.id}>
-                          <TableCell>{formatMessage(intl, "ledger", `ledger.reviewQueue.status.${item.status}`)}</TableCell>
+                          <TableCell>{formatMessage(intl, "ledger", `ledger.reviewQueue.status.${String(item.status || "").toLowerCase()}`)}</TableCell>
                           <TableCell>
                             {item.originalEntry?.sourceEventReference || item.originalEntry?.id || "—"}
-                            {item.originalEntry?.journalCode ? ` · ${item.originalEntry.journalCode}` : ""}
+                            {item.originalEntry?.journal?.code ? ` · ${item.originalEntry.journal.code}` : ""}
                           </TableCell>
                           <TableCell>{item.rejectionReason || item.flagReason || "—"}</TableCell>
                           <TableCell>{item.targetSystem || "—"}</TableCell>
@@ -180,6 +189,34 @@ const ManualReviewQueuePage = ({
                     </TableBody>
                   </Table>
                 )}
+                <Grid container justifyContent="space-between" alignItems="center" sx={{ mt: 1 }}>
+                  <Grid>
+                    <Typography variant="caption" color="text.secondary">
+                      {formatMessageWithValues(intl, "ledger", "ledger.pagination.total", {
+                        count: pageInfo.totalCount ?? 0,
+                      })}
+                    </Typography>
+                  </Grid>
+                  <Grid>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      disabled={!afterCursor}
+                      onClick={() => setAfterCursor(null)}
+                      sx={{ mr: 1 }}
+                    >
+                      {formatMessage(intl, "ledger", "ledger.pagination.first")}
+                    </Button>
+                    <Button
+                      size="small"
+                      variant="outlined"
+                      disabled={!pageInfo.hasNextPage}
+                      onClick={() => setAfterCursor(pageInfo.endCursor)}
+                    >
+                      {formatMessage(intl, "ledger", "ledger.pagination.next")}
+                    </Button>
+                  </Grid>
+                </Grid>
               </Box>
             </StyledPaper>
           </Grid>

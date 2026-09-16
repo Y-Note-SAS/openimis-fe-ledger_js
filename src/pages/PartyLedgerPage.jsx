@@ -4,6 +4,7 @@ import { connect } from "react-redux";
 import {
   Alert,
   Box,
+  Button,
   Divider,
   Grid,
   Paper,
@@ -27,6 +28,7 @@ import PartyPicker from "../pickers/PartyPicker";
 import AccountingPeriodPicker from "../pickers/AccountingPeriodPicker";
 import { hasLedgerReportingRight } from "../utils/permissions";
 import { formatSignedBalance } from "../utils/balance";
+import { DEFAULT_PAGE_SIZE } from "../constants";
 import { fetchPartyLedgerBalance, resetPartyLedgerBalance } from "../actions";
 
 const StyledPage = styled("div")(({ theme }) => ({
@@ -67,30 +69,53 @@ const StyledPaper = styled(Paper)(({ theme }) => ({
   "& .item": theme.paper?.item ?? {},
 }));
 
-const PartyLedgerPage = ({ intl, modulesManager, rights, partyLedgerBalance, fetchPartyLedgerBalance, resetPartyLedgerBalance }) => {
+const PartyLedgerPage = ({
+  intl,
+  modulesManager,
+  rights,
+  partyLedgerBalance,
+  accountingPeriods,
+  fetchPartyLedgerBalance,
+  resetPartyLedgerBalance,
+}) => {
   const [selectedParty, setSelectedParty] = useState(null);
   const [selectedPeriodId, setSelectedPeriodId] = useState(null);
-  const hasSelectedFilters = useRef(false);
-  const ledgerData = partyLedgerBalance?.data || null;
-  const balanceInfo = useMemo(() => formatSignedBalance(ledgerData?.balance ?? 0), [ledgerData?.balance]);
+  const [afterCursor, setAfterCursor] = useState(null);
+
+  // The backend filters on the exact analytic value display name (there is no
+  // id filter) and on the accounting period code.
+  const periodCode = accountingPeriods.find((period) => period.id === selectedPeriodId)?.code ?? null;
+  const partyName = selectedParty?.displayName ?? null;
+  const hasSelectedFilters = !!(partyName && periodCode);
+
+  const items = partyLedgerBalance?.items || [];
+  const pageInfo = partyLedgerBalance?.pageInfo || {};
+  const balanceInfo = useMemo(() => formatSignedBalance(items[0]?.balanceAmount ?? 0), [items]);
+
+  // Any filter change restarts the pagination from the first page.
+  useEffect(() => {
+    setAfterCursor(null);
+  }, [partyName, periodCode]);
 
   useEffect(() => {
-    if (selectedParty?.analyticValueId && selectedPeriodId) {
-      hasSelectedFilters.current = true;
-      fetchPartyLedgerBalance(selectedParty.analyticValueId, selectedPeriodId);
-    } else if (hasSelectedFilters.current) {
-      // Clear any previously fetched statement as soon as one of the two
-      // filters is removed, so a cleared filter never shows stale data.
+    if (hasSelectedFilters) {
+      fetchPartyLedgerBalance({
+        displayName: partyName,
+        periodCode,
+        first: DEFAULT_PAGE_SIZE,
+        after: afterCursor,
+      });
+    } else {
+      // Clear any previously fetched rows as soon as one of the two filters is
+      // removed, so a cleared filter never shows stale data.
       resetPartyLedgerBalance();
     }
-  }, [fetchPartyLedgerBalance, resetPartyLedgerBalance, selectedParty?.analyticValueId, selectedPeriodId]);
+  }, [fetchPartyLedgerBalance, resetPartyLedgerBalance, hasSelectedFilters, partyName, periodCode, afterCursor]);
 
   if (!hasLedgerReportingRight(rights)) {
     return <Alert severity="error">{formatMessage(intl, "ledger", "ledger.accessDenied")}</Alert>;
   }
 
-  const transactions = ledgerData?.transactions || [];
-  const carriedForwardBalance = ledgerData?.carriedForwardBalance ?? 0;
 
   return (
     <StyledPage>
@@ -116,28 +141,7 @@ const PartyLedgerPage = ({ intl, modulesManager, rights, partyLedgerBalance, fet
             </StyledPaper>
           </Grid>
 
-          {ledgerData ? (
-            <Grid size={12}>
-              <StyledPaper className="paper">
-                <Grid container alignItems="center" direction="row" className="paperHeader">
-                  <Grid className="paperHeaderTitle">
-                    <Typography>{formatMessage(intl, "ledger", "ledger.partyLedgerPage.balanceTitle")}</Typography>
-                  </Grid>
-                </Grid>
-                <Divider />
-                <Box className="paperBody">
-                  <Typography variant="h4">
-                    {formatAmount(modulesManager, intl, ledgerData?.balance)}
-                  </Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {formatMessage(intl, "ledger", `ledger.balance.${balanceInfo.legend}`)}
-                  </Typography>
-                </Box>
-              </StyledPaper>
-            </Grid>
-          ) : null}
-
-          {!ledgerData ? (
+          {!hasSelectedFilters ? (
             <Grid size={12}>
               <Box className="paperBody">
                 <Alert severity="info">
@@ -145,51 +149,98 @@ const PartyLedgerPage = ({ intl, modulesManager, rights, partyLedgerBalance, fet
                 </Alert>
               </Box>
             </Grid>
-          ) : transactions.length === 0 ? (
-            <Grid size={12}>
-              <Box className="paperBody">
-                <Alert severity="info">
-                  {formatMessageWithValues(intl, "ledger", "ledger.partyLedgerPage.emptyState", {
-                    carriedForwardBalance: formatAmount(modulesManager, intl, carriedForwardBalance),
-                  })}
-                </Alert>
-              </Box>
-            </Grid>
           ) : (
-            <Grid size={12}>
-              <StyledPaper className="paper">
-                <Grid container alignItems="center" direction="row" className="paperHeader">
-                  <Grid className="paperHeaderTitle">
-                    <Typography>{formatMessage(intl, "ledger", "ledger.partyLedgerPage.statementTitle")}</Typography>
+            <>
+              <Grid size={12}>
+                <StyledPaper className="paper">
+                  <Grid container alignItems="center" direction="row" className="paperHeader">
+                    <Grid className="paperHeaderTitle">
+                      <Typography>{formatMessage(intl, "ledger", "ledger.partyLedgerPage.balanceTitle")}</Typography>
+                    </Grid>
                   </Grid>
-                </Grid>
-                <Divider />
-                <Box className="paperBody" sx={{ overflowX: "auto" }}>
-                  <Table size="small">
-                    <TableHead>
-                      <TableRow>
-                        <TableCell>{formatMessage(intl, "ledger", "ledger.entry.journal")}</TableCell>
-                        <TableCell>{formatMessage(intl, "ledger", "ledger.entry.postedAt")}</TableCell>
-                        <TableCell>{formatMessage(intl, "ledger", "ledger.entry.debit")}</TableCell>
-                        <TableCell>{formatMessage(intl, "ledger", "ledger.entry.credit")}</TableCell>
-                        <TableCell>{formatMessage(intl, "ledger", "ledger.entry.balance")}</TableCell>
-                      </TableRow>
-                    </TableHead>
-                    <TableBody>
-                      {transactions.map((transaction) => (
-                        <TableRow key={transaction.id}>
-                          <TableCell>{transaction.journal?.code || transaction.journal?.name || "-"}</TableCell>
-                          <TableCell>{transaction.postedAt || "-"}</TableCell>
-                          <TableCell>{formatAmount(modulesManager, intl, transaction.totals?.debit ?? 0)}</TableCell>
-                          <TableCell>{formatAmount(modulesManager, intl, transaction.totals?.credit ?? 0)}</TableCell>
-                          <TableCell>{formatAmount(modulesManager, intl, transaction.totals?.balance ?? 0)}</TableCell>
+                  <Divider />
+                  <Box className="paperBody">
+                    <Typography variant="h4">{formatAmount(modulesManager, intl, items[0]?.balanceAmount)}</Typography>
+                    <Typography variant="body2" color="text.secondary">
+                      {formatMessage(intl, "ledger", `ledger.balance.${balanceInfo.legend}`)}
+                    </Typography>
+                  </Box>
+                </StyledPaper>
+              </Grid>
+
+              <Grid size={12}>
+                <StyledPaper className="paper">
+                  <Grid container alignItems="center" direction="row" className="paperHeader">
+                    <Grid className="paperHeaderTitle">
+                      <Typography>{formatMessage(intl, "ledger", "ledger.partyLedgerPage.statementTitle")}</Typography>
+                    </Grid>
+                  </Grid>
+                  <Divider />
+                  <Box className="paperBody" sx={{ overflowX: "auto" }}>
+                    <Table size="small">
+                      <TableHead>
+                        <TableRow>
+                          <TableCell>
+                            {formatMessage(intl, "ledger", "ledger.partyLedgerPage.periodColumn")}
+                          </TableCell>
+                          <TableCell>{formatMessage(intl, "ledger", "ledger.entry.debit")}</TableCell>
+                          <TableCell>{formatMessage(intl, "ledger", "ledger.entry.credit")}</TableCell>
+                          <TableCell>{formatMessage(intl, "ledger", "ledger.entry.balance")}</TableCell>
                         </TableRow>
-                      ))}
-                    </TableBody>
-                  </Table>
-                </Box>
-              </StyledPaper>
-            </Grid>
+                      </TableHead>
+                      <TableBody>
+                        {items.length === 0 ? (
+                          <TableRow>
+                            <TableCell colSpan={4}>
+                              {formatMessage(intl, "ledger", "ledger.partyLedgerPage.emptyState")}
+                            </TableCell>
+                          </TableRow>
+                        ) : (
+                          items.map((row) => (
+                            <TableRow key={row.id}>
+                              <TableCell>
+                                {row.accountingPeriod?.code || row.accountingPeriod?.name || "-"}
+                              </TableCell>
+                              <TableCell>{formatAmount(modulesManager, intl, row.debitAmount ?? 0)}</TableCell>
+                              <TableCell>{formatAmount(modulesManager, intl, row.creditAmount ?? 0)}</TableCell>
+                              <TableCell>{formatAmount(modulesManager, intl, row.balanceAmount ?? 0)}</TableCell>
+                            </TableRow>
+                          ))
+                        )}
+                      </TableBody>
+                    </Table>
+                    <Grid container justifyContent="space-between" alignItems="center" sx={{ mt: 1 }}>
+                      <Grid>
+                        <Typography variant="caption" color="text.secondary">
+                          {formatMessageWithValues(intl, "ledger", "ledger.pagination.total", {
+                            count: pageInfo.totalCount ?? 0,
+                          })}
+                        </Typography>
+                      </Grid>
+                      <Grid>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          disabled={!afterCursor}
+                          onClick={() => setAfterCursor(null)}
+                          sx={{ mr: 1 }}
+                        >
+                          {formatMessage(intl, "ledger", "ledger.pagination.first")}
+                        </Button>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          disabled={!pageInfo.hasNextPage}
+                          onClick={() => setAfterCursor(pageInfo.endCursor)}
+                        >
+                          {formatMessage(intl, "ledger", "ledger.pagination.next")}
+                        </Button>
+                      </Grid>
+                    </Grid>
+                  </Box>
+                </StyledPaper>
+              </Grid>
+            </>
           )}
 
           <Grid size={12}>
@@ -216,6 +267,7 @@ const PartyLedgerPage = ({ intl, modulesManager, rights, partyLedgerBalance, fet
 const mapStateToProps = (state) => ({
   rights: state.core?.user?.i_user?.rights || [],
   partyLedgerBalance: state.ledger.partyLedgerBalance,
+  accountingPeriods: state.ledger.accountingPeriods?.items || [],
 });
 
 const mapDispatchToProps = { fetchPartyLedgerBalance, resetPartyLedgerBalance };
