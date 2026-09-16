@@ -961,8 +961,13 @@ export function fetchLedgerEntries(filters = {}, pageInfo = {}) {
     // open period so we never send an unscoped query. If no period can be
     // resolved at all, wait rather than requesting every entry (the page loads
     // the periods at mount).
+    // FR-001: default to the current open period on first load. The user can
+    // however explicitly clear the filter ("Any") — data-model.md §107 — in
+    // which case the query is deliberately sent unscoped so every entry is
+    // listed, whatever its period.
+    const explicitlyCleared = filters.accountingPeriodId === null;
     let accountingPeriodId = filters.accountingPeriodId;
-    if (!accountingPeriodId || !periods.some((period) => period.id === accountingPeriodId)) {
+    if (!explicitlyCleared && (!accountingPeriodId || !periods.some((period) => period.id === accountingPeriodId))) {
       const openPeriod = periods.find((period) => period.status === "open");
       accountingPeriodId = openPeriod?.id ?? null;
     }
@@ -971,7 +976,7 @@ export function fetchLedgerEntries(filters = {}, pageInfo = {}) {
       ? (periods.find((period) => period.id === accountingPeriodId)?.code ?? null)
       : null;
 
-    if (accountingPeriodId === null || accountingPeriodCode === null) {
+    if (!explicitlyCleared && (accountingPeriodId === null || accountingPeriodCode === null)) {
       return;
     }
 
@@ -979,7 +984,7 @@ export function fetchLedgerEntries(filters = {}, pageInfo = {}) {
 
     const variables = {
       journal: filters.journal ?? null,
-      accountingPeriodCode,
+      accountingPeriodCode: explicitlyCleared ? null : accountingPeriodCode,
       party: decodeUuid(filters.partyAnalyticValueId),
       funder: decodeUuid(filters.funderAnalyticValueId),
       sourceEventType: toGrapheneEnum(filters.sourceEventType),

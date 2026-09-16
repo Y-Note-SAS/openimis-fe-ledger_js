@@ -74,7 +74,9 @@
       "selectedPeriod": "Selected period: {period}",
       "noPartySelected": "No party selected",
       "noPeriodSelected": "No period selected",
-      "periodColumn": "Accounting period"
+      "periodColumn": "Accounting period",
+      "totalsTitle": "Totals (current page)",
+      "rowCount": "{count} balance row(s)"
     },
     "balance": {
       "owedByParty": "Positive balance: owed by the party",

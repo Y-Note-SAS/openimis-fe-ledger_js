@@ -97,9 +97,20 @@ const PartyLedgerPage = ({
   }
 
   const items = partyLedgerBalance?.items || [];
+  const fetched = partyLedgerBalance?.isFetched;
   const selectedFilters = fetchContextRef.current.filters || {};
   const isScoped = !!(selectedFilters.displayName && selectedFilters.periodCode);
   const balanceInfo = formatSignedBalance(items[0]?.balanceAmount ?? 0);
+
+  // Totals over the rows of the current page (the connection is paginated).
+  const totals = items.reduce(
+    (acc, row) => ({
+      debit: acc.debit + Number(row.debitAmount ?? 0),
+      credit: acc.credit + Number(row.creditAmount ?? 0),
+      balance: acc.balance + Number(row.balanceAmount ?? 0),
+    }),
+    { debit: 0, credit: 0, balance: 0 },
+  );
 
   const headers = () => [
     "ledger.partyLedgerPage.periodColumn",
@@ -120,16 +131,48 @@ const PartyLedgerPage = ({
       <div className="page">
         <Helmet title={formatMessage(intl, "ledger", "ledger.partyLedgerPage.pageTitle")} />
         <Grid container direction="column">
-          {isScoped ? (
+          {!!items.length && (
             <Grid size={12}>
               <StyledPaper>
                 <Box className="paperBody">
-                  <Typography variant="h4">{formatAmount(modulesManager, intl, items[0]?.balanceAmount)}</Typography>
-                  <Typography variant="body2" color="text.secondary">
-                    {formatMessage(intl, "ledger", `ledger.balance.${balanceInfo.legend}`)}
+                  <Typography variant="subtitle2">
+                    {formatMessage(intl, "ledger", "ledger.partyLedgerPage.totalsTitle")}
                   </Typography>
+                  <Grid container spacing={2} sx={{ mt: 0.5 }}>
+                    <Grid size={4}>
+                      <Typography variant="caption" color="text.secondary">
+                        {formatMessage(intl, "ledger", "ledger.entry.debit")}
+                      </Typography>
+                      <Typography variant="h6">{formatAmount(modulesManager, intl, totals.debit)}</Typography>
+                    </Grid>
+                    <Grid size={4}>
+                      <Typography variant="caption" color="text.secondary">
+                        {formatMessage(intl, "ledger", "ledger.entry.credit")}
+                      </Typography>
+                      <Typography variant="h6">{formatAmount(modulesManager, intl, totals.credit)}</Typography>
+                    </Grid>
+                    <Grid size={4}>
+                      <Typography variant="caption" color="text.secondary">
+                        {formatMessage(intl, "ledger", "ledger.entry.balance")}
+                      </Typography>
+                      <Typography variant="h6">{formatAmount(modulesManager, intl, totals.balance)}</Typography>
+                    </Grid>
+                  </Grid>
+                  {isScoped ? (
+                    <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+                      {formatMessage(intl, "ledger", `ledger.balance.${balanceInfo.legend}`)}
+                    </Typography>
+                  ) : null}
                 </Box>
               </StyledPaper>
+            </Grid>
+          )}
+
+          {fetched && !items.length ? (
+            <Grid size={12}>
+              <Box className="paperBody">
+                <Alert severity="info">{formatMessage(intl, "ledger", "ledger.partyLedgerPage.emptyState")}</Alert>
+              </Box>
             </Grid>
           ) : null}
           <Grid size={12}>
