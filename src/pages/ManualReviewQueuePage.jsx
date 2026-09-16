@@ -104,11 +104,15 @@ const ManualReviewQueuePage = ({
 
   const openResolution = (item) => {
     setSelectedItemId(item.id);
-    fetchLedgerEntries([
-      `accountingPeriod: "${item.originalEntry?.accountingPeriodId}"`,
-      `party: "${item.originalEntry?.partyAnalyticValueId}"`,
-      "first: 100",
-    ]);
+    // Same filter shape as the ledger browser: the action resolves the decoded
+    // period id to the period code the backend filters on.
+    fetchLedgerEntries(
+      {
+        accountingPeriodId: item.originalEntry?.accountingPeriodId ?? null,
+        partyAnalyticValueId: item.originalEntry?.partyAnalyticValueId ?? null,
+      },
+      { first: 100 },
+    );
   };
 
   const headers = () => [
@@ -180,7 +184,9 @@ const ManualReviewQueuePage = ({
           error={reviewResolution?.error}
           onClose={() => setSelectedItemId(null)}
           onResolve={(itemId, correctingEntryId, resolutionNote) =>
-            resolveManualReviewItem(itemId, correctingEntryId, resolutionNote)
+            // The mutation payload only carries ids: refresh the queue once it
+            // settles.
+            Promise.resolve(resolveManualReviewItem(itemId, correctingEntryId, resolutionNote)).then(() => fetch())
           }
         />
       </div>
