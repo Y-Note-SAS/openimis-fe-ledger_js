@@ -68,15 +68,13 @@
       "pageTitle": "Party Sub-Ledger",
       "balanceTitle": "Signed balance",
       "selectFiltersPrompt": "Select a party and an accounting period to view the period statement.",
-      "statementTitle": "Period statement",
+      "statementTitle": "Period statement ({count})",
       "emptyState": "No balance rows for the selected party and period.",
       "selectedParty": "Selected party: {party}",
       "selectedPeriod": "Selected period: {period}",
       "noPartySelected": "No party selected",
       "noPeriodSelected": "No period selected",
-      "periodColumn": "Accounting period",
-      "totalsTitle": "Totals (current page)",
-      "rowCount": "{count} balance row(s)"
+      "periodColumn": "Accounting period"
     },
     "balance": {
       "owedByParty": "Positive balance: owed by the party",
@@ -167,7 +165,8 @@
         "resolutionNote": "Resolution note",
         "close": "Close",
         "resolve": "Resolve"
-      }
+      },
+      "tableTitle": "Review queue ({count})"
     },
     "export": {
       "pageTitle": "Period Export",

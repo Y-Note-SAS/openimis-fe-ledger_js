@@ -157,7 +157,9 @@ const ManualReviewQueuePage = ({
               fetchingItems={manualReviewQueue?.isFetching}
               fetchedItems={manualReviewQueue?.isFetched}
               errorItems={manualReviewQueue?.error}
-              tableTitle={formatMessageWithValues(intl, "ledger", "ledger.reviewQueue.pageTitle")}
+              tableTitle={formatMessageWithValues(intl, "ledger", "ledger.reviewQueue.tableTitle", {
+                count: manualReviewQueue?.pageInfo?.totalCount ?? 0,
+              })}
               rowsPerPageOptions={ROWS_PER_PAGE_OPTIONS}
               defaultPageSize={DEFAULT_PAGE_SIZE}
               defaultFilters={() => ({})}
