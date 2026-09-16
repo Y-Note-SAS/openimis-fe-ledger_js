@@ -1,4 +1,4 @@
-import React, { useEffect, useState } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { injectIntl } from "react-intl";
 import { connect } from "react-redux";
 import {
@@ -18,7 +18,14 @@ import {
   Typography,
 } from "@mui/material";
 import { styled } from "@mui/material/styles";
-import { GRID_RESPONSIVE_STANDARD, Helmet, PublishedComponent, withModulesManager, formatMessage } from "@openimis/fe-core";
+import {
+  GRID_RESPONSIVE_STANDARD,
+  Helmet,
+  PublishedComponent,
+  journalize,
+  withModulesManager,
+  formatMessage,
+} from "@openimis/fe-core";
 import AccountingPeriodStatusBadge from "../components/AccountingPeriodStatusBadge";
 import { availableActionsForPeriod } from "../utils/periodActions";
 import { hasLedgerReportingRight, hasLedgerAdminRight } from "../utils/permissions";
@@ -74,6 +81,9 @@ const AccountingPeriodsPage = ({
   rights,
   accountingPeriods,
   periodMutation,
+  mutation,
+  submittingMutation,
+  journalize,
   fetchAccountingPeriods,
   openAccountingPeriod,
   lockAccountingPeriod,
@@ -87,6 +97,19 @@ const AccountingPeriodsPage = ({
   useEffect(() => {
     fetchAccountingPeriods();
   }, [fetchAccountingPeriods]);
+
+  // Once a lifecycle mutation completes, hand it to the JournalDrawer (right
+  // panel) — standard openIMIS mutation journaling.
+  const prevSubmittingMutationRef = useRef();
+  useEffect(() => {
+    prevSubmittingMutationRef.current = submittingMutation;
+  });
+  useEffect(() => {
+    if (prevSubmittingMutationRef.current && !submittingMutation) {
+      journalize(mutation);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [submittingMutation]);
 
   if (!hasLedgerReportingRight(rights)) {
     return <Alert severity="error">{formatMessage(intl, "ledger", "ledger.accessDenied")}</Alert>;
@@ -276,9 +299,12 @@ const mapStateToProps = (state) => ({
   rights: state.core?.user?.i_user?.rights || [],
   accountingPeriods: state.ledger.accountingPeriods,
   periodMutation: state.ledger.periodMutation,
+  mutation: state.ledger.mutation,
+  submittingMutation: state.ledger.submittingMutation,
 });
 
 const mapDispatchToProps = {
+  journalize,
   fetchAccountingPeriods,
   openAccountingPeriod,
   lockAccountingPeriod,

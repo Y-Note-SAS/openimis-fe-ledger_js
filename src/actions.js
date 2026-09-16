@@ -1078,11 +1078,13 @@ export function fetchFunderActivityReport(analyticValueId, accountingPeriodId) {
 /** Shared helper: the openIMIS `input: {...}` mutation shape. */
 const periodMutationAction = (operationName, input, clientMutationLabel, actionType) => {
   const mutation = formatMutation(operationName, input, clientMutationLabel);
-  return graphql(mutation.payload, [
-    `${actionType}_REQ`,
-    `${actionType}_RESP`,
-    `${actionType}_ERR`,
-  ]);
+  return graphql(
+    mutation.payload,
+    [`${actionType}_REQ`, `${actionType}_RESP`, `${actionType}_ERR`],
+    // Passed as `meta` so the reducer can track the mutation (clientMutationId,
+    // label) and the JournalDrawer can display it.
+    { clientMutationId: mutation.clientMutationId, clientMutationLabel, requestedDateTime: new Date() },
+  );
 };
 
 /** User Story 4 — open a new accounting period (`openAccountingPeriod(input: {...})`). */
@@ -1170,11 +1172,15 @@ export function resolveManualReviewItem(
   const mutation = formatMutation("resolveManualReview", input, clientMutationLabel);
   return (dispatch) =>
     dispatch(
-      graphql(mutation.payload, [
-        `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_REQ`,
-        `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_RESP`,
-        `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_ERR`,
-      ]),
+      graphql(
+        mutation.payload,
+        [
+          `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_REQ`,
+          `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_RESP`,
+          `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_ERR`,
+        ],
+        { clientMutationId: mutation.clientMutationId, clientMutationLabel, requestedDateTime: new Date() },
+      ),
     ).then(() => dispatch(fetchManualReviewQueue()));
 }
 

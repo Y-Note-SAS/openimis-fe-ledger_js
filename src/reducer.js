@@ -1,4 +1,11 @@
-import { formatServerError, formatGraphQLError, decodeId } from "@openimis/fe-core";
+import {
+  formatServerError,
+  formatGraphQLError,
+  decodeId,
+  dispatchMutationErr,
+  dispatchMutationReq,
+  dispatchMutationResp,
+} from "@openimis/fe-core";
 import { computeLedgerEntryTotals } from "./utils/ledgerEntryTotals";
 
 // Flux Standard Action triplet suffixes, consistent with every other
@@ -58,6 +65,10 @@ const initialState = {
 
   accountingPeriods: { isFetching: false, isFetched: false, error: null, items: [] },
   periodMutation: { submitting: false, error: null, lastRejectionReason: null },
+
+  // Standard openIMIS mutation tracking (feeds the JournalDrawer).
+  mutation: {},
+  submittingMutation: false,
 
   manualReviewQueue: { isFetching: false, isFetched: false, error: null, items: [], pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null } },
   reviewResolution: { submitting: false, error: null },
@@ -419,11 +430,18 @@ function reducer(state = initialState, action) {
 
     // --- User Story 4: Accounting Periods lifecycle -----------------------
     case req(ACTION_TYPE.OPEN_ACCOUNTING_PERIOD):
-      return { ...state, periodMutation: { submitting: true, error: null, lastRejectionReason: null } };
+      return {
+        ...dispatchMutationReq(state, action),
+        periodMutation: { submitting: true, error: null, lastRejectionReason: null },
+      };
     case resp(ACTION_TYPE.OPEN_ACCOUNTING_PERIOD):
       // The mutation payload only carries the ids; the list is refetched by the
-      // action, so just clear the submitting flag.
-      return { ...state, periodMutation: { submitting: false, error: null, lastRejectionReason: null } };
+      // action. `dispatchMutationResp` records the created id so the
+      // JournalDrawer can display the mutation.
+      return {
+        ...dispatchMutationResp(state, "openAccountingPeriod", action),
+        periodMutation: { submitting: false, error: null, lastRejectionReason: null },
+      };
     case err(ACTION_TYPE.OPEN_ACCOUNTING_PERIOD):
       return {
         ...state,
@@ -437,18 +455,32 @@ function reducer(state = initialState, action) {
     case req(ACTION_TYPE.LOCK_ACCOUNTING_PERIOD):
     case req(ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD):
     case req(ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD):
-      return { ...state, periodMutation: { submitting: true, error: null, lastRejectionReason: null } };
+      return {
+        ...dispatchMutationReq(state, action),
+        periodMutation: { submitting: true, error: null, lastRejectionReason: null },
+      };
 
     case resp(ACTION_TYPE.LOCK_ACCOUNTING_PERIOD):
+      return {
+        ...dispatchMutationResp(state, "lockAccountingPeriod", action),
+        periodMutation: { submitting: false, error: null, lastRejectionReason: null },
+      };
     case resp(ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD):
+      return {
+        ...dispatchMutationResp(state, "closeAccountingPeriod", action),
+        periodMutation: { submitting: false, error: null, lastRejectionReason: null },
+      };
     case resp(ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD):
-      return { ...state, periodMutation: { submitting: false, error: null, lastRejectionReason: null } };
+      return {
+        ...dispatchMutationResp(state, "reopenAccountingPeriod", action),
+        periodMutation: { submitting: false, error: null, lastRejectionReason: null },
+      };
 
     case err(ACTION_TYPE.LOCK_ACCOUNTING_PERIOD):
     case err(ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD):
     case err(ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD):
       return {
-        ...state,
+        ...dispatchMutationErr(state, action),
         periodMutation: {
           submitting: false,
           error: formatServerError(action.payload)?.message ?? null,
@@ -482,12 +514,21 @@ function reducer(state = initialState, action) {
       };
 
     case req(ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM):
-      return { ...state, reviewResolution: { submitting: true, error: null } };
+      return {
+        ...dispatchMutationReq(state, action),
+        reviewResolution: { submitting: true, error: null },
+      };
     case resp(ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM):
       // Payload carries ids only; the queue is refetched by the action.
-      return { ...state, reviewResolution: { submitting: false, error: null } };
+      return {
+        ...dispatchMutationResp(state, "resolveManualReview", action),
+        reviewResolution: { submitting: false, error: null },
+      };
     case err(ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM):
-      return { ...state, reviewResolution: { submitting: false, error: formatServerError(action.payload)?.message ?? null } };
+      return {
+        ...dispatchMutationErr(state, action),
+        reviewResolution: { submitting: false, error: formatServerError(action.payload)?.message ?? null },
+      };
 
     // --- User Story 6: Period Export ---------------------------------------
     case resp(ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD): {
