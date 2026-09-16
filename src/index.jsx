@@ -8,8 +8,10 @@ import AccountingPeriodsPage from "./pages/AccountingPeriodsPage";
 import ManualReviewQueuePage from "./pages/ManualReviewQueuePage";
 import PeriodExportPage from "./pages/PeriodExportPage";
 import DeploymentConfigurationPage from "./pages/DeploymentConfigurationPage";
+import JournalsPage from "./pages/JournalsPage";
 import AccountingPeriodPicker from "./pickers/AccountingPeriodPicker";
 import LedgerJournalPicker from "./pickers/LedgerJournalPicker";
+import JournalTypePicker from "./pickers/JournalTypePicker";
 import AccountPicker from "./pickers/AccountPicker";
 import PartyPicker from "./pickers/PartyPicker";
 import FunderPicker from "./pickers/FunderPicker";
@@ -21,6 +23,7 @@ const ROUTE_GENERAL_LEDGER = "ledger/general";
 const ROUTE_PARTY_LEDGER = "ledger/party";
 const ROUTE_FUNDER_ACTIVITY = "ledger/funder";
 const ROUTE_ACCOUNTING_PERIODS = "ledger/periods";
+const ROUTE_JOURNALS = "ledger/journals";
 const ROUTE_MANUAL_REVIEW_QUEUE = "ledger/review-queue";
 const ROUTE_PERIOD_EXPORT = "ledger/export";
 const ROUTE_DEPLOYMENT_CONFIGURATION = "ledger/deployment";
@@ -65,6 +68,14 @@ const DEFAULT_CONFIG = {
       text: "ledger.menu.accountingPeriods",
     },
     {
+      path: ROUTE_JOURNALS,
+      id: "ledger.journals",
+      component: JournalsPage,
+      rights: READ_RIGHTS,
+      icon: "MenuBook",
+      text: "ledger.menu.journals",
+    },
+    {
       path: ROUTE_MANUAL_REVIEW_QUEUE,
       id: "ledger.manualReviewQueue",
       component: ManualReviewQueuePage,
@@ -94,11 +105,13 @@ const DEFAULT_CONFIG = {
     { key: "ledger.route.partyLedger", ref: ROUTE_PARTY_LEDGER },
     { key: "ledger.route.funderActivity", ref: ROUTE_FUNDER_ACTIVITY },
     { key: "ledger.route.accountingPeriods", ref: ROUTE_ACCOUNTING_PERIODS },
+    { key: "ledger.route.journals", ref: ROUTE_JOURNALS },
     { key: "ledger.route.manualReviewQueue", ref: ROUTE_MANUAL_REVIEW_QUEUE },
     { key: "ledger.route.periodExport", ref: ROUTE_PERIOD_EXPORT },
     { key: "ledger.route.deploymentConfiguration", ref: ROUTE_DEPLOYMENT_CONFIGURATION },
     { key: "ledger.AccountingPeriodPicker", ref: AccountingPeriodPicker },
     { key: "ledger.LedgerJournalPicker", ref: LedgerJournalPicker },
+    { key: "ledger.JournalTypePicker", ref: JournalTypePicker },
     { key: "ledger.AccountPicker", ref: AccountPicker },
     { key: "ledger.PartyPicker", ref: PartyPicker },
     { key: "ledger.FunderPicker", ref: FunderPicker },
@@ -109,6 +122,7 @@ const DEFAULT_CONFIG = {
       ROUTE_PARTY_LEDGER,
       ROUTE_FUNDER_ACTIVITY,
       ROUTE_ACCOUNTING_PERIODS,
+      ROUTE_JOURNALS,
       ROUTE_MANUAL_REVIEW_QUEUE,
       ROUTE_PERIOD_EXPORT,
       ROUTE_DEPLOYMENT_CONFIGURATION,

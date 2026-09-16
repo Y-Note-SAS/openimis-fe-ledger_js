@@ -1,5 +1,6 @@
 import { formatServerError, formatGraphQLError, decodeId } from "@openimis/fe-core";
 import { computeLedgerEntryTotals } from "./utils/ledgerEntryTotals";
+import { firstErrorMessage } from "./utils/graphqlErrors";
 
 // Flux Standard Action triplet suffixes, consistent with every other
 // openimis-fe-* module in this environment (research.md §1).
@@ -11,6 +12,11 @@ export const ACTION_TYPE = {
   PARTY_LEDGER_BALANCE_RESET: "LEDGER_PARTY_LEDGER_BALANCE_RESET",
   FUNDER_SEARCH: "LEDGER_FUNDER_SEARCH",
   JOURNAL_SEARCH: "LEDGER_JOURNAL_SEARCH",
+  JOURNALS: "LEDGER_JOURNALS",
+  JOURNAL_TYPES: "LEDGER_JOURNAL_TYPES",
+  CREATE_JOURNAL: "LEDGER_CREATE_JOURNAL",
+  UPDATE_JOURNAL: "LEDGER_UPDATE_JOURNAL",
+  DELETE_JOURNAL: "LEDGER_DELETE_JOURNAL",
   FUNDER_ACTIVITY_REPORT: "LEDGER_FUNDER_ACTIVITY_REPORT",
   MANUAL_REVIEW_QUEUE: "LEDGER_MANUAL_REVIEW_QUEUE",
   DEPLOYMENT_CONFIGURATION: "LEDGER_DEPLOYMENT_CONFIGURATION",
@@ -56,6 +62,16 @@ const initialState = {
 
   journalSearch: { isFetching: false, isFetched: false, error: null, results: [], fetchedType: null },
 
+  journals: {
+    isFetching: false,
+    isFetched: false,
+    error: null,
+    items: [],
+    pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },
+  },
+  journalTypes: { isFetching: false, isFetched: false, error: null, items: [] },
+  journalMutation: { submitting: false, error: null, lastMutationAt: null },
+
   accountingPeriods: { isFetching: false, isFetched: false, error: null, items: [] },
   periodMutation: { submitting: false, error: null, lastRejectionReason: null },
 
@@ -97,18 +113,13 @@ const mapAnalyticTag = (analyticTags, axisCode) => {
   return value ? { analyticValueId: value.id, displayName: value.displayName } : null;
 };
 
-// Entry-level party/funder: the whole transaction is tagged server-side, so a
-// leg without its own analytic tag reuses the tag carried by the entry.
-const mapEntryTag = (value) =>
-  value ? { analyticValueId: value.id, displayName: value.displayName } : null;
-
-const mapLedgerEntryLine = (line, entryTags = {}) => ({
+const mapLedgerEntryLine = (line) => ({
   id: decodeLedgerReferenceId(line.id),
   account: line.account,
   debit: line.debit,
   credit: line.credit,
-  partyTag: line.partyTag || mapAnalyticTag(line.analyticTags, "party") || entryTags.partyTag || null,
-  funderTag: line.funderTag || mapAnalyticTag(line.analyticTags, "funder") || entryTags.funderTag || null,
+  partyTag: line.partyTag || mapAnalyticTag(line.analyticTags, "party"),
+  funderTag: line.funderTag || mapAnalyticTag(line.analyticTags, "funder"),
 });
 
 const mapLedgerEntryNode = (node) => {
@@ -118,11 +129,7 @@ const mapLedgerEntryNode = (node) => {
   const legs = node?.transaction?.legs;
   const rawLines =
     node?.lines || (Array.isArray(legs) ? legs : legs?.edges?.map((edge) => edge?.node)) || [];
-  const entryTags = {
-    partyTag: mapEntryTag(node?.party),
-    funderTag: mapEntryTag(node?.funder),
-  };
-  const lines = rawLines.filter(Boolean).map((line) => mapLedgerEntryLine(line, entryTags));
+  const lines = rawLines.filter(Boolean).map(mapLedgerEntryLine);
   return {
     id: decodeLedgerReferenceId(node.id),
     journal: node.journal,
@@ -140,8 +147,6 @@ const mapLedgerEntryNode = (node) => {
     totals: computeLedgerEntryTotals(lines),
   };
 };
-
-const firstErrorMessage = (errors) => (errors && errors.length ? errors[0].message : null);
 
 // The backend exposes `operatingMode`/`externalSystem` as GraphQL enum NAMES
 // (LOCAL_ONLY, ODOO, ...) on read but expects the raw stored values
@@ -179,6 +184,15 @@ const mapDeploymentConfiguration = (configuration) => {
 };
 
 const mapAccountOption = (node) => ({ ...node, id: decodeLedgerReferenceId(node?.id) });
+
+// The journal mutations take raw uuids (`journalUuid`, and `type` for the
+// journal type), while the connection returns relay global ids: decode the
+// journal id and the id of its journal type once, on ingest.
+const mapJournalNode = (journal) => ({
+  ...journal,
+  id: decodeLedgerReferenceId(journal?.id),
+  type: journal?.type ? { ...journal.type, id: decodeLedgerReferenceId(journal.type.id) } : journal?.type,
+});
 
 // Mock review items use readable ids (e.g. "review-1"), while GraphQL
 // responses use openIMIS base64 ids. Keep both forms valid in the reducer.
@@ -542,6 +556,108 @@ function reducer(state = initialState, action) {
     case err(ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD):
     case err(ACTION_TYPE.EXPORT_SEQUENCES):
       return { ...state, exportJobs: { ...state.exportJobs, error: formatServerError(action.payload)?.message ?? null } };
+
+    // --- Ticket 37990: Journals management --------------------------------
+    case req(ACTION_TYPE.JOURNALS):
+      return {
+        ...state,
+        journals: { ...state.journals, isFetching: true, isFetched: false, error: null },
+      };
+    case resp(ACTION_TYPE.JOURNALS): {
+      const connection = action.payload?.data?.ledgerJournal;
+      return {
+        ...state,
+        journals: {
+          isFetching: false,
+          isFetched: true,
+          error: formatGraphQLError(action.payload)?.message ?? null,
+          // `isDeleted` is filtered client-side as a safety net: the backend
+          // soft-deletes journals and its query does not filter them yet.
+          items: (connection?.edges || [])
+            .map((edge) => edge?.node)
+            .filter((journal) => journal && journal.isDeleted !== true)
+            .map(mapJournalNode),
+          pageInfo: {
+            totalCount: connection?.totalCount ?? 0,
+            hasNextPage: connection?.pageInfo?.hasNextPage ?? false,
+            hasPreviousPage: connection?.pageInfo?.hasPreviousPage ?? false,
+            startCursor: connection?.pageInfo?.startCursor ?? null,
+            endCursor: connection?.pageInfo?.endCursor ?? null,
+          },
+        },
+      };
+    }
+    case err(ACTION_TYPE.JOURNALS):
+      return {
+        ...state,
+        journals: { ...state.journals, isFetching: false, error: formatServerError(action.payload)?.message ?? null },
+      };
+
+    case req(ACTION_TYPE.JOURNAL_TYPES):
+      return {
+        ...state,
+        journalTypes: { ...state.journalTypes, isFetching: true, isFetched: false, error: null },
+      };
+    case resp(ACTION_TYPE.JOURNAL_TYPES): {
+      const connection = action.payload?.data?.journalTypes;
+      return {
+        ...state,
+        journalTypes: {
+          isFetching: false,
+          isFetched: true,
+          error: formatGraphQLError(action.payload)?.message ?? null,
+          // The mutation input expects the JournalTypes uuid: decode the relay
+          // id once, here, so pickers can submit `id` directly.
+          items: (connection?.edges || []).map((edge) => ({
+            ...edge.node,
+            id: decodeLedgerReferenceId(edge.node?.id),
+          })),
+        },
+      };
+    }
+    case err(ACTION_TYPE.JOURNAL_TYPES):
+      return {
+        ...state,
+        journalTypes: {
+          ...state.journalTypes,
+          isFetching: false,
+          error: formatServerError(action.payload)?.message ?? null,
+        },
+      };
+
+    // Creation, edition and deletion share the same lifecycle: `lastMutationAt`
+    // is stamped on success so the page closes the form and refreshes the list.
+    case req(ACTION_TYPE.CREATE_JOURNAL):
+    case req(ACTION_TYPE.UPDATE_JOURNAL):
+    case req(ACTION_TYPE.DELETE_JOURNAL):
+      return { ...state, journalMutation: { ...state.journalMutation, submitting: true, error: null } };
+    case resp(ACTION_TYPE.CREATE_JOURNAL):
+    case resp(ACTION_TYPE.UPDATE_JOURNAL):
+    case resp(ACTION_TYPE.DELETE_JOURNAL): {
+      const result =
+        action.payload?.data?.createJournal ??
+        action.payload?.data?.updateJournal ??
+        action.payload?.data?.deleteJournal;
+      const message = firstErrorMessage(result?.errors);
+      if (message) {
+        return { ...state, journalMutation: { ...state.journalMutation, submitting: false, error: message } };
+      }
+      return {
+        ...state,
+        journalMutation: { submitting: false, error: null, lastMutationAt: Date.now() },
+      };
+    }
+    case err(ACTION_TYPE.CREATE_JOURNAL):
+    case err(ACTION_TYPE.UPDATE_JOURNAL):
+    case err(ACTION_TYPE.DELETE_JOURNAL):
+      return {
+        ...state,
+        journalMutation: {
+          ...state.journalMutation,
+          submitting: false,
+          error: formatServerError(action.payload)?.message ?? null,
+        },
+      };
 
     // --- User Story 7: Deployment Configuration ----------------------------
     case req(ACTION_TYPE.DEPLOYMENT_CONFIGURATION):
