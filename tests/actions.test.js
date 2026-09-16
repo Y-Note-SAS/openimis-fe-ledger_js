@@ -32,6 +32,10 @@ import {
   fetchLedgerDeploymentConfiguration,
   fetchAccountOptions,
   createDeploymentConfiguration,
+  fetchAccounts,
+  createAccount,
+  updateAccount,
+  deleteAccount,
 } from "../src/actions";
 import { graphql, formatMutation } from "@openimis/fe-core";
 import reducer, { ACTION_TYPE } from "../src/reducer";
@@ -325,6 +329,122 @@ describe("Actions - Deployment configuration", () => {
   });
 });
 
+describe("Actions - Accounts management", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("builds the paginated accounts query with every filter", () => {
+    const action = fetchAccounts(
+      { code: "1200", fullCode: "1200", type: "EQ", isBankAccount: true },
+      { first: 20, after: "cursor-1" },
+    );
+
+    expect(action.operation).toContain("query Accounts");
+    expect(action.operation).toContain("accounts(");
+    expect(action.variables).toEqual({
+      first: 20,
+      after: "cursor-1",
+      before: null,
+      last: null,
+      code: "1200",
+      fullCode: "1200",
+      type: "EQ",
+      isBankAccount: true,
+    });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.ACCOUNTS}_REQ`,
+      `${ACTION_TYPE.ACCOUNTS}_RESP`,
+      `${ACTION_TYPE.ACCOUNTS}_ERR`,
+    ]);
+  });
+
+  it("queries the first page with no filter when nothing is applied", () => {
+    const action = fetchAccounts({}, {});
+
+    expect(action.variables).toEqual({
+      first: null,
+      after: null,
+      before: null,
+      last: null,
+      code: null,
+      fullCode: null,
+      type: null,
+      isBankAccount: null,
+    });
+  });
+
+  it("creates an account with the currencies serialized as a JSON string", () => {
+    const action = createAccount({
+      name: "Caisse",
+      code: "570",
+      fullCode: "570",
+      type: "AS",
+      isBankAccount: false,
+      currencies: ["XAF", "EUR"],
+      clientMutationLabel: "Create account",
+    });
+
+    expect(formatMutation).toHaveBeenCalledTimes(1);
+    const [mutationName, input, label] = formatMutation.mock.calls[0];
+    expect(mutationName).toBe("createAccount");
+    expect(input).toContain('name: "Caisse"');
+    expect(input).toContain('code: "570"');
+    expect(input).toContain('fullCode: "570"');
+    expect(input).toContain('type: "AS"');
+    expect(input).toContain("isBankAccount: false");
+    expect(input).toContain('currencies: "[\\"XAF\\",\\"EUR\\"]"');
+    expect(label).toBe("Create account");
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.CREATE_ACCOUNT}_REQ`,
+      `${ACTION_TYPE.CREATE_ACCOUNT}_RESP`,
+      `${ACTION_TYPE.CREATE_ACCOUNT}_ERR`,
+    ]);
+    expect(action.params.clientMutationId).toBe("mock-client-mutation-id");
+  });
+
+  it("updates an account with its uuid and the full creation payload", () => {
+    const action = updateAccount({
+      accountUuid: "uuid-1",
+      name: "Caisse",
+      code: "570",
+      fullCode: "570",
+      type: "AS",
+      isBankAccount: true,
+      currencies: ["XAF"],
+      clientMutationLabel: "Update account 570",
+    });
+
+    const [mutationName, input, label] = formatMutation.mock.calls.at(-1);
+    expect(mutationName).toBe("updateAccount");
+    expect(input).toContain('accountUuid: "uuid-1"');
+    expect(input).toContain('name: "Caisse"');
+    expect(input).toContain('fullCode: "570"');
+    expect(input).toContain("isBankAccount: true");
+    expect(input).toContain('currencies: "[\\"XAF\\"]"');
+    expect(label).toBe("Update account 570");
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.UPDATE_ACCOUNT}_REQ`,
+      `${ACTION_TYPE.UPDATE_ACCOUNT}_RESP`,
+      `${ACTION_TYPE.UPDATE_ACCOUNT}_ERR`,
+    ]);
+  });
+
+  it("deletes an account with the uuid only", () => {
+    const action = deleteAccount({ accountUuid: "uuid-1", clientMutationLabel: "Delete account 570" });
+
+    const [mutationName, input, label] = formatMutation.mock.calls.at(-1);
+    expect(mutationName).toBe("deleteAccount");
+    expect(input.trim()).toBe('accountUuid: "uuid-1"');
+    expect(label).toBe("Delete account 570");
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.DELETE_ACCOUNT}_REQ`,
+      `${ACTION_TYPE.DELETE_ACCOUNT}_RESP`,
+      `${ACTION_TYPE.DELETE_ACCOUNT}_ERR`,
+    ]);
+  });
+});
+
 describe("Actions - Real API calls", () => {
   it("searchParty delegates to the real analyticValue query", () => {
     const action = searchParty("Family");
@@ -378,10 +498,7 @@ describe("Actions - Real API calls", () => {
     expect(thunkAction.operation).toContain("legs");
     expect(thunkAction.operation).toContain("debit");
     expect(thunkAction.operation).toContain("credit");
-    expect(thunkAction.operation).toContain("account { id name code }");
-    // Entry-level party/funder feed the expandable details.
-    expect(thunkAction.operation).toContain("party { id displayName }");
-    expect(thunkAction.operation).toContain("funder { id displayName }");
+    expect(thunkAction.operation).toContain("account { code name }");
     expect(thunkAction.operation).toContain("accountingPeriod { id code name status }");
     expect(thunkAction.variables).toEqual({
       journal: "BANK",

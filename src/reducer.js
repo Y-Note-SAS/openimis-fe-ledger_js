@@ -1,5 +1,7 @@
 import { formatServerError, formatGraphQLError, decodeId } from "@openimis/fe-core";
 import { computeLedgerEntryTotals } from "./utils/ledgerEntryTotals";
+import { parseCurrencies } from "./utils/currencies";
+import { firstErrorMessage } from "./utils/graphqlErrors";
 
 // Flux Standard Action triplet suffixes, consistent with every other
 // openimis-fe-* module in this environment (research.md §1).
@@ -15,6 +17,10 @@ export const ACTION_TYPE = {
   MANUAL_REVIEW_QUEUE: "LEDGER_MANUAL_REVIEW_QUEUE",
   DEPLOYMENT_CONFIGURATION: "LEDGER_DEPLOYMENT_CONFIGURATION",
   ACCOUNT_OPTIONS: "LEDGER_ACCOUNT_OPTIONS",
+  ACCOUNTS: "LEDGER_ACCOUNTS",
+  CREATE_ACCOUNT: "LEDGER_CREATE_ACCOUNT",
+  UPDATE_ACCOUNT: "LEDGER_UPDATE_ACCOUNT",
+  DELETE_ACCOUNT: "LEDGER_DELETE_ACCOUNT",
   OPEN_ACCOUNTING_PERIOD: "LEDGER_OPEN_ACCOUNTING_PERIOD",
   LOCK_ACCOUNTING_PERIOD: "LEDGER_LOCK_ACCOUNTING_PERIOD",
   CLOSE_ACCOUNTING_PERIOD: "LEDGER_CLOSE_ACCOUNTING_PERIOD",
@@ -67,6 +73,15 @@ const initialState = {
   deploymentConfiguration: { isFetching: false, isFetched: false, error: null, data: null, submitting: false },
 
   accountOptions: { isFetching: false, isFetched: false, error: null, items: [] },
+
+  accounts: {
+    isFetching: false,
+    isFetched: false,
+    error: null,
+    items: [],
+    pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },
+  },
+  accountMutation: { submitting: false, error: null, lastMutationAt: null },
 };
 
 const decodeLedgerReferenceId = (id) => {
@@ -97,18 +112,13 @@ const mapAnalyticTag = (analyticTags, axisCode) => {
   return value ? { analyticValueId: value.id, displayName: value.displayName } : null;
 };
 
-// Entry-level party/funder: the whole transaction is tagged server-side, so a
-// leg without its own analytic tag reuses the tag carried by the entry.
-const mapEntryTag = (value) =>
-  value ? { analyticValueId: value.id, displayName: value.displayName } : null;
-
-const mapLedgerEntryLine = (line, entryTags = {}) => ({
+const mapLedgerEntryLine = (line) => ({
   id: decodeLedgerReferenceId(line.id),
   account: line.account,
   debit: line.debit,
   credit: line.credit,
-  partyTag: line.partyTag || mapAnalyticTag(line.analyticTags, "party") || entryTags.partyTag || null,
-  funderTag: line.funderTag || mapAnalyticTag(line.analyticTags, "funder") || entryTags.funderTag || null,
+  partyTag: line.partyTag || mapAnalyticTag(line.analyticTags, "party"),
+  funderTag: line.funderTag || mapAnalyticTag(line.analyticTags, "funder"),
 });
 
 const mapLedgerEntryNode = (node) => {
@@ -118,11 +128,7 @@ const mapLedgerEntryNode = (node) => {
   const legs = node?.transaction?.legs;
   const rawLines =
     node?.lines || (Array.isArray(legs) ? legs : legs?.edges?.map((edge) => edge?.node)) || [];
-  const entryTags = {
-    partyTag: mapEntryTag(node?.party),
-    funderTag: mapEntryTag(node?.funder),
-  };
-  const lines = rawLines.filter(Boolean).map((line) => mapLedgerEntryLine(line, entryTags));
+  const lines = rawLines.filter(Boolean).map(mapLedgerEntryLine);
   return {
     id: decodeLedgerReferenceId(node.id),
     journal: node.journal,
@@ -140,8 +146,6 @@ const mapLedgerEntryNode = (node) => {
     totals: computeLedgerEntryTotals(lines),
   };
 };
-
-const firstErrorMessage = (errors) => (errors && errors.length ? errors[0].message : null);
 
 // The backend exposes `operatingMode`/`externalSystem` as GraphQL enum NAMES
 // (LOCAL_ONLY, ODOO, ...) on read but expects the raw stored values
@@ -179,6 +183,13 @@ const mapDeploymentConfiguration = (configuration) => {
 };
 
 const mapAccountOption = (node) => ({ ...node, id: decodeLedgerReferenceId(node?.id) });
+
+// hordak stores `currencies` in a JSON field exposed as a GraphQL JSONString:
+// normalize it to an array so the views can render it directly.
+const mapAccountNode = (node) => ({
+  ...mapAccountOption(node),
+  currencies: parseCurrencies(node?.currencies),
+});
 
 // Mock review items use readable ids (e.g. "review-1"), while GraphQL
 // responses use openIMIS base64 ids. Keep both forms valid in the reducer.
@@ -542,6 +553,75 @@ function reducer(state = initialState, action) {
     case err(ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD):
     case err(ACTION_TYPE.EXPORT_SEQUENCES):
       return { ...state, exportJobs: { ...state.exportJobs, error: formatServerError(action.payload)?.message ?? null } };
+
+    // --- Ticket 37991: Accounts management --------------------------------
+    case req(ACTION_TYPE.ACCOUNTS):
+      return {
+        ...state,
+        accounts: { ...state.accounts, isFetching: true, isFetched: false, error: null },
+      };
+    case resp(ACTION_TYPE.ACCOUNTS): {
+      const connection = action.payload?.data?.accounts;
+      return {
+        ...state,
+        accounts: {
+          isFetching: false,
+          isFetched: true,
+          error: formatGraphQLError(action.payload)?.message ?? null,
+          items: (connection?.edges || []).map((edge) => mapAccountNode(edge.node)),
+          pageInfo: {
+            totalCount: connection?.totalCount ?? 0,
+            hasNextPage: connection?.pageInfo?.hasNextPage ?? false,
+            hasPreviousPage: connection?.pageInfo?.hasPreviousPage ?? false,
+            startCursor: connection?.pageInfo?.startCursor ?? null,
+            endCursor: connection?.pageInfo?.endCursor ?? null,
+          },
+        },
+      };
+    }
+    case err(ACTION_TYPE.ACCOUNTS):
+      return {
+        ...state,
+        accounts: {
+          ...state.accounts,
+          isFetching: false,
+          error: formatServerError(action.payload)?.message ?? null,
+        },
+      };
+
+    // Creation, edition and deletion share the same lifecycle: `lastMutationAt`
+    // is stamped on success so the page closes the form and refreshes the list.
+    case req(ACTION_TYPE.CREATE_ACCOUNT):
+    case req(ACTION_TYPE.UPDATE_ACCOUNT):
+    case req(ACTION_TYPE.DELETE_ACCOUNT):
+      return { ...state, accountMutation: { ...state.accountMutation, submitting: true, error: null } };
+    case resp(ACTION_TYPE.CREATE_ACCOUNT):
+    case resp(ACTION_TYPE.UPDATE_ACCOUNT):
+    case resp(ACTION_TYPE.DELETE_ACCOUNT): {
+      const result =
+        action.payload?.data?.createAccount ??
+        action.payload?.data?.updateAccount ??
+        action.payload?.data?.deleteAccount;
+      const message = firstErrorMessage(result?.errors);
+      if (message) {
+        return { ...state, accountMutation: { ...state.accountMutation, submitting: false, error: message } };
+      }
+      return {
+        ...state,
+        accountMutation: { submitting: false, error: null, lastMutationAt: Date.now() },
+      };
+    }
+    case err(ACTION_TYPE.CREATE_ACCOUNT):
+    case err(ACTION_TYPE.UPDATE_ACCOUNT):
+    case err(ACTION_TYPE.DELETE_ACCOUNT):
+      return {
+        ...state,
+        accountMutation: {
+          ...state.accountMutation,
+          submitting: false,
+          error: formatServerError(action.payload)?.message ?? null,
+        },
+      };
 
     // --- User Story 7: Deployment Configuration ----------------------------
     case req(ACTION_TYPE.DEPLOYMENT_CONFIGURATION):

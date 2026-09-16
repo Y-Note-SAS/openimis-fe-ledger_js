@@ -41,6 +41,10 @@ export const historyPush = vi.fn();
 
 export const GetIconComponent = (name) => (props) => <span data-icon={name} {...props} />;
 
+export const withTooltip = (component, title) => (
+  <span data-tooltip={title}>{component}</span>
+);
+
 export const Helmet = () => null;
 
 export const FormattedMessage = ({ id }) => <>{id}</>;
