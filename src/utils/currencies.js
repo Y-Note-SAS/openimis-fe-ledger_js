@@ -23,5 +23,13 @@ export const collectCurrencyCodes = (accounts = []) =>
     new Set((accounts || []).flatMap((account) => parseCurrencies(account?.currencies)).filter(Boolean)),
   ).sort();
 
-/** GraphQL `JSONString` input for `currencies`, e.g. `["XAF","EUR"]`. */
-export const formatCurrenciesInput = (codes = []) => JSON.stringify((codes || []).filter(Boolean));
+/**
+ * GraphQL string literal for the `currencies` JSONString input.
+ *
+ * The backend field is a `graphene.JSONString` scalar, whose `parse_value`
+ * runs `json.loads()` on the received value: the GraphQL literal must therefore
+ * be a *string* that contains the JSON-encoded list, e.g.
+ * `currencies: "[\"XAF\",\"EUR\"]"` (JSON.stringify of a JSON string, i.e.
+ * one intentional double encoding — not an accidental one).
+ */
+export const formatCurrenciesGQLValue = (codes = []) => JSON.stringify(JSON.stringify((codes || []).filter(Boolean)));

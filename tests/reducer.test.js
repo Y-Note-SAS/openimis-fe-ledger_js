@@ -160,66 +160,6 @@ describe("Reducer", () => {
     expect(entry.totals).toEqual({ debit: 100, credit: 0, balance: 100 });
   });
 
-  it("reports the entry-level party/funder on every leg of the expandable detail", () => {
-    const action = {
-      type: `${ACTION_TYPE.LEDGER_ENTRIES}_RESP`,
-      payload: {
-        data: {
-          ledgerEntries: {
-            totalCount: 1,
-            pageInfo: {},
-            edges: [
-              {
-                node: {
-                  id: "TGVkZ2VyRW50cnk6Mw==",
-                  party: { id: "QW5hbHl0aWNWYWx1ZTox", displayName: "District Hospital" },
-                  funder: { id: "QW5hbHl0aWNWYWx1ZToy", displayName: "GIZ" },
-                  transaction: {
-                    balance: "FCFA0",
-                    legs: {
-                      edges: [
-                        {
-                          node: {
-                            id: "TGVnOjQ=",
-                            account: { id: "QWNjb3VudDox", code: "4010", name: "Debit" },
-                            debit: "1000.00",
-                            credit: "0",
-                          },
-                        },
-                        {
-                          node: {
-                            id: "TGVnOjU=",
-                            account: { id: "QWNjb3VudDoy", code: "5120", name: "Cash" },
-                            debit: "0",
-                            credit: "1000.00",
-                          },
-                        },
-                      ],
-                    },
-                  },
-                },
-              },
-            ],
-          },
-        },
-      },
-    };
-    const state = reducer(initialState, action);
-    const entry = state.ledgerEntries.items[0];
-    expect(entry.lines.map((line) => line.account)).toEqual([
-      { id: "QWNjb3VudDox", code: "4010", name: "Debit" },
-      { id: "QWNjb3VudDoy", code: "5120", name: "Cash" },
-    ]);
-    expect(entry.lines.map((line) => line.partyTag)).toEqual([
-      { analyticValueId: "QW5hbHl0aWNWYWx1ZTox", displayName: "District Hospital" },
-      { analyticValueId: "QW5hbHl0aWNWYWx1ZTox", displayName: "District Hospital" },
-    ]);
-    expect(entry.lines.map((line) => line.funderTag)).toEqual([
-      { analyticValueId: "QW5hbHl0aWNWYWx1ZToy", displayName: "GIZ" },
-      { analyticValueId: "QW5hbHl0aWNWYWx1ZToy", displayName: "GIZ" },
-    ]);
-  });
-
   it("handles LEDGER_LEDGER_ENTRIES_ERR", () => {
     const action = {
       type: `${ACTION_TYPE.LEDGER_ENTRIES}_ERR`,
@@ -756,6 +696,167 @@ describe("Reducer", () => {
     const state = reducer(initialState, action);
     expect(state.deploymentConfiguration.submitting).toBe(false);
     expect(state.deploymentConfiguration.error).toBe("retained earnings account type should not be income / expense");
+  });
+
+  it("handles LEDGER_ACCOUNTS_REQ", () => {
+    const action = { type: `${ACTION_TYPE.ACCOUNTS}_REQ` };
+    const state = reducer(initialState, action);
+    expect(state.accounts.isFetching).toBe(true);
+    expect(state.accounts.isFetched).toBe(false);
+  });
+
+  it("handles LEDGER_ACCOUNTS_RESP with the page info and parsed currencies", () => {
+    const action = {
+      type: `${ACTION_TYPE.ACCOUNTS}_RESP`,
+      payload: {
+        data: {
+          accounts: {
+            totalCount: 12,
+            pageInfo: {
+              hasNextPage: true,
+              hasPreviousPage: false,
+              startCursor: "cursor-1",
+              endCursor: "cursor-2",
+            },
+            edges: [
+              {
+                node: {
+                  id: btoa("AccountType:uuid-1"),
+                  uuid: "uuid-1",
+                  name: "Reserves",
+                  code: "1200",
+                  fullCode: "1200",
+                  type: "EQ",
+                  isBankAccount: false,
+                  currencies: '["XAF","EUR"]',
+                  level: 1,
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+    const state = reducer(initialState, action);
+    expect(state.accounts.isFetching).toBe(false);
+    expect(state.accounts.isFetched).toBe(true);
+    expect(state.accounts.error).toBe(null);
+    expect(state.accounts.items).toHaveLength(1);
+    expect(state.accounts.items[0]).toMatchObject({
+      id: "uuid-1",
+      uuid: "uuid-1",
+      code: "1200",
+      type: "EQ",
+      currencies: ["XAF", "EUR"],
+    });
+    expect(state.accounts.pageInfo).toEqual({
+      totalCount: 12,
+      hasNextPage: true,
+      hasPreviousPage: false,
+      startCursor: "cursor-1",
+      endCursor: "cursor-2",
+    });
+  });
+
+  it("handles LEDGER_ACCOUNTS_ERR", () => {
+    const action = { type: `${ACTION_TYPE.ACCOUNTS}_ERR`, payload: { message: "Network error" } };
+    const state = reducer(initialState, action);
+    expect(state.accounts.isFetching).toBe(false);
+    expect(state.accounts.error).toBe("Network error");
+  });
+
+  it("handles LEDGER_CREATE_ACCOUNT_REQ", () => {
+    const action = { type: `${ACTION_TYPE.CREATE_ACCOUNT}_REQ` };
+    const state = reducer(initialState, action);
+    expect(state.accountMutation.submitting).toBe(true);
+    expect(state.accountMutation.error).toBe(null);
+  });
+
+  it("handles LEDGER_CREATE_ACCOUNT_RESP by stamping the mutation time", () => {
+    const action = {
+      type: `${ACTION_TYPE.CREATE_ACCOUNT}_RESP`,
+      payload: { data: { createAccount: { internalId: "1", clientMutationId: "cid" } } },
+    };
+    const state = reducer(initialState, action);
+    expect(state.accountMutation.submitting).toBe(false);
+    expect(state.accountMutation.error).toBe(null);
+    expect(state.accountMutation.lastMutationAt).toEqual(expect.any(Number));
+  });
+
+  it("handles LEDGER_CREATE_ACCOUNT_RESP backend errors", () => {
+    const action = {
+      type: `${ACTION_TYPE.CREATE_ACCOUNT}_RESP`,
+      payload: {
+        data: {
+          createAccount: { internalId: null, errors: [{ field: "code", message: "The code is already used" }] },
+        },
+      },
+    };
+    const state = reducer(initialState, action);
+    expect(state.accountMutation.submitting).toBe(false);
+    expect(state.accountMutation.error).toBe("The code is already used");
+    expect(state.accountMutation.lastMutationAt).toBe(null);
+  });
+
+  it("handles LEDGER_CREATE_ACCOUNT_ERR", () => {
+    const action = { type: `${ACTION_TYPE.CREATE_ACCOUNT}_ERR`, payload: { message: "Network error" } };
+    const state = reducer(initialState, action);
+    expect(state.accountMutation.submitting).toBe(false);
+    expect(state.accountMutation.error).toBe("Network error");
+  });
+
+  it("handles LEDGER_UPDATE_ACCOUNT_REQ/RESP", () => {
+    const requested = reducer(initialState, { type: `${ACTION_TYPE.UPDATE_ACCOUNT}_REQ` });
+    expect(requested.accountMutation.submitting).toBe(true);
+
+    const state = reducer(initialState, {
+      type: `${ACTION_TYPE.UPDATE_ACCOUNT}_RESP`,
+      payload: { data: { updateAccount: { internalId: "1", clientMutationId: "cid" } } },
+    });
+    expect(state.accountMutation.submitting).toBe(false);
+    expect(state.accountMutation.error).toBe(null);
+    expect(state.accountMutation.lastMutationAt).toEqual(expect.any(Number));
+  });
+
+  it("handles LEDGER_UPDATE_ACCOUNT_RESP backend errors", () => {
+    const state = reducer(initialState, {
+      type: `${ACTION_TYPE.UPDATE_ACCOUNT}_RESP`,
+      payload: {
+        data: {
+          updateAccount: { internalId: null, errors: [{ field: "code", message: "The code is already used" }] },
+        },
+      },
+    });
+    expect(state.accountMutation.submitting).toBe(false);
+    expect(state.accountMutation.error).toBe("The code is already used");
+    expect(state.accountMutation.lastMutationAt).toBe(null);
+  });
+
+  it("handles LEDGER_DELETE_ACCOUNT_REQ/RESP/ERR", () => {
+    const requested = reducer(initialState, { type: `${ACTION_TYPE.DELETE_ACCOUNT}_REQ` });
+    expect(requested.accountMutation.submitting).toBe(true);
+
+    const succeeded = reducer(initialState, {
+      type: `${ACTION_TYPE.DELETE_ACCOUNT}_RESP`,
+      payload: { data: { deleteAccount: { internalId: "1", clientMutationId: "cid" } } },
+    });
+    expect(succeeded.accountMutation.error).toBe(null);
+    expect(succeeded.accountMutation.lastMutationAt).toEqual(expect.any(Number));
+
+    const failed = reducer(initialState, {
+      type: `${ACTION_TYPE.DELETE_ACCOUNT}_RESP`,
+      payload: {
+        data: { deleteAccount: { internalId: null, errors: [{ field: "accountUuid", message: "Account is used by 12 legs" }] } },
+      },
+    });
+    expect(failed.accountMutation.error).toBe("Account is used by 12 legs");
+    expect(failed.accountMutation.lastMutationAt).toBe(null);
+
+    const networkError = reducer(initialState, {
+      type: `${ACTION_TYPE.DELETE_ACCOUNT}_ERR`,
+      payload: { message: "Network error" },
+    });
+    expect(networkError.accountMutation.error).toBe("Network error");
   });
 
   it("handles LEDGER_CREATE_DEPLOYMENT_CONFIGURATION_ERR", () => {

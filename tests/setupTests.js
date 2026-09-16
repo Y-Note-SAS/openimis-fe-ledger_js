@@ -49,6 +49,23 @@ vi.mock("@mui/material", () => ({
     );
   },
   Chip: ({ label }) => React.createElement("span", null, label),
+  IconButton: ({ children, onClick, disabled, "aria-label": ariaLabel, size, href, ...props }) =>
+    React.createElement(
+      href ? "a" : "button",
+      { type: href ? undefined : "button", href, onClick, disabled, "aria-label": ariaLabel, ...props },
+      children,
+    ),
+  Tooltip: ({ children, title }) => React.createElement("span", { "data-tooltip": title }, children),
+  Checkbox: ({ checked, onChange, inputProps = {} }) =>
+    React.createElement("input", {
+      type: "checkbox",
+      checked: !!checked,
+      "aria-label": inputProps["aria-label"],
+      onChange: (event) => onChange?.(event, event.target.checked),
+    }),
+  FormControlLabel: ({ control, label }) =>
+    React.createElement("label", null, control, React.createElement("span", null, label)),
+
   Grid: ({ children }) => React.createElement("div", null, children),
   Autocomplete: ({
     options = [],
@@ -59,6 +76,8 @@ vi.mock("@mui/material", () => ({
     getOptionLabel = (option) => (typeof option === "string" ? option : option?.label || ""),
     renderInput,
     readOnly,
+    disabled = false,
+    multiple = false,
   }) => {
     const optionValue = (option) => {
       if (option === null || option === undefined) return "";
@@ -80,13 +99,23 @@ vi.mock("@mui/material", () => ({
       React.createElement(
         "select",
         {
-          "aria-label": "autocomplete-options",
-          value: optionValue(value),
+          "aria-label": multiple ? "autocomplete-options-multiple" : "autocomplete-options",
+          disabled,
+          multiple,
+          value: multiple ? (Array.isArray(value) ? value : []).map((entry) => optionValue(entry)) : optionValue(value),
           onChange: (event) => {
-            const selected =
-              options.find((option) => optionValue(option) === event.target.value) ??
-              (event.target.value ? event.target.value : null);
-            onChange?.(event, selected);
+            // A native multiple select exposes every selected value through
+            // `selectedOptions`; fall back to the single value otherwise.
+            const rawValues = event.target.selectedOptions
+              ? Array.from(event.target.selectedOptions).map((option) => option.value)
+              : [event.target.value];
+            const resolve = (value) =>
+              options.find((option) => optionValue(option) === value) ?? (value ? value : null);
+            if (multiple) {
+              onChange?.(event, rawValues.filter(Boolean).map(resolve));
+              return;
+            }
+            onChange?.(event, resolve(event.target.value));
           },
         },
         [
@@ -109,8 +138,19 @@ vi.mock("@mui/material", () => ({
     select
       ? React.createElement("select", { "aria-label": label, ...inputProps, ...props }, children)
       : React.createElement("input", { "aria-label": label, ...inputProps, ...props }),
-  Stack: ({ children, role, "aria-live": ariaLive, spacing, direction, alignItems, justifyContent, divider, useFlexGap, flexWrap, ...props }) =>
-    React.createElement("div", { role, "aria-live": ariaLive, ...props }, children),
+  Stack: ({
+    children,
+    role,
+    "aria-live": ariaLive,
+    spacing,
+    direction,
+    alignItems,
+    justifyContent,
+    divider,
+    useFlexGap,
+    flexWrap,
+    ...props
+  }) => React.createElement("div", { role, "aria-live": ariaLive, ...props }, children),
   Paper: ({ children }) => React.createElement("div", null, children),
   Box: ({ children }) => React.createElement("div", null, children),
   Alert: ({ children }) => React.createElement("div", null, children),
