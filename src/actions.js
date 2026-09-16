@@ -1185,12 +1185,20 @@ export function resolveManualReviewItem(
 }
 
 /** User Story 6 — trigger an async export job; `format` is chosen per-trigger, never sourced from deployment config. */
-export function exportAccountingPeriod(accountingPeriodId, format) {
-  return graphqlWithVariables(EXPORT_ACCOUNTING_PERIOD_MUTATION, { accountingPeriodId, format }, [
-    `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_REQ`,
-    `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_RESP`,
-    `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_ERR`,
-  ]);
+export function exportAccountingPeriod(accountingPeriodId, format, clientMutationLabel = "Export accounting period") {
+  const clientMutationId =
+    globalThis.crypto?.randomUUID?.() ?? `export-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return graphqlWithVariables(
+    EXPORT_ACCOUNTING_PERIOD_MUTATION,
+    { accountingPeriodId, format },
+    [
+      `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_REQ`,
+      `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_RESP`,
+      `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_ERR`,
+    ],
+    // `meta` so the reducer tracks the mutation and the JournalDrawer shows it.
+    { clientMutationId, clientMutationLabel, requestedDateTime: new Date(), accountingPeriodId },
+  );
 }
 
 function fetchExportSequences(accountingPeriodId, journal = null) {

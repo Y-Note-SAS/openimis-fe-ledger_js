@@ -531,16 +531,19 @@ function reducer(state = initialState, action) {
       };
 
     // --- User Story 6: Period Export ---------------------------------------
+    case req(ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD):
+      return { ...dispatchMutationReq(state, action), exportJobs: { ...state.exportJobs, error: null } };
     case resp(ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD): {
       const result = action.payload?.data?.exportAccountingPeriod;
       const job = result?.exportJob;
-      if (!job) return state;
+      const withMutation = dispatchMutationResp(state, "exportAccountingPeriod", action);
+      if (!job) return withMutation;
       return {
-        ...state,
+        ...withMutation,
         exportJobs: {
-          ...state.exportJobs,
+          ...withMutation.exportJobs,
           error: null,
-          byPeriodId: { ...state.exportJobs.byPeriodId, [job.accountingPeriodId]: job },
+          byPeriodId: { ...withMutation.exportJobs.byPeriodId, [job.accountingPeriodId]: job },
         },
       };
     }
@@ -557,6 +560,10 @@ function reducer(state = initialState, action) {
       };
     }
     case err(ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD):
+      return {
+        ...dispatchMutationErr(state, action),
+        exportJobs: { ...state.exportJobs, error: formatServerError(action.payload)?.message ?? null },
+      };
     case err(ACTION_TYPE.EXPORT_SEQUENCES):
       return { ...state, exportJobs: { ...state.exportJobs, error: formatServerError(action.payload)?.message ?? null } };
 
@@ -615,7 +622,10 @@ function reducer(state = initialState, action) {
       };
 
     case req(ACTION_TYPE.CREATE_DEPLOYMENT_CONFIGURATION):
-      return { ...state, deploymentConfiguration: { ...state.deploymentConfiguration, submitting: true, error: null } };
+      return {
+        ...dispatchMutationReq(state, action),
+        deploymentConfiguration: { ...state.deploymentConfiguration, submitting: true, error: null },
+      };
     case resp(ACTION_TYPE.CREATE_DEPLOYMENT_CONFIGURATION): {
       // createDeploymentConfiguration only answers with the mutation ids: the
       // submitted values (echoed through the action meta) become the current
@@ -629,7 +639,7 @@ function reducer(state = initialState, action) {
       }
       const submitted = action.meta?.deploymentConfiguration;
       return {
-        ...state,
+        ...dispatchMutationResp(state, "createDeploymentConfiguration", action),
         deploymentConfiguration: {
           ...state.deploymentConfiguration,
           submitting: false,
@@ -640,7 +650,7 @@ function reducer(state = initialState, action) {
     }
     case err(ACTION_TYPE.CREATE_DEPLOYMENT_CONFIGURATION):
       return {
-        ...state,
+        ...dispatchMutationErr(state, action),
         deploymentConfiguration: {
           ...state.deploymentConfiguration,
           submitting: false,
