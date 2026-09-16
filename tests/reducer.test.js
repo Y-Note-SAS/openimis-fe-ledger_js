@@ -155,75 +155,18 @@ describe("Reducer", () => {
     const state = reducer(initialState, action);
     const entry = state.ledgerEntries.items[0];
     expect(entry.lines).toHaveLength(1);
-    expect(entry.lines[0].partyTag).toEqual({ analyticValueId: "QW5hbHl0aWNWYWx1ZTox", displayName: "District Hospital" });
+    expect(entry.lines[0].partyTag).toEqual({
+      analyticValueId: "QW5hbHl0aWNWYWx1ZTox",
+      displayName: "District Hospital",
+    });
     expect(entry.lines[0].funderTag).toEqual({ analyticValueId: "QW5hbHl0aWNWYWx1ZToy", displayName: "GIZ" });
     expect(entry.totals).toEqual({ debit: 100, credit: 0, balance: 100 });
-  });
-
-  it("reports the entry-level party/funder on every leg of the expandable detail", () => {
-    const action = {
-      type: `${ACTION_TYPE.LEDGER_ENTRIES}_RESP`,
-      payload: {
-        data: {
-          ledgerEntries: {
-            totalCount: 1,
-            pageInfo: {},
-            edges: [
-              {
-                node: {
-                  id: "TGVkZ2VyRW50cnk6Mw==",
-                  party: { id: "QW5hbHl0aWNWYWx1ZTox", displayName: "District Hospital" },
-                  funder: { id: "QW5hbHl0aWNWYWx1ZToy", displayName: "GIZ" },
-                  transaction: {
-                    balance: "FCFA0",
-                    legs: {
-                      edges: [
-                        {
-                          node: {
-                            id: "TGVnOjQ=",
-                            account: { id: "QWNjb3VudDox", code: "4010", name: "Debit" },
-                            debit: "1000.00",
-                            credit: "0",
-                          },
-                        },
-                        {
-                          node: {
-                            id: "TGVnOjU=",
-                            account: { id: "QWNjb3VudDoy", code: "5120", name: "Cash" },
-                            debit: "0",
-                            credit: "1000.00",
-                          },
-                        },
-                      ],
-                    },
-                  },
-                },
-              },
-            ],
-          },
-        },
-      },
-    };
-    const state = reducer(initialState, action);
-    const entry = state.ledgerEntries.items[0];
-    expect(entry.lines.map((line) => line.account)).toEqual([
-      { id: "QWNjb3VudDox", code: "4010", name: "Debit" },
-      { id: "QWNjb3VudDoy", code: "5120", name: "Cash" },
-    ]);
-    expect(entry.lines.map((line) => line.partyTag)).toEqual([
-      { analyticValueId: "QW5hbHl0aWNWYWx1ZTox", displayName: "District Hospital" },
-      { analyticValueId: "QW5hbHl0aWNWYWx1ZTox", displayName: "District Hospital" },
-    ]);
-    expect(entry.lines.map((line) => line.funderTag)).toEqual([
-      { analyticValueId: "QW5hbHl0aWNWYWx1ZToy", displayName: "GIZ" },
-      { analyticValueId: "QW5hbHl0aWNWYWx1ZToy", displayName: "GIZ" },
-    ]);
   });
 
   it("handles LEDGER_LEDGER_ENTRIES_ERR", () => {
     const action = {
       type: `${ACTION_TYPE.LEDGER_ENTRIES}_ERR`,
-      payload: { message: "Network error" }
+      payload: { message: "Network error" },
     };
     const state = reducer(initialState, action);
     expect(state.ledgerEntries.isFetching).toBe(false);
@@ -282,7 +225,15 @@ describe("Reducer", () => {
         data: {
           analyticValue: {
             edges: [
-              { node: { id: "QW5hbHl0aWNWYWx1ZTox", displayName: "Party A", partyType: "health_facility", funderCode: null, externalReference: "HF-1" } },
+              {
+                node: {
+                  id: "QW5hbHl0aWNWYWx1ZTox",
+                  displayName: "Party A",
+                  partyType: "health_facility",
+                  funderCode: null,
+                  externalReference: "HF-1",
+                },
+              },
             ],
           },
         },
@@ -300,7 +251,7 @@ describe("Reducer", () => {
   it("handles LEDGER_PARTY_SEARCH_ERR", () => {
     const action = {
       type: `${ACTION_TYPE.PARTY_SEARCH}_ERR`,
-      payload: { message: "Search failed" }
+      payload: { message: "Search failed" },
     };
     const state = reducer(initialState, action);
     expect(state.partySearch.isFetching).toBe(false);
@@ -317,12 +268,10 @@ describe("Reducer", () => {
             debitTotal: 1000,
             creditTotal: 500,
             balance: 500,
-            transactions: [
-              { id: "1", journal: { code: "BANK" }, lines: [{ debit: 1000, credit: 0 }] }
-            ]
-          }
-        }
-      }
+            transactions: [{ id: "1", journal: { code: "BANK" }, lines: [{ debit: 1000, credit: 0 }] }],
+          },
+        },
+      },
     };
     const state = reducer(initialState, action);
     expect(state.partyLedgerBalance.isFetching).toBe(false);
@@ -334,7 +283,7 @@ describe("Reducer", () => {
   it("handles LEDGER_PARTY_LEDGER_BALANCE_ERR", () => {
     const action = {
       type: `${ACTION_TYPE.PARTY_LEDGER_BALANCE}_ERR`,
-      payload: { message: "Balance failed" }
+      payload: { message: "Balance failed" },
     };
     const state = reducer(initialState, action);
     expect(state.partyLedgerBalance.isFetching).toBe(false);
@@ -357,7 +306,15 @@ describe("Reducer", () => {
         data: {
           analyticValue: {
             edges: [
-              { node: { id: "QW5hbHl0aWNWYWx1ZToy", displayName: "Funder A", partyType: null, funderCode: "GIZ", externalReference: "GIZ" } },
+              {
+                node: {
+                  id: "QW5hbHl0aWNWYWx1ZToy",
+                  displayName: "Funder A",
+                  partyType: null,
+                  funderCode: "GIZ",
+                  externalReference: "GIZ",
+                },
+              },
             ],
           },
         },
@@ -380,10 +337,10 @@ describe("Reducer", () => {
             analyticValueId: "1",
             debitTotal: 2000,
             creditTotal: 1000,
-            balance: 1000
-          }
-        }
-      }
+            balance: 1000,
+          },
+        },
+      },
     };
     const state = reducer(initialState, action);
     expect(state.funderActivityReport.isFetching).toBe(false);
@@ -402,7 +359,7 @@ describe("Reducer", () => {
   it("handles LEDGER_FUNDER_SEARCH_ERR", () => {
     const action = {
       type: `${ACTION_TYPE.FUNDER_SEARCH}_ERR`,
-      payload: { message: "Search failed" }
+      payload: { message: "Search failed" },
     };
     const state = reducer(initialState, action);
     expect(state.funderSearch.isFetching).toBe(false);
@@ -420,7 +377,7 @@ describe("Reducer", () => {
   it("handles LEDGER_FUNDER_ACTIVITY_REPORT_ERR", () => {
     const action = {
       type: `${ACTION_TYPE.FUNDER_ACTIVITY_REPORT}_ERR`,
-      payload: { message: "Report failed" }
+      payload: { message: "Report failed" },
     };
     const state = reducer(initialState, action);
     expect(state.funderActivityReport.isFetching).toBe(false);
@@ -440,11 +397,16 @@ describe("Reducer", () => {
       payload: {
         data: {
           openAccountingPeriod: {
-            accountingPeriod: { id: "QWNjb3VudGluZ1BlcmlvZDox", startDate: "2026-08-01", endDate: "2026-08-31", status: "open" },
-            errors: []
-          }
-        }
-      }
+            accountingPeriod: {
+              id: "QWNjb3VudGluZ1BlcmlvZDox",
+              startDate: "2026-08-01",
+              endDate: "2026-08-31",
+              status: "open",
+            },
+            errors: [],
+          },
+        },
+      },
     };
     const state = reducer(initialState, action);
     expect(state.periodMutation.submitting).toBe(false);
@@ -455,7 +417,7 @@ describe("Reducer", () => {
   it("handles LEDGER_OPEN_ACCOUNTING_PERIOD_ERR with a string error message", () => {
     const action = {
       type: `${ACTION_TYPE.OPEN_ACCOUNTING_PERIOD}_ERR`,
-      payload: { message: "Network error" }
+      payload: { message: "Network error" },
     };
     const state = reducer(initialState, action);
     expect(state.periodMutation.submitting).toBe(false);
@@ -469,10 +431,10 @@ describe("Reducer", () => {
       payload: {
         data: {
           openAccountingPeriod: {
-            errors: [{ field: "startDate", message: "Invalid date" }]
-          }
-        }
-      }
+            errors: [{ field: "startDate", message: "Invalid date" }],
+          },
+        },
+      },
     };
     const state = reducer(initialState, action);
     expect(state.periodMutation.submitting).toBe(false);
@@ -485,11 +447,9 @@ describe("Reducer", () => {
       type: `${ACTION_TYPE.MANUAL_REVIEW_QUEUE}_RESP`,
       payload: {
         data: {
-          manualReviewQueue: [
-            { id: "QWNjb3VudGluZ1BlcmlvZDox", status: "pending" }
-          ]
-        }
-      }
+          manualReviewQueue: [{ id: "QWNjb3VudGluZ1BlcmlvZDox", status: "pending" }],
+        },
+      },
     };
     const state = reducer(initialState, action);
     expect(state.manualReviewQueue.isFetching).toBe(false);
@@ -503,8 +463,8 @@ describe("Reducer", () => {
       ...initialState,
       manualReviewQueue: {
         ...initialState.manualReviewQueue,
-        items: [{ id: "1", status: "pending" }]
-      }
+        items: [{ id: "1", status: "pending" }],
+      },
     };
     const action = {
       type: `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_RESP`,
@@ -515,12 +475,12 @@ describe("Reducer", () => {
               id: "1",
               status: "resolved",
               resolvedAt: "2026-07-31",
-              resolutionNote: "Corrected"
+              resolutionNote: "Corrected",
             },
-            errors: []
-          }
-        }
-      }
+            errors: [],
+          },
+        },
+      },
     };
     const state = reducer(initialStateWithItem, action);
     expect(state.reviewResolution.submitting).toBe(false);
@@ -554,10 +514,10 @@ describe("Reducer", () => {
       payload: {
         data: {
           exportAccountingPeriod: {
-            exportJob: { accountingPeriodId: "1", format: "CSV", status: "in_progress" }
-          }
-        }
-      }
+            exportJob: { accountingPeriodId: "1", format: "CSV", status: "in_progress" },
+          },
+        },
+      },
     };
     const state = reducer(initialState, action);
     expect(state.exportJobs.byPeriodId["1"]).toBeDefined();
@@ -569,9 +529,14 @@ describe("Reducer", () => {
       type: `${ACTION_TYPE.EXPORT_SEQUENCES}_RESP`,
       payload: {
         data: {
-          exportSequences: { accountingPeriodId: "1", format: "CSV", status: "complete", downloadUrl: "http://example.com/export.csv" }
-        }
-      }
+          exportSequences: {
+            accountingPeriodId: "1",
+            format: "CSV",
+            status: "complete",
+            downloadUrl: "http://example.com/export.csv",
+          },
+        },
+      },
     };
     const state = reducer(initialState, action);
     expect(state.exportJobs.byPeriodId["1"]).toBeDefined();
@@ -756,6 +721,193 @@ describe("Reducer", () => {
     const state = reducer(initialState, action);
     expect(state.deploymentConfiguration.submitting).toBe(false);
     expect(state.deploymentConfiguration.error).toBe("retained earnings account type should not be income / expense");
+  });
+
+  it("handles LEDGER_ACCOUNTS_REQ", () => {
+    const action = { type: `${ACTION_TYPE.ACCOUNTS}_REQ` };
+    const state = reducer(initialState, action);
+    expect(state.accounts.isFetching).toBe(true);
+    expect(state.accounts.isFetched).toBe(false);
+  });
+
+  it("handles LEDGER_ACCOUNTS_RESP with the page info and parsed currencies", () => {
+    const action = {
+      type: `${ACTION_TYPE.ACCOUNTS}_RESP`,
+      payload: {
+        data: {
+          accounts: {
+            totalCount: 12,
+            pageInfo: {
+              hasNextPage: true,
+              hasPreviousPage: false,
+              startCursor: "cursor-1",
+              endCursor: "cursor-2",
+            },
+            edges: [
+              {
+                node: {
+                  id: btoa("AccountType:uuid-1"),
+                  uuid: "uuid-1",
+                  name: "Reserves",
+                  code: "1200",
+                  fullCode: "1200",
+                  type: "EQ",
+                  isBankAccount: false,
+                  currencies: '["XAF","EUR"]',
+                  level: 1,
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+    const state = reducer(initialState, action);
+    expect(state.accounts.isFetching).toBe(false);
+    expect(state.accounts.isFetched).toBe(true);
+    expect(state.accounts.error).toBe(null);
+    expect(state.accounts.items).toHaveLength(1);
+    expect(state.accounts.items[0]).toMatchObject({
+      id: "uuid-1",
+      uuid: "uuid-1",
+      code: "1200",
+      type: "EQ",
+      currencies: ["XAF", "EUR"],
+    });
+    expect(state.accounts.pageInfo).toEqual({
+      totalCount: 12,
+      hasNextPage: true,
+      hasPreviousPage: false,
+      startCursor: "cursor-1",
+      endCursor: "cursor-2",
+    });
+  });
+
+  it("handles LEDGER_ACCOUNTS_ERR", () => {
+    const action = { type: `${ACTION_TYPE.ACCOUNTS}_ERR`, payload: { message: "Network error" } };
+    const state = reducer(initialState, action);
+    expect(state.accounts.isFetching).toBe(false);
+    expect(state.accounts.error).toBe("Network error");
+  });
+
+  it("handles LEDGER_CREATE_ACCOUNT_REQ", () => {
+    const action = { type: `${ACTION_TYPE.CREATE_ACCOUNT}_REQ` };
+    const state = reducer(initialState, action);
+    expect(state.accountMutation.submitting).toBe(true);
+    expect(state.accountMutation.error).toBe(null);
+  });
+
+  it("handles LEDGER_CREATE_ACCOUNT_RESP by stamping the mutation time", () => {
+    const action = {
+      type: `${ACTION_TYPE.CREATE_ACCOUNT}_RESP`,
+      payload: { data: { createAccount: { internalId: "1", clientMutationId: "cid" } } },
+    };
+    const state = reducer(initialState, action);
+    expect(state.accountMutation.submitting).toBe(false);
+    expect(state.accountMutation.error).toBe(null);
+    expect(state.accountMutation.lastMutationAt).toEqual(expect.any(Number));
+  });
+
+  it("handles LEDGER_CREATE_ACCOUNT_RESP backend errors", () => {
+    const action = {
+      type: `${ACTION_TYPE.CREATE_ACCOUNT}_RESP`,
+      payload: {
+        data: {
+          createAccount: { internalId: null, errors: [{ field: "code", message: "The code is already used" }] },
+        },
+      },
+    };
+    const state = reducer(initialState, action);
+    expect(state.accountMutation.submitting).toBe(false);
+    expect(state.accountMutation.error).toBe("The code is already used");
+    expect(state.accountMutation.lastMutationAt).toBe(null);
+  });
+
+  it("handles LEDGER_CREATE_ACCOUNT_ERR", () => {
+    const action = { type: `${ACTION_TYPE.CREATE_ACCOUNT}_ERR`, payload: { message: "Network error" } };
+    const state = reducer(initialState, action);
+    expect(state.accountMutation.submitting).toBe(false);
+    expect(state.accountMutation.error).toBe("Network error");
+  });
+
+  it("stores the journalize metadata of a pending account mutation", () => {
+    const requestedAt = new Date("2026-09-16T12:00:00.000Z");
+    const requested = reducer(initialState, {
+      type: `${ACTION_TYPE.CREATE_ACCOUNT}_REQ`,
+      meta: { clientMutationId: "cid-1", clientMutationLabel: "Create account", requestedDateTime: requestedAt },
+    });
+
+    expect(requested.accountMutation.mutation).toEqual({
+      clientMutationId: "cid-1",
+      clientMutationLabel: "Create account",
+      requestedDateTime: requestedAt.toISOString(),
+      id: "cid-1",
+    });
+
+    const succeeded = reducer(requested, {
+      type: `${ACTION_TYPE.CREATE_ACCOUNT}_RESP`,
+      payload: { data: { createAccount: { internalId: "internal-1" } } },
+    });
+    expect(succeeded.accountMutation.mutation.id).toBe("internal-1");
+  });
+
+  it("handles LEDGER_UPDATE_ACCOUNT_REQ/RESP", () => {
+    const requested = reducer(initialState, { type: `${ACTION_TYPE.UPDATE_ACCOUNT}_REQ` });
+    expect(requested.accountMutation.submitting).toBe(true);
+
+    const state = reducer(initialState, {
+      type: `${ACTION_TYPE.UPDATE_ACCOUNT}_RESP`,
+      payload: { data: { updateAccount: { internalId: "1", clientMutationId: "cid" } } },
+    });
+    expect(state.accountMutation.submitting).toBe(false);
+    expect(state.accountMutation.error).toBe(null);
+    expect(state.accountMutation.lastMutationAt).toEqual(expect.any(Number));
+  });
+
+  it("handles LEDGER_UPDATE_ACCOUNT_RESP backend errors", () => {
+    const state = reducer(initialState, {
+      type: `${ACTION_TYPE.UPDATE_ACCOUNT}_RESP`,
+      payload: {
+        data: {
+          updateAccount: { internalId: null, errors: [{ field: "code", message: "The code is already used" }] },
+        },
+      },
+    });
+    expect(state.accountMutation.submitting).toBe(false);
+    expect(state.accountMutation.error).toBe("The code is already used");
+    expect(state.accountMutation.lastMutationAt).toBe(null);
+  });
+
+  it("handles LEDGER_DELETE_ACCOUNT_REQ/RESP/ERR", () => {
+    const requested = reducer(initialState, { type: `${ACTION_TYPE.DELETE_ACCOUNT}_REQ` });
+    expect(requested.accountMutation.submitting).toBe(true);
+
+    const succeeded = reducer(initialState, {
+      type: `${ACTION_TYPE.DELETE_ACCOUNT}_RESP`,
+      payload: { data: { deleteAccount: { internalId: "1", clientMutationId: "cid" } } },
+    });
+    expect(succeeded.accountMutation.error).toBe(null);
+    expect(succeeded.accountMutation.lastMutationAt).toEqual(expect.any(Number));
+
+    const failed = reducer(initialState, {
+      type: `${ACTION_TYPE.DELETE_ACCOUNT}_RESP`,
+      payload: {
+        data: {
+          deleteAccount: {
+            internalId: null,
+            errors: [{ field: "accountUuid", message: "Account is used by 12 legs" }],
+          },
+        },
+      },
+    });
+    expect(failed.accountMutation.error).toBe("Account is used by 12 legs");
+    expect(failed.accountMutation.lastMutationAt).toBe(null);
+
+    const networkError = reducer(initialState, {
+      type: `${ACTION_TYPE.DELETE_ACCOUNT}_ERR`,
+      payload: { message: "Network error" },
+    });
+    expect(networkError.accountMutation.error).toBe("Network error");
   });
 
   it("handles LEDGER_CREATE_DEPLOYMENT_CONFIGURATION_ERR", () => {

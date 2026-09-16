@@ -8,6 +8,7 @@ const ROUTES = {
   ROUTE_ACCOUNTING_PERIODS: "/accounting-periods",
   ROUTE_MANUAL_REVIEW_QUEUE: "/manual-review-queue",
   ROUTE_PERIOD_EXPORT: "/period-export",
+  ROUTE_ACCOUNTS: "/accounts",
   ROUTE_DEPLOYMENT_CONFIGURATION: "/deployment-configuration",
 };
 
@@ -30,6 +31,7 @@ describe("LedgerMainMenu", () => {
         { text: "ledger.menu.accountingPeriods", route: "/accounting-periods" },
         { text: "ledger.menu.manualReviewQueue", route: "/manual-review-queue" },
         { text: "ledger.menu.periodExport", route: "/period-export" },
+        { text: "ledger.menu.accounts", route: "/accounts" },
         { text: "ledger.menu.deploymentConfiguration", route: "/deployment-configuration" },
       ],
     });
@@ -43,6 +45,7 @@ describe("LedgerMainMenu", () => {
       ROUTE_ACCOUNTING_PERIODS: "/custom-accounting-periods",
       ROUTE_MANUAL_REVIEW_QUEUE: "/custom-manual-review-queue",
       ROUTE_PERIOD_EXPORT: "/custom-period-export",
+      ROUTE_ACCOUNTS: "/custom-accounts",
       ROUTE_DEPLOYMENT_CONFIGURATION: "/custom-deployment-configuration",
     };
 
@@ -54,13 +57,14 @@ describe("LedgerMainMenu", () => {
     expect(entry.children[3].route).toBe("/custom-accounting-periods");
     expect(entry.children[4].route).toBe("/custom-manual-review-queue");
     expect(entry.children[5].route).toBe("/custom-period-export");
-    expect(entry.children[6].route).toBe("/custom-deployment-configuration");
+    expect(entry.children[6].route).toBe("/custom-accounts");
+    expect(entry.children[7].route).toBe("/custom-deployment-configuration");
   });
 
   it("each child has text and route properties", () => {
     const entry = buildLedgerSubMenuEntry(ROUTES);
 
-    expect(entry.children).toHaveLength(7);
+    expect(entry.children).toHaveLength(8);
     entry.children.forEach((child) => {
       expect(typeof child.text).toBe("string");
       expect(typeof child.route).toBe("string");

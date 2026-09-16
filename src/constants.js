@@ -100,6 +100,11 @@ export const ACCOUNT_TYPE = {
   TRADING: "TR",
 };
 
+// hordak's Account.code is a CharField(max_length=6) and the database rejects
+// anything longer (the mutation wrapper swallows the resulting database error),
+// so the form caps the input instead of failing silently.
+export const ACCOUNT_CODE_MAX_LENGTH = 6;
+
 // Deployment configuration is validated server-side: the retained earnings
 // account must not be an income or expense account.
 export const RETAINED_EARNINGS_EXCLUDED_ACCOUNT_TYPES = [ACCOUNT_TYPE.INCOME, ACCOUNT_TYPE.EXPENSE];

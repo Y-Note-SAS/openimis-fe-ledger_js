@@ -1,6 +1,7 @@
 import { graphql, graphqlWithVariables, decodeId, formatMutation } from "@openimis/fe-core";
 import { ACTION_TYPE } from "./reducer";
 import { EXPORT_JOB_POLL_INTERVAL_MS, MOCK_EXPORT_POLL_INTERVAL_MS } from "./constants";
+import { formatCurrenciesGQLValue } from "./utils/currencies";
 
 // GraphQL operation strings target the REAL openimis-be-ledger_py schema:
 // snake_case root fields, Relay connections, graphene-django camelCased root
@@ -8,10 +9,9 @@ import { EXPORT_JOB_POLL_INTERVAL_MS, MOCK_EXPORT_POLL_INTERVAL_MS } from "./con
 // resolver args (party/funder). LedgerEntryGQLType exposes the whole
 // transaction, so the entry legs (debit/credit/account) are fetched with the
 // list: they feed both the debit/credit/balance columns and the expanded row
-// detail (there is no separate detail query). The entry-level `party`/`funder`
-// analytic values it exposes feed those expanded rows. The legacy design
-// contract in contracts/graphql-operations.md described the pre-stub schema and
-// is no longer the source of truth for these operations.
+// detail (there is no separate detail query). The legacy design contract in
+// contracts/graphql-operations.md described the pre-stub schema and is no
+// longer the source of truth for these operations.
 
 const LEDGER_ENTRIES_QUERY = `
   query LedgerEntries(
@@ -28,8 +28,6 @@ const LEDGER_ENTRIES_QUERY = `
       edges {
         node {
           id
-          party { id displayName }
-          funder { id displayName }
           transaction {
             balance
             legs {
@@ -38,7 +36,7 @@ const LEDGER_ENTRIES_QUERY = `
                   id
                   debit
                   credit
-                  account { id name code }
+                  account { code name }
                 }
               }
             }
@@ -236,6 +234,27 @@ const LEDGER_DEPLOYMENT_CONFIGURATION_QUERY = `
           id operatingMode externalSystem currencyCode
           retainedEarningsAccount { id uuid code name }
         }
+      }
+    }
+  }
+`;
+
+// Chart-of-accounts management list (ticket 37991). Every filter is an exact
+// match on the backend (`code`, `fullCode`, `type`, `isBankAccount`) and the
+// connection has no `orderBy`, so the list is paginated but not sortable.
+const ACCOUNTS_QUERY = `
+  query Accounts(
+    $first: Int, $after: String, $before: String, $last: Int,
+    $code: String, $fullCode: String, $type: AccountType, $isBankAccount: Boolean
+  ) {
+    accounts(
+      first: $first, after: $after, before: $before, last: $last,
+      code: $code, fullCode: $fullCode, type: $type, isBankAccount: $isBankAccount
+    ) {
+      totalCount
+      pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
+      edges {
+        node { id uuid name code fullCode type isBankAccount currencies level }
       }
     }
   }
@@ -1315,6 +1334,113 @@ export function createDeploymentConfiguration({
         currencyCode,
         retainedEarningsAccount: retainedEarningsAccount ?? null,
       },
+    },
+  );
+}
+/** Ticket 37991 — paginated chart of accounts for the accounts page. */
+export function fetchAccounts(filters = {}, pageInfo = {}) {
+  const variables = {
+    first: pageInfo.first ?? null,
+    after: pageInfo.after ?? null,
+    before: pageInfo.before ?? null,
+    last: pageInfo.last ?? null,
+    code: filters.code ?? null,
+    fullCode: filters.fullCode ?? null,
+    type: filters.type ?? null,
+    isBankAccount: filters.isBankAccount ?? null,
+  };
+  return graphqlWithVariables(ACCOUNTS_QUERY, variables, [
+    `${ACTION_TYPE.ACCOUNTS}_REQ`,
+    `${ACTION_TYPE.ACCOUNTS}_RESP`,
+    `${ACTION_TYPE.ACCOUNTS}_ERR`,
+  ]);
+}
+
+/**
+ * Ticket 37991 — update a ledger account. Same input as the creation plus the
+ * `accountUuid` of the account to update (backend UpdateAccountInputType).
+ */
+export function updateAccount({
+  accountUuid,
+  name,
+  code,
+  fullCode,
+  type,
+  isBankAccount,
+  currencies,
+  clientMutationLabel,
+}) {
+  const input = [
+    `accountUuid: ${JSON.stringify(accountUuid)}`,
+    `name: ${JSON.stringify(name)}`,
+    `code: ${JSON.stringify(code)}`,
+    `fullCode: ${JSON.stringify(fullCode)}`,
+    `type: ${JSON.stringify(type)}`,
+    `isBankAccount: ${isBankAccount ? "true" : "false"}`,
+    `currencies: ${formatCurrenciesGQLValue(currencies)}`,
+  ].join(",\n          ");
+  const mutation = formatMutation("updateAccount", input, clientMutationLabel);
+  return graphql(
+    mutation.payload,
+    [
+      `${ACTION_TYPE.UPDATE_ACCOUNT}_REQ`,
+      `${ACTION_TYPE.UPDATE_ACCOUNT}_RESP`,
+      `${ACTION_TYPE.UPDATE_ACCOUNT}_ERR`,
+    ],
+    {
+      clientMutationId: mutation.clientMutationId,
+      clientMutationLabel,
+      requestedDateTime: new Date(),
+    },
+  );
+}
+
+/**
+ * Ticket 37991 — delete a ledger account: the input is the account uuid only
+ * (same naming pattern as updateAccount). The backend owns the rules (an
+ * account still used by entries may be refused) and its message is surfaced
+ * verbatim.
+ */
+export function deleteAccount({ accountUuid, clientMutationLabel }) {
+  const mutation = formatMutation("deleteAccount", `accountUuid: ${JSON.stringify(accountUuid)}`, clientMutationLabel);
+  return graphql(
+    mutation.payload,
+    [
+      `${ACTION_TYPE.DELETE_ACCOUNT}_REQ`,
+      `${ACTION_TYPE.DELETE_ACCOUNT}_RESP`,
+      `${ACTION_TYPE.DELETE_ACCOUNT}_ERR`,
+    ],
+    {
+      clientMutationId: mutation.clientMutationId,
+      clientMutationLabel,
+      requestedDateTime: new Date(),
+    },
+  );
+}
+
+/**
+ * Ticket 37991 — create a ledger account. `currencies` travels as a GraphQL
+ * `JSONString` (the backend parses it into the hordak JSON field), and the
+ * response carries the mutation ids only, so callers refresh the list
+ * afterwards.
+ */
+export function createAccount({ name, code, fullCode, type, isBankAccount, currencies, clientMutationLabel }) {
+  const input = [
+    `name: ${JSON.stringify(name)}`,
+    `code: ${JSON.stringify(code)}`,
+    `fullCode: ${JSON.stringify(fullCode)}`,
+    `type: ${JSON.stringify(type)}`,
+    `isBankAccount: ${isBankAccount ? "true" : "false"}`,
+    `currencies: ${formatCurrenciesGQLValue(currencies)}`,
+  ].join(",\n          ");
+  const mutation = formatMutation("createAccount", input, clientMutationLabel);
+  return graphql(
+    mutation.payload,
+    [`${ACTION_TYPE.CREATE_ACCOUNT}_REQ`, `${ACTION_TYPE.CREATE_ACCOUNT}_RESP`, `${ACTION_TYPE.CREATE_ACCOUNT}_ERR`],
+    {
+      clientMutationId: mutation.clientMutationId,
+      clientMutationLabel,
+      requestedDateTime: new Date(),
     },
   );
 }
