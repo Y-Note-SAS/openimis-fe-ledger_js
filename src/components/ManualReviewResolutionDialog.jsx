@@ -94,7 +94,7 @@ const ManualReviewResolutionDialog = ({
           {item.rejectionReason}
         </Alert>
 
-        {item.status === MANUAL_REVIEW_STATUS.RESOLVED ? (
+        {item.status && item.status !== MANUAL_REVIEW_STATUS.PENDING ? (
           <>
             <Typography variant="body2">
               {formatMessage(intl, "ledger", "ledger.reviewQueue.dialog.resolvedEntry")}: {item.correctingEntryId || "—"}
