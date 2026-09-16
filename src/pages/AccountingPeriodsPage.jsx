@@ -25,6 +25,7 @@ import {
   journalize,
   withModulesManager,
   formatMessage,
+  formatMessageWithValues,
 } from "@openimis/fe-core";
 import AccountingPeriodStatusBadge from "../components/AccountingPeriodStatusBadge";
 import { availableActionsForPeriod } from "../utils/periodActions";
@@ -233,7 +234,11 @@ const AccountingPeriodsPage = ({
             <StyledPaper className="paper">
               <Grid container alignItems="center" direction="row" className="paperHeader">
                 <Grid className="paperHeaderTitle">
-                  <Typography>{formatMessage(intl, "ledger", "ledger.periods.pageTitle")}</Typography>
+                  <Typography>
+                    {formatMessageWithValues(intl, "ledger", "ledger.periods.tableTitle", {
+                      count: visiblePeriods.length,
+                    })}
+                  </Typography>
                 </Grid>
                 <Grid>
                   <Select

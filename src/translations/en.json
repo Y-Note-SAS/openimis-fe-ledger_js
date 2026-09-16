@@ -124,7 +124,8 @@
         "status": "Status",
         "all": "All",
         "noResults": "No periods match the selected status."
-      }
+      },
+      "tableTitle": "Accounting Periods ({count})"
     },
     "reviewQueue": {
       "pageTitle": "Replication Review Queue",
