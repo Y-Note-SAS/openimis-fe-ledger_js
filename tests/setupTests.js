@@ -25,10 +25,15 @@ vi.mock("@mui/material/styles", () => ({
 
 vi.mock("@mui/material", () => ({
   Typography: ({ children }) => React.createElement("span", null, children),
-  Button: ({ children, onClick, disabled, type, component, href, download }) =>
+  Button: ({ children, onClick, disabled, type, component, href, download, className, startIcon, variant, color, size, ...props }) =>
     component === "a"
-      ? React.createElement("a", { href, download, onClick }, children)
-      : React.createElement("button", { type: type ?? "button", onClick, disabled }, children),
+      ? React.createElement("a", { href, download, onClick, className, ...props }, children)
+      : React.createElement(
+          "button",
+          { type: type ?? "button", onClick, disabled, className, ...props },
+          startIcon ?? null,
+          children,
+        ),
   MenuItem: ({ value, children }) => React.createElement("option", { value: value ?? "" }, children),
   Select: ({ value, children, onChange, inputProps = {} }) => {
     const options = React.Children.toArray(children);
@@ -49,6 +54,13 @@ vi.mock("@mui/material", () => ({
     );
   },
   Chip: ({ label }) => React.createElement("span", null, label),
+  IconButton: ({ children, onClick, disabled, "aria-label": ariaLabel, size, href, ...props }) =>
+    React.createElement(
+      href ? "a" : "button",
+      { type: href ? undefined : "button", href, onClick, disabled, "aria-label": ariaLabel, ...props },
+      children,
+    ),
+  Tooltip: ({ children, title }) => React.createElement("span", { "data-tooltip": title }, children),
   Grid: ({ children }) => React.createElement("div", null, children),
   Autocomplete: ({
     options = [],
@@ -109,8 +121,19 @@ vi.mock("@mui/material", () => ({
     select
       ? React.createElement("select", { "aria-label": label, ...inputProps, ...props }, children)
       : React.createElement("input", { "aria-label": label, ...inputProps, ...props }),
-  Stack: ({ children, role, "aria-live": ariaLive, spacing, direction, alignItems, justifyContent, divider, useFlexGap, flexWrap, ...props }) =>
-    React.createElement("div", { role, "aria-live": ariaLive, ...props }, children),
+  Stack: ({
+    children,
+    role,
+    "aria-live": ariaLive,
+    spacing,
+    direction,
+    alignItems,
+    justifyContent,
+    divider,
+    useFlexGap,
+    flexWrap,
+    ...props
+  }) => React.createElement("div", { role, "aria-live": ariaLive, ...props }, children),
   Paper: ({ children }) => React.createElement("div", null, children),
   Box: ({ children }) => React.createElement("div", null, children),
   Alert: ({ children }) => React.createElement("div", null, children),
@@ -121,7 +144,7 @@ vi.mock("@mui/material", () => ({
   TableRow: ({ children }) => React.createElement("tr", null, children),
   TableCell: ({ children }) => React.createElement("td", null, children),
   Dialog: ({ children, open }) => (open ? React.createElement("div", { role: "dialog" }, children) : null),
-  DialogTitle: ({ children }) => React.createElement("h2", null, children),
+  DialogTitle: ({ children, ...props }) => React.createElement("h2", props, children),
   DialogContent: ({ children }) => React.createElement("div", null, children),
   DialogActions: ({ children }) => React.createElement("div", null, children),
   FormControl: ({ children }) => React.createElement("div", null, children),

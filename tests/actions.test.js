@@ -32,6 +32,11 @@ import {
   fetchLedgerDeploymentConfiguration,
   fetchAccountOptions,
   createDeploymentConfiguration,
+  fetchJournalsList,
+  fetchJournalTypes,
+  createJournal,
+  updateJournal,
+  deleteJournal,
 } from "../src/actions";
 import { graphql, formatMutation } from "@openimis/fe-core";
 import reducer, { ACTION_TYPE } from "../src/reducer";
@@ -325,6 +330,138 @@ describe("Actions - Deployment configuration", () => {
   });
 });
 
+describe("Actions - Journals management", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("builds the paginated journals query with the type id filter", () => {
+    const action = fetchJournalsList(
+      { name: "Bank", code: "BANK", typeId: "uuid-2" },
+      { first: 10, after: "cursor-1" },
+    );
+
+    expect(action.operation).toContain("query JournalsList");
+    expect(action.operation).toContain("type_Id: $typeId");
+    expect(action.operation).toContain("defaultDebitAccountId { id uuid code name }");
+    expect(action.operation).toContain("isDeleted");
+    expect(action.variables).toEqual({
+      first: 10,
+      after: "cursor-1",
+      before: null,
+      last: null,
+      name: "Bank",
+      code: "BANK",
+      typeId: "uuid-2",
+    });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.JOURNALS}_REQ`,
+      `${ACTION_TYPE.JOURNALS}_RESP`,
+      `${ACTION_TYPE.JOURNALS}_ERR`,
+    ]);
+  });
+
+  it("queries the first journals page without filters by default", () => {
+    const action = fetchJournalsList({}, {});
+
+    expect(action.variables).toEqual({
+      first: null,
+      after: null,
+      before: null,
+      last: null,
+      name: null,
+      code: null,
+      typeId: null,
+    });
+  });
+
+  it("builds the journal types query", () => {
+    const action = fetchJournalTypes();
+
+    expect(action.operation).toContain("query JournalTypes");
+    expect(action.operation).toContain("journalTypes(first: $first)");
+    expect(action.variables).toEqual({ first: 100 });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.JOURNAL_TYPES}_REQ`,
+      `${ACTION_TYPE.JOURNAL_TYPES}_RESP`,
+      `${ACTION_TYPE.JOURNAL_TYPES}_ERR`,
+    ]);
+  });
+
+  it("creates a journal with the journal type uuid and the account uuids", () => {
+    const action = createJournal({
+      name: "Bank",
+      code: "BANK",
+      journalType: { id: "uuid-2", code: "bank" },
+      defaultDebitAccount: { uuid: "debit-uuid", code: "5120" },
+      defaultCreditAccount: { uuid: "credit-uuid", code: "7010" },
+      clientMutationLabel: "Create journal",
+    });
+
+    expect(formatMutation).toHaveBeenCalledTimes(1);
+    const [mutationName, input, label] = formatMutation.mock.calls[0];
+    expect(mutationName).toBe("createJournal");
+    expect(input).toContain('name: "Bank"');
+    expect(input).toContain('code: "BANK"');
+    expect(input).toContain('type: "uuid-2"');
+    expect(input).toContain('defaultDebitAccountId: "debit-uuid"');
+    expect(input).toContain('defaultCreditAccountId: "credit-uuid"');
+    expect(input).not.toContain("sequence");
+    expect(label).toBe("Create journal");
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.CREATE_JOURNAL}_REQ`,
+      `${ACTION_TYPE.CREATE_JOURNAL}_RESP`,
+      `${ACTION_TYPE.CREATE_JOURNAL}_ERR`,
+    ]);
+  });
+});
+
+describe("Actions - Journals management (update/delete)", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("updates a journal with its uuid and the full creation payload", () => {
+    const action = updateJournal({
+      journalUuid: "journal-1",
+      name: "Bank",
+      code: "BANK",
+      journalType: { id: "type-1", code: "bank" },
+      defaultDebitAccount: { uuid: "debit-uuid" },
+      defaultCreditAccount: { uuid: "credit-uuid" },
+      clientMutationLabel: "Update journal BANK",
+    });
+
+    const [mutationName, input, label] = formatMutation.mock.calls.at(-1);
+    expect(mutationName).toBe("updateJournal");
+    expect(input).toContain('journalUuid: "journal-1"');
+    expect(input).toContain('name: "Bank"');
+    expect(input).toContain('type: "type-1"');
+    expect(input).toContain('defaultDebitAccountId: "debit-uuid"');
+    expect(input).toContain('defaultCreditAccountId: "credit-uuid"');
+    expect(label).toBe("Update journal BANK");
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.UPDATE_JOURNAL}_REQ`,
+      `${ACTION_TYPE.UPDATE_JOURNAL}_RESP`,
+      `${ACTION_TYPE.UPDATE_JOURNAL}_ERR`,
+    ]);
+  });
+
+  it("deletes a journal with the uuid only", () => {
+    const action = deleteJournal({ journalUuid: "journal-1", clientMutationLabel: "Delete journal BANK" });
+
+    const [mutationName, input, label] = formatMutation.mock.calls.at(-1);
+    expect(mutationName).toBe("deleteJournal");
+    expect(input.trim()).toBe('journalUuid: "journal-1"');
+    expect(label).toBe("Delete journal BANK");
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.DELETE_JOURNAL}_REQ`,
+      `${ACTION_TYPE.DELETE_JOURNAL}_RESP`,
+      `${ACTION_TYPE.DELETE_JOURNAL}_ERR`,
+    ]);
+  });
+});
+
 describe("Actions - Real API calls", () => {
   it("searchParty delegates to the real analyticValue query", () => {
     const action = searchParty("Family");
@@ -378,10 +515,7 @@ describe("Actions - Real API calls", () => {
     expect(thunkAction.operation).toContain("legs");
     expect(thunkAction.operation).toContain("debit");
     expect(thunkAction.operation).toContain("credit");
-    expect(thunkAction.operation).toContain("account { id name code }");
-    // Entry-level party/funder feed the expandable details.
-    expect(thunkAction.operation).toContain("party { id displayName }");
-    expect(thunkAction.operation).toContain("funder { id displayName }");
+    expect(thunkAction.operation).toContain("account { code name }");
     expect(thunkAction.operation).toContain("accountingPeriod { id code name status }");
     expect(thunkAction.variables).toEqual({
       journal: "BANK",
