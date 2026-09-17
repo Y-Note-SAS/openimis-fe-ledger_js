@@ -999,7 +999,7 @@ export function fetchLedgerEntries(filters = {}, pageInfo = {}) {
         LEDGER_ENTRIES_QUERY,
         variables,
         [`${ACTION_TYPE.LEDGER_ENTRIES}_REQ`, `${ACTION_TYPE.LEDGER_ENTRIES}_RESP`, `${ACTION_TYPE.LEDGER_ENTRIES}_ERR`],
-        { filters: resolvedFilters },
+        { filters: resolvedFilters, orderBy: pageInfo.orderBy ?? "-postedAt" },
       ),
     );
   };
@@ -1103,49 +1103,37 @@ export function openAccountingPeriod(startDate, endDate, clientMutationLabel = "
     `name: ${JSON.stringify(code)}`,
     `code: ${JSON.stringify(code)}`,
   ].join(" ");
-  return (dispatch) =>
-    dispatch(periodMutationAction("openAccountingPeriod", input, clientMutationLabel, ACTION_TYPE.OPEN_ACCOUNTING_PERIOD)).then(
-      () => dispatch(fetchAccountingPeriods()),
-    );
+  return periodMutationAction("openAccountingPeriod", input, clientMutationLabel, ACTION_TYPE.OPEN_ACCOUNTING_PERIOD);
 }
 
 /** User Story 4 — lock a period (`lockAccountingPeriod(input: { id })`). */
 export function lockAccountingPeriod(accountingPeriodId, clientMutationLabel = "Lock accounting period") {
-  return (dispatch) =>
-    dispatch(
-      periodMutationAction(
-        "lockAccountingPeriod",
-        `id: ${JSON.stringify(accountingPeriodId)}`,
-        clientMutationLabel,
-        ACTION_TYPE.LOCK_ACCOUNTING_PERIOD,
-      ),
-    ).then(() => dispatch(fetchAccountingPeriods()));
+  return periodMutationAction(
+    "lockAccountingPeriod",
+    `id: ${JSON.stringify(accountingPeriodId)}`,
+    clientMutationLabel,
+    ACTION_TYPE.LOCK_ACCOUNTING_PERIOD,
+  );
 }
 
 /** User Story 4 — close a period (`closeAccountingPeriod(input: { id })`). */
 export function closeAccountingPeriod(accountingPeriodId, clientMutationLabel = "Close accounting period") {
-  return (dispatch) =>
-    dispatch(
-      periodMutationAction(
-        "closeAccountingPeriod",
-        `id: ${JSON.stringify(accountingPeriodId)}`,
-        clientMutationLabel,
-        ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD,
-      ),
-    ).then(() => dispatch(fetchAccountingPeriods()));
+  return periodMutationAction(
+    "closeAccountingPeriod",
+    `id: ${JSON.stringify(accountingPeriodId)}`,
+    clientMutationLabel,
+    ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD,
+  );
 }
 
 /** User Story 4 — reopen a period (`reopenAccountingPeriod(input: { id })`). */
 export function reopenAccountingPeriod(accountingPeriodId, clientMutationLabel = "Reopen accounting period") {
-  return (dispatch) =>
-    dispatch(
-      periodMutationAction(
-        "reopenAccountingPeriod",
-        `id: ${JSON.stringify(accountingPeriodId)}`,
-        clientMutationLabel,
-        ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD,
-      ),
-    ).then(() => dispatch(fetchAccountingPeriods()));
+  return periodMutationAction(
+    "reopenAccountingPeriod",
+    `id: ${JSON.stringify(accountingPeriodId)}`,
+    clientMutationLabel,
+    ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD,
+  );
 }
 
 /** User Story 5 — flagged replication items awaiting manual resolution. */
@@ -1175,18 +1163,15 @@ export function resolveManualReviewItem(
     `resolutionNote: ${JSON.stringify(resolutionNote ?? "")}`,
   ].join(" ");
   const mutation = formatMutation("resolveManualReview", input, clientMutationLabel);
-  return (dispatch) =>
-    dispatch(
-      graphql(
-        mutation.payload,
-        [
-          `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_REQ`,
-          `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_RESP`,
-          `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_ERR`,
-        ],
-        { clientMutationId: mutation.clientMutationId, clientMutationLabel, requestedDateTime: new Date() },
-      ),
-    ).then(() => dispatch(fetchManualReviewQueue()));
+  return graphql(
+    mutation.payload,
+    [
+      `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_REQ`,
+      `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_RESP`,
+      `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_ERR`,
+    ],
+    { clientMutationId: mutation.clientMutationId, clientMutationLabel, requestedDateTime: new Date() },
+  );
 }
 
 /** User Story 6 — trigger an async export job; `format` is chosen per-trigger, never sourced from deployment config. */

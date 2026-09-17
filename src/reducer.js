@@ -122,6 +122,29 @@ const mapLedgerEntryLine = (line, entryTags = {}) => ({
   funderTag: line.funderTag || mapAnalyticTag(line.analyticTags, "funder") || entryTags.funderTag || null,
 });
 
+// The backend `ledgerEntries` connection exposes neither an `orderBy` argument
+// nor a default ordering (the model has no Meta.ordering), so the current page
+// is ordered client-side: newest posted first by default.
+const LEDGER_ENTRY_SORT_KEYS = {
+  journal: (entry) => entry.journal?.code || entry.journal?.name || "",
+  accountingPeriod: (entry) => entry.accountingPeriod?.code || "",
+  sourceEventType: (entry) => entry.sourceEventType || "",
+  postedAt: (entry) => entry.postedAt || "",
+};
+
+const sortLedgerEntries = (items, orderBy) => {
+  const order = orderBy || "-postedAt";
+  const descending = order.startsWith("-");
+  const field = descending ? order.slice(1) : order;
+  const keyOf = LEDGER_ENTRY_SORT_KEYS[field] || LEDGER_ENTRY_SORT_KEYS.postedAt;
+  return [...items].sort((a, b) => {
+    const ka = keyOf(a);
+    const kb = keyOf(b);
+    if (ka === kb) return 0;
+    return (ka > kb ? 1 : -1) * (descending ? -1 : 1);
+  });
+};
+
 const mapLedgerEntryNode = (node) => {
   // The backend returns the legs as a Relay connection
   // (`transaction.legs.edges[].node`); the flat `lines` array is kept as a
@@ -153,6 +176,13 @@ const mapLedgerEntryNode = (node) => {
 };
 
 const firstErrorMessage = (errors) => (errors && errors.length ? errors[0].message : null);
+
+// The backend reports a rejected mutation as a GraphQL error (HTTP 200 with an
+// `errors` array), while mock payloads/legacy backends return the messages in
+// the mutation payload itself: accept both so the page can display the
+// backend reason verbatim (FR-009).
+const mutationErrorMessage = (mutationResult, payload) =>
+  firstErrorMessage(mutationResult?.errors) ?? firstErrorMessage(payload?.errors);
 
 // The backend exposes `operatingMode`/`externalSystem` as GraphQL enum NAMES
 // (LOCAL_ONLY, ODOO, ...) on read but expects the raw stored values
@@ -208,16 +238,24 @@ const mapManualReviewItem = (node) => {
     resolvedAt: node?.resolvedAt,
     resolutionNote: node?.resolutionNote,
     correctingEntryId: node?.resolvedByTransaction?.id || null,
+    // Ids are decoded where the front-end compares them with `ledgerEntries`
+    // items (both are decoded by the reducer) and kept encoded where they are
+    // sent back to the backend as a filter/argument: `party` expects the
+    // encoded AnalyticValue id, while `accountingPeriodId` is matched against
+    // the decoded period list before being resolved to a period code.
     originalEntry: entry
       ? {
-          id: entry.id,
+          id: decodeLedgerReferenceId(entry.id),
           postedAt: entry.postedAt,
           sourceEventType: entry.sourceEventType,
           sourceEventReference: entry.sourceEventReference,
           journal: entry.journal,
-          accountingPeriod: entry.accountingPeriod,
+          accountingPeriod: entry.accountingPeriod
+            ? { ...entry.accountingPeriod, id: decodeLedgerReferenceId(entry.accountingPeriod.id) }
+            : entry.accountingPeriod,
           partyAnalyticValueId: entry.party?.id || null,
-          accountingPeriodId: entry.accountingPeriod?.id || null,
+          accountingPeriodId: decodeLedgerReferenceId(entry.accountingPeriod?.id) || null,
+          accountingPeriodCode: entry.accountingPeriod?.code || null,
         }
       : null,
   };
@@ -239,6 +277,32 @@ const mapAccountingPeriod = (period) =>
 // `accountingPeriods.items` with the mutation's returned period, or (if the
 // backend rejected the transition) leaves items untouched and surfaces
 // `errors[0].message` verbatim into `periodMutation.lastRejectionReason` (FR-009).
+// Mock payloads (and legacy backends) still return the period/errors; the real
+// backend only returns the mutation ids (the page then refetches the list), so
+// both shapes are handled.
+function applyPeriodTransitionResponse(state, mutationResult, service, action) {
+  const withMutation = dispatchMutationResp(state, service, action);
+  const rejectionReason = mutationErrorMessage(mutationResult, action.payload);
+  if (rejectionReason) {
+    return {
+      ...withMutation,
+      periodMutation: { submitting: false, error: rejectionReason, lastRejectionReason: rejectionReason },
+    };
+  }
+  if (!mutationResult?.accountingPeriod) {
+    return { ...withMutation, periodMutation: { submitting: false, error: null, lastRejectionReason: null } };
+  }
+  const updated = mapAccountingPeriod(mutationResult.accountingPeriod);
+  return {
+    ...withMutation,
+    periodMutation: { submitting: false, error: null, lastRejectionReason: null },
+    accountingPeriods: {
+      ...state.accountingPeriods,
+      items: state.accountingPeriods.items.map((p) => (p.id === updated?.id ? { ...p, ...updated } : p)),
+    },
+  };
+}
+
 function reducer(state = initialState, action) {
   switch (action.type) {
     // --- User Story 1: General Ledger Browser --------------------------
@@ -255,7 +319,10 @@ function reducer(state = initialState, action) {
       };
     case resp(ACTION_TYPE.LEDGER_ENTRIES): {
       const connection = action.payload?.data?.ledgerEntries;
-      const items = (connection?.edges || []).map((edge) => mapLedgerEntryNode(edge.node));
+      const items = sortLedgerEntries(
+        (connection?.edges || []).map((edge) => mapLedgerEntryNode(edge.node)),
+        action.meta?.orderBy,
+      );
       return {
         ...state,
         ledgerEntries: {
@@ -434,14 +501,26 @@ function reducer(state = initialState, action) {
         ...dispatchMutationReq(state, action),
         periodMutation: { submitting: true, error: null, lastRejectionReason: null },
       };
-    case resp(ACTION_TYPE.OPEN_ACCOUNTING_PERIOD):
-      // The mutation payload only carries the ids; the list is refetched by the
-      // action. `dispatchMutationResp` records the created id so the
-      // JournalDrawer can display the mutation.
+    case resp(ACTION_TYPE.OPEN_ACCOUNTING_PERIOD): {
+      const result = action.payload?.data?.openAccountingPeriod;
+      const withMutation = dispatchMutationResp(state, "openAccountingPeriod", action);
+      const rejectionReason = mutationErrorMessage(result, action.payload);
+      if (rejectionReason) {
+        return {
+          ...withMutation,
+          periodMutation: { submitting: false, error: rejectionReason, lastRejectionReason: rejectionReason },
+        };
+      }
+      if (!result?.accountingPeriod) {
+        return { ...withMutation, periodMutation: { submitting: false, error: null, lastRejectionReason: null } };
+      }
+      const created = mapAccountingPeriod(result.accountingPeriod);
       return {
-        ...dispatchMutationResp(state, "openAccountingPeriod", action),
+        ...withMutation,
         periodMutation: { submitting: false, error: null, lastRejectionReason: null },
+        accountingPeriods: { ...state.accountingPeriods, items: [...state.accountingPeriods.items, created] },
       };
+    }
     case err(ACTION_TYPE.OPEN_ACCOUNTING_PERIOD):
       return {
         ...state,
@@ -461,20 +540,21 @@ function reducer(state = initialState, action) {
       };
 
     case resp(ACTION_TYPE.LOCK_ACCOUNTING_PERIOD):
-      return {
-        ...dispatchMutationResp(state, "lockAccountingPeriod", action),
-        periodMutation: { submitting: false, error: null, lastRejectionReason: null },
-      };
+      return applyPeriodTransitionResponse(state, action.payload?.data?.lockAccountingPeriod, "lockAccountingPeriod", action);
     case resp(ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD):
-      return {
-        ...dispatchMutationResp(state, "closeAccountingPeriod", action),
-        periodMutation: { submitting: false, error: null, lastRejectionReason: null },
-      };
+      return applyPeriodTransitionResponse(
+        state,
+        action.payload?.data?.closeAccountingPeriod,
+        "closeAccountingPeriod",
+        action,
+      );
     case resp(ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD):
-      return {
-        ...dispatchMutationResp(state, "reopenAccountingPeriod", action),
-        periodMutation: { submitting: false, error: null, lastRejectionReason: null },
-      };
+      return applyPeriodTransitionResponse(
+        state,
+        action.payload?.data?.reopenAccountingPeriod,
+        "reopenAccountingPeriod",
+        action,
+      );
 
     case err(ACTION_TYPE.LOCK_ACCOUNTING_PERIOD):
     case err(ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD):
@@ -518,12 +598,26 @@ function reducer(state = initialState, action) {
         ...dispatchMutationReq(state, action),
         reviewResolution: { submitting: true, error: null },
       };
-    case resp(ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM):
-      // Payload carries ids only; the queue is refetched by the action.
+    case resp(ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM): {
+      const result = action.payload?.data?.resolveManualReviewItem;
+      const withMutation = dispatchMutationResp(state, "resolveManualReview", action);
+      const message = mutationErrorMessage(result, action.payload);
+      if (message) {
+        return { ...withMutation, reviewResolution: { submitting: false, error: message } };
+      }
+      const updated = result?.manualReviewQueueItem;
+      if (!updated) {
+        return { ...withMutation, reviewResolution: { submitting: false, error: null } };
+      }
       return {
-        ...dispatchMutationResp(state, "resolveManualReview", action),
+        ...withMutation,
         reviewResolution: { submitting: false, error: null },
+        manualReviewQueue: {
+          ...state.manualReviewQueue,
+          items: state.manualReviewQueue.items.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)),
+        },
       };
+    }
     case err(ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM):
       return {
         ...dispatchMutationErr(state, action),
