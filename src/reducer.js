@@ -7,6 +7,7 @@ import {
   dispatchMutationResp,
 } from "@openimis/fe-core";
 import { computeLedgerEntryTotals } from "./utils/ledgerEntryTotals";
+import { parseCurrencies } from "./utils/currencies";
 
 // Flux Standard Action triplet suffixes, consistent with every other
 // openimis-fe-* module in this environment (research.md §1).
@@ -22,6 +23,15 @@ export const ACTION_TYPE = {
   MANUAL_REVIEW_QUEUE: "LEDGER_MANUAL_REVIEW_QUEUE",
   DEPLOYMENT_CONFIGURATION: "LEDGER_DEPLOYMENT_CONFIGURATION",
   ACCOUNT_OPTIONS: "LEDGER_ACCOUNT_OPTIONS",
+  ACCOUNTS: "LEDGER_ACCOUNTS",
+  CREATE_ACCOUNT: "LEDGER_CREATE_ACCOUNT",
+  UPDATE_ACCOUNT: "LEDGER_UPDATE_ACCOUNT",
+  DELETE_ACCOUNT: "LEDGER_DELETE_ACCOUNT",
+  JOURNALS: "LEDGER_JOURNALS",
+  JOURNAL_TYPES: "LEDGER_JOURNAL_TYPES",
+  CREATE_JOURNAL: "LEDGER_CREATE_JOURNAL",
+  UPDATE_JOURNAL: "LEDGER_UPDATE_JOURNAL",
+  DELETE_JOURNAL: "LEDGER_DELETE_JOURNAL",
   OPEN_ACCOUNTING_PERIOD: "LEDGER_OPEN_ACCOUNTING_PERIOD",
   LOCK_ACCOUNTING_PERIOD: "LEDGER_LOCK_ACCOUNTING_PERIOD",
   CLOSE_ACCOUNTING_PERIOD: "LEDGER_CLOSE_ACCOUNTING_PERIOD",
@@ -33,6 +43,22 @@ export const ACTION_TYPE = {
 };
 
 const req = (name) => `${name}_REQ`;
+const serviceFor = (services, actionType) => services[actionType.replace(/_RESP$/, "")];
+
+// Mutation payloads carry ids only: `dispatchMutationResp` needs the payload
+// field name to pick up `internalId` for the JournalDrawer.
+const ACCOUNT_MUTATION_SERVICES = {
+  [ACTION_TYPE.CREATE_ACCOUNT]: "createAccount",
+  [ACTION_TYPE.UPDATE_ACCOUNT]: "updateAccount",
+  [ACTION_TYPE.DELETE_ACCOUNT]: "deleteAccount",
+};
+
+const JOURNAL_MUTATION_SERVICES = {
+  [ACTION_TYPE.CREATE_JOURNAL]: "createJournal",
+  [ACTION_TYPE.UPDATE_JOURNAL]: "updateJournal",
+  [ACTION_TYPE.DELETE_JOURNAL]: "deleteJournal",
+};
+
 const resp = (name) => `${name}_RESP`;
 const err = (name) => `${name}_ERR`;
 
@@ -56,7 +82,13 @@ const initialState = {
   },
 
   partySearch: { isFetching: false, isFetched: false, error: null, results: [] },
-  partyLedgerBalance: { isFetching: false, isFetched: false, error: null, items: [], pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null } },
+  partyLedgerBalance: {
+    isFetching: false,
+    isFetched: false,
+    error: null,
+    items: [],
+    pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },
+  },
 
   funderSearch: { isFetching: false, isFetched: false, error: null, results: [] },
   funderActivityReport: { isFetching: false, isFetched: false, error: null, data: null },
@@ -70,7 +102,13 @@ const initialState = {
   mutation: {},
   submittingMutation: false,
 
-  manualReviewQueue: { isFetching: false, isFetched: false, error: null, items: [], pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null } },
+  manualReviewQueue: {
+    isFetching: false,
+    isFetched: false,
+    error: null,
+    items: [],
+    pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },
+  },
   reviewResolution: { submitting: false, error: null },
 
   exportJobs: { byPeriodId: {}, error: null },
@@ -78,6 +116,28 @@ const initialState = {
   deploymentConfiguration: { isFetching: false, isFetched: false, error: null, data: null, submitting: false },
 
   accountOptions: { isFetching: false, isFetched: false, error: null, items: [] },
+
+  accounts: {
+    isFetching: false,
+    isFetched: false,
+    error: null,
+    items: [],
+    pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },
+  },
+
+  accountMutation: { submitting: false, error: null, lastMutationAt: null },
+
+  journals: {
+    isFetching: false,
+    isFetched: false,
+    error: null,
+    items: [],
+    pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },
+  },
+
+  journalTypes: { isFetching: false, isFetched: false, error: null, items: [] },
+
+  journalMutation: { submitting: false, error: null, lastMutationAt: null },
 };
 
 const decodeLedgerReferenceId = (id) => {
@@ -110,8 +170,7 @@ const mapAnalyticTag = (analyticTags, axisCode) => {
 
 // Entry-level party/funder: the whole transaction is tagged server-side, so a
 // leg without its own analytic tag reuses the tag carried by the entry.
-const mapEntryTag = (value) =>
-  value ? { analyticValueId: value.id, displayName: value.displayName } : null;
+const mapEntryTag = (value) => (value ? { analyticValueId: value.id, displayName: value.displayName } : null);
 
 const mapLedgerEntryLine = (line, entryTags = {}) => ({
   id: decodeLedgerReferenceId(line.id),
@@ -150,8 +209,7 @@ const mapLedgerEntryNode = (node) => {
   // (`transaction.legs.edges[].node`); the flat `lines` array is kept as a
   // fallback for mock payloads.
   const legs = node?.transaction?.legs;
-  const rawLines =
-    node?.lines || (Array.isArray(legs) ? legs : legs?.edges?.map((edge) => edge?.node)) || [];
+  const rawLines = node?.lines || (Array.isArray(legs) ? legs : legs?.edges?.map((edge) => edge?.node)) || [];
   const entryTags = {
     partyTag: mapEntryTag(node?.party),
     funderTag: mapEntryTag(node?.funder),
@@ -221,6 +279,28 @@ const mapDeploymentConfiguration = (configuration) => {
 
 const mapAccountOption = (node) => ({ ...node, id: decodeLedgerReferenceId(node?.id) });
 
+// hordak stores `currencies` in a JSON field exposed as a GraphQL JSONString:
+// normalize it to an array so the views can render it directly.
+const mapAccountNode = (node) => ({
+  ...mapAccountOption(node),
+  currencies: parseCurrencies(node?.currencies),
+});
+
+// Mock review items use readable ids (e.g. "review-1"), while GraphQL
+// responses use openIMIS base64 ids. Keep both forms valid in the reducer.
+
+// The journal mutations take raw uuids (`journalUuid`, and `type` for the
+// journal type), while the connection returns relay global ids: decode the
+// journal id and the id of its journal type once, on ingest.
+const mapJournalNode = (journal) => ({
+  ...journal,
+  id: decodeLedgerReferenceId(journal?.id),
+  type: journal?.type ? { ...journal.type, id: decodeLedgerReferenceId(journal.type.id) } : journal?.type,
+});
+
+// Mock review items use readable ids (e.g. "review-1"), while GraphQL
+// responses use openIMIS base64 ids. Keep both forms valid in the reducer.
+
 // Mock review items use readable ids (e.g. "review-1"), while GraphQL
 // responses use openIMIS base64 ids. Keep both forms valid in the reducer.
 // The review queue is a paginated connection; the page reads a flattened
@@ -268,7 +348,6 @@ const mapConnectionPageInfo = (connection) => ({
   startCursor: connection?.pageInfo?.startCursor ?? null,
   endCursor: connection?.pageInfo?.endCursor ?? null,
 });
-
 
 const mapAccountingPeriod = (period) =>
   period ? { ...period, id: decodeId(period.id), status: mapPeriodStatus(period.status) } : period;
@@ -400,12 +479,21 @@ function reducer(state = initialState, action) {
         },
       };
     case err(ACTION_TYPE.PARTY_SEARCH):
-      return { ...state, partySearch: { ...state.partySearch, isFetching: false, error: formatServerError(action.payload) } };
+      return {
+        ...state,
+        partySearch: { ...state.partySearch, isFetching: false, error: formatServerError(action.payload) },
+      };
 
     case ACTION_TYPE.PARTY_LEDGER_BALANCE_RESET:
       return {
         ...state,
-        partyLedgerBalance: { isFetching: false, isFetched: false, error: null, items: [], pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null } },
+        partyLedgerBalance: {
+          isFetching: false,
+          isFetched: false,
+          error: null,
+          items: [],
+          pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },
+        },
       };
 
     case req(ACTION_TYPE.PARTY_LEDGER_BALANCE):
@@ -429,7 +517,11 @@ function reducer(state = initialState, action) {
     case err(ACTION_TYPE.PARTY_LEDGER_BALANCE):
       return {
         ...state,
-        partyLedgerBalance: { ...state.partyLedgerBalance, isFetching: false, error: formatServerError(action.payload) },
+        partyLedgerBalance: {
+          ...state.partyLedgerBalance,
+          isFetching: false,
+          error: formatServerError(action.payload),
+        },
       };
 
     // --- User Story 3: Funder Activity -----------------------------------
@@ -454,7 +546,10 @@ function reducer(state = initialState, action) {
         },
       };
     case err(ACTION_TYPE.FUNDER_SEARCH):
-      return { ...state, funderSearch: { ...state.funderSearch, isFetching: false, error: formatServerError(action.payload) } };
+      return {
+        ...state,
+        funderSearch: { ...state.funderSearch, isFetching: false, error: formatServerError(action.payload) },
+      };
 
     case req(ACTION_TYPE.JOURNAL_SEARCH):
       return { ...state, journalSearch: { ...state.journalSearch, isFetching: true, isFetched: false, error: null } };
@@ -465,14 +560,15 @@ function reducer(state = initialState, action) {
           isFetching: false,
           isFetched: true,
           error: formatGraphQLError(action.payload),
-          results: (action.payload?.data?.ledgerJournal?.edges || [])
-            .map((edge) => edge?.node)
-            .filter(Boolean),
+          results: (action.payload?.data?.ledgerJournal?.edges || []).map((edge) => edge?.node).filter(Boolean),
           fetchedType: action.meta?.journalType ?? null,
         },
       };
     case err(ACTION_TYPE.JOURNAL_SEARCH):
-      return { ...state, journalSearch: { ...state.journalSearch, isFetching: false, error: formatServerError(action.payload) } };
+      return {
+        ...state,
+        journalSearch: { ...state.journalSearch, isFetching: false, error: formatServerError(action.payload) },
+      };
 
     case req(ACTION_TYPE.FUNDER_ACTIVITY_REPORT):
       return {
@@ -492,7 +588,11 @@ function reducer(state = initialState, action) {
     case err(ACTION_TYPE.FUNDER_ACTIVITY_REPORT):
       return {
         ...state,
-        funderActivityReport: { ...state.funderActivityReport, isFetching: false, error: formatServerError(action.payload) },
+        funderActivityReport: {
+          ...state.funderActivityReport,
+          isFetching: false,
+          error: formatServerError(action.payload),
+        },
       };
 
     // --- User Story 4: Accounting Periods lifecycle -----------------------
@@ -659,7 +759,184 @@ function reducer(state = initialState, action) {
         exportJobs: { ...state.exportJobs, error: formatServerError(action.payload)?.message ?? null },
       };
     case err(ACTION_TYPE.EXPORT_SEQUENCES):
-      return { ...state, exportJobs: { ...state.exportJobs, error: formatServerError(action.payload)?.message ?? null } };
+      return {
+        ...state,
+        exportJobs: { ...state.exportJobs, error: formatServerError(action.payload)?.message ?? null },
+      };
+
+    // --- Ticket 37991: Accounts management --------------------------------
+    case req(ACTION_TYPE.ACCOUNTS):
+      return {
+        ...state,
+        accounts: { ...state.accounts, isFetching: true, isFetched: false, error: null },
+      };
+    case resp(ACTION_TYPE.ACCOUNTS): {
+      const connection = action.payload?.data?.accounts;
+      return {
+        ...state,
+        accounts: {
+          isFetching: false,
+          isFetched: true,
+          error: formatGraphQLError(action.payload)?.message ?? null,
+          items: (connection?.edges || []).map((edge) => mapAccountNode(edge.node)),
+          pageInfo: {
+            totalCount: connection?.totalCount ?? 0,
+            hasNextPage: connection?.pageInfo?.hasNextPage ?? false,
+            hasPreviousPage: connection?.pageInfo?.hasPreviousPage ?? false,
+            startCursor: connection?.pageInfo?.startCursor ?? null,
+            endCursor: connection?.pageInfo?.endCursor ?? null,
+          },
+        },
+      };
+    }
+    case err(ACTION_TYPE.ACCOUNTS):
+      return {
+        ...state,
+        accounts: { ...state.accounts, isFetching: false, error: formatServerError(action.payload)?.message ?? null },
+      };
+
+    case req(ACTION_TYPE.CREATE_ACCOUNT):
+    case req(ACTION_TYPE.UPDATE_ACCOUNT):
+    case req(ACTION_TYPE.DELETE_ACCOUNT):
+      return {
+        ...dispatchMutationReq(state, action),
+        accountMutation: { ...state.accountMutation, submitting: true, error: null },
+      };
+    case resp(ACTION_TYPE.CREATE_ACCOUNT):
+    case resp(ACTION_TYPE.UPDATE_ACCOUNT):
+    case resp(ACTION_TYPE.DELETE_ACCOUNT): {
+      const result =
+        action.payload?.data?.createAccount ??
+        action.payload?.data?.updateAccount ??
+        action.payload?.data?.deleteAccount;
+      const message = firstErrorMessage(result?.errors);
+      if (message) {
+        return { ...state, accountMutation: { ...state.accountMutation, submitting: false, error: message } };
+      }
+      return {
+        ...dispatchMutationResp(state, serviceFor(ACCOUNT_MUTATION_SERVICES, action.type), action),
+        accountMutation: { submitting: false, error: null, lastMutationAt: Date.now() },
+      };
+    }
+    case err(ACTION_TYPE.CREATE_ACCOUNT):
+    case err(ACTION_TYPE.UPDATE_ACCOUNT):
+    case err(ACTION_TYPE.DELETE_ACCOUNT):
+      return {
+        ...dispatchMutationErr(state, action),
+        accountMutation: {
+          ...state.accountMutation,
+          submitting: false,
+          error: formatServerError(action.payload)?.message ?? null,
+        },
+      };
+
+    // --- Ticket 37990: Journals management --------------------------------
+    case req(ACTION_TYPE.JOURNALS):
+      return {
+        ...state,
+        journals: { ...state.journals, isFetching: true, isFetched: false, error: null },
+      };
+    case resp(ACTION_TYPE.JOURNALS): {
+      const connection = action.payload?.data?.ledgerJournal;
+      return {
+        ...state,
+        journals: {
+          isFetching: false,
+          isFetched: true,
+          error: formatGraphQLError(action.payload)?.message ?? null,
+          // `isDeleted` is filtered client-side as a safety net: the backend
+          // soft-deletes journals and its query does not filter them yet.
+          items: (connection?.edges || [])
+            .map((edge) => edge?.node)
+            .filter((journal) => journal && journal.isDeleted !== true)
+            .map(mapJournalNode),
+          pageInfo: {
+            totalCount: connection?.totalCount ?? 0,
+            hasNextPage: connection?.pageInfo?.hasNextPage ?? false,
+            hasPreviousPage: connection?.pageInfo?.hasPreviousPage ?? false,
+            startCursor: connection?.pageInfo?.startCursor ?? null,
+            endCursor: connection?.pageInfo?.endCursor ?? null,
+          },
+        },
+      };
+    }
+    case err(ACTION_TYPE.JOURNALS):
+      return {
+        ...state,
+        journals: { ...state.journals, isFetching: false, error: formatServerError(action.payload)?.message ?? null },
+      };
+
+    case req(ACTION_TYPE.JOURNAL_TYPES):
+      return {
+        ...state,
+        journalTypes: { ...state.journalTypes, isFetching: true, isFetched: false, error: null },
+      };
+    case resp(ACTION_TYPE.JOURNAL_TYPES): {
+      const connection = action.payload?.data?.journalTypes;
+      return {
+        ...state,
+        journalTypes: {
+          isFetching: false,
+          isFetched: true,
+          error: formatGraphQLError(action.payload)?.message ?? null,
+          // The mutation input expects the JournalTypes uuid: decode the relay
+          // id once, here, so pickers can submit `id` directly.
+          items: (connection?.edges || []).map((edge) => ({
+            ...edge.node,
+            id: decodeLedgerReferenceId(edge.node?.id),
+          })),
+        },
+      };
+    }
+    case err(ACTION_TYPE.JOURNAL_TYPES):
+      return {
+        ...state,
+        journalTypes: {
+          ...state.journalTypes,
+          isFetching: false,
+          error: formatServerError(action.payload)?.message ?? null,
+        },
+      };
+
+    // Creation, edition and deletion share the same lifecycle: `lastMutationAt`
+    // is stamped on success so the page closes the form and refreshes the list.
+    case req(ACTION_TYPE.CREATE_JOURNAL):
+    case req(ACTION_TYPE.UPDATE_JOURNAL):
+    case req(ACTION_TYPE.DELETE_JOURNAL):
+      return {
+        ...dispatchMutationReq(state, action),
+        journalMutation: { ...state.journalMutation, submitting: true, error: null },
+      };
+    case resp(ACTION_TYPE.CREATE_JOURNAL):
+    case resp(ACTION_TYPE.UPDATE_JOURNAL):
+    case resp(ACTION_TYPE.DELETE_JOURNAL): {
+      const result =
+        action.payload?.data?.createJournal ??
+        action.payload?.data?.updateJournal ??
+        action.payload?.data?.deleteJournal;
+      const message = firstErrorMessage(result?.errors);
+      if (message) {
+        return {
+          ...state,
+          journalMutation: { ...state.journalMutation, submitting: false, error: message },
+        };
+      }
+      return {
+        ...dispatchMutationResp(state, serviceFor(JOURNAL_MUTATION_SERVICES, action.type), action),
+        journalMutation: { submitting: false, error: null, lastMutationAt: Date.now() },
+      };
+    }
+    case err(ACTION_TYPE.CREATE_JOURNAL):
+    case err(ACTION_TYPE.UPDATE_JOURNAL):
+    case err(ACTION_TYPE.DELETE_JOURNAL):
+      return {
+        ...dispatchMutationErr(state, action),
+        journalMutation: {
+          ...state.journalMutation,
+          submitting: false,
+          error: formatServerError(action.payload)?.message ?? null,
+        },
+      };
 
     // --- User Story 7: Deployment Configuration ----------------------------
     case req(ACTION_TYPE.DEPLOYMENT_CONFIGURATION):

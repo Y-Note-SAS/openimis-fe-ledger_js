@@ -30,6 +30,15 @@ import {
   exportAccountingPeriod,
   pollExportJob,
   fetchLedgerDeploymentConfiguration,
+  fetchJournalsList,
+  fetchJournalTypes,
+  createJournal,
+  updateJournal,
+  deleteJournal,
+  fetchAccounts,
+  createAccount,
+  updateAccount,
+  deleteAccount,
   fetchAccountOptions,
   createDeploymentConfiguration,
 } from "../src/actions";
@@ -92,7 +101,9 @@ describe("Actions - Mocks", () => {
       payload: expect.objectContaining({
         data: expect.objectContaining({
           accountingPeriods: expect.objectContaining({
-            edges: expect.arrayContaining([expect.objectContaining({ node: expect.objectContaining({ status: expect.any(String) }) })]),
+            edges: expect.arrayContaining([
+              expect.objectContaining({ node: expect.objectContaining({ status: expect.any(String) }) }),
+            ]),
           }),
         }),
       }),
@@ -720,5 +731,206 @@ describe("Actions - Manual review queue (US5)", () => {
       correctingEntryId: "11",
       resolutionNote: "Correction linked",
     });
+  });
+});
+
+describe("Actions - Accounts management", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("builds the paginated accounts query with every filter", () => {
+    const action = fetchAccounts(
+      { code: "1200", fullCode: "1200", type: "EQ", isBankAccount: true },
+      { first: 20, after: "cursor-1" },
+    );
+
+    expect(action.operation).toContain("query Accounts");
+    expect(action.operation).toContain("accounts(");
+    expect(action.variables).toEqual({
+      first: 20,
+      after: "cursor-1",
+      before: null,
+      last: null,
+      code: "1200",
+      fullCode: "1200",
+      type: "EQ",
+      isBankAccount: true,
+    });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.ACCOUNTS}_REQ`,
+      `${ACTION_TYPE.ACCOUNTS}_RESP`,
+      `${ACTION_TYPE.ACCOUNTS}_ERR`,
+    ]);
+  });
+
+  it("queries the first page with no filter when nothing is applied", () => {
+    const action = fetchAccounts({}, {});
+
+    expect(action.variables).toEqual({
+      first: null,
+      after: null,
+      before: null,
+      last: null,
+      code: null,
+      fullCode: null,
+      type: null,
+      isBankAccount: null,
+    });
+  });
+
+  it("creates an account with the currencies serialized as a JSON string", () => {
+    const action = createAccount({
+      name: "Caisse",
+      code: "570",
+      fullCode: "570",
+      type: "AS",
+      isBankAccount: false,
+      currencies: ["XAF", "EUR"],
+      clientMutationLabel: "Create account",
+    });
+
+    expect(formatMutation).toHaveBeenCalledTimes(1);
+    const [mutationName, input, label] = formatMutation.mock.calls[0];
+    expect(mutationName).toBe("createAccount");
+    expect(input).toContain('name: "Caisse"');
+    expect(input).toContain('code: "570"');
+    expect(input).toContain('fullCode: "570"');
+    expect(input).toContain('type: "AS"');
+    expect(input).toContain("isBankAccount: false");
+    expect(input).toContain('currencies: "[\\"XAF\\",\\"EUR\\"]"');
+    expect(label).toBe("Create account");
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.CREATE_ACCOUNT}_REQ`,
+      `${ACTION_TYPE.CREATE_ACCOUNT}_RESP`,
+      `${ACTION_TYPE.CREATE_ACCOUNT}_ERR`,
+    ]);
+    expect(action.params.clientMutationId).toBe("mock-client-mutation-id");
+  });
+
+  it("updates an account with its uuid and the full creation payload", () => {
+    const action = updateAccount({
+      accountUuid: "uuid-1",
+      name: "Caisse",
+      code: "570",
+      fullCode: "570",
+      type: "AS",
+      isBankAccount: true,
+      currencies: ["XAF"],
+      clientMutationLabel: "Update account 570",
+    });
+
+    const [mutationName, input, label] = formatMutation.mock.calls.at(-1);
+    expect(mutationName).toBe("updateAccount");
+    expect(input).toContain('accountUuid: "uuid-1"');
+    expect(input).toContain('name: "Caisse"');
+    expect(input).toContain('fullCode: "570"');
+    expect(input).toContain("isBankAccount: true");
+    expect(input).toContain('currencies: "[\\"XAF\\"]"');
+    expect(label).toBe("Update account 570");
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.UPDATE_ACCOUNT}_REQ`,
+      `${ACTION_TYPE.UPDATE_ACCOUNT}_RESP`,
+      `${ACTION_TYPE.UPDATE_ACCOUNT}_ERR`,
+    ]);
+  });
+
+  it("deletes an account with the uuid only", () => {
+    const action = deleteAccount({ accountUuid: "uuid-1", clientMutationLabel: "Delete account 570" });
+
+    const [mutationName, input, label] = formatMutation.mock.calls.at(-1);
+    expect(mutationName).toBe("deleteAccount");
+    expect(input.trim()).toBe('accountUuid: "uuid-1"');
+    expect(label).toBe("Delete account 570");
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.DELETE_ACCOUNT}_REQ`,
+      `${ACTION_TYPE.DELETE_ACCOUNT}_RESP`,
+      `${ACTION_TYPE.DELETE_ACCOUNT}_ERR`,
+    ]);
+  });
+});
+describe("Actions - Journals management", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("builds the paginated journals query with the type id filter", () => {
+    const action = fetchJournalsList(
+      { name: "Bank", code: "BANK", typeId: "uuid-2" },
+      { first: 10, after: "cursor-1" },
+    );
+
+    expect(action.operation).toContain("query JournalsList");
+    expect(action.operation).toContain("type_Id: $typeId");
+    expect(action.operation).toContain("defaultDebitAccountId { id uuid code name }");
+    expect(action.operation).toContain("isDeleted");
+    expect(action.variables).toEqual({
+      first: 10,
+      after: "cursor-1",
+      before: null,
+      last: null,
+      name: "Bank",
+      code: "BANK",
+      typeId: "uuid-2",
+    });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.JOURNALS}_REQ`,
+      `${ACTION_TYPE.JOURNALS}_RESP`,
+      `${ACTION_TYPE.JOURNALS}_ERR`,
+    ]);
+  });
+
+  it("queries the first journals page without filters by default", () => {
+    const action = fetchJournalsList({}, {});
+
+    expect(action.variables).toEqual({
+      first: null,
+      after: null,
+      before: null,
+      last: null,
+      name: null,
+      code: null,
+      typeId: null,
+    });
+  });
+
+  it("builds the journal types query", () => {
+    const action = fetchJournalTypes();
+
+    expect(action.operation).toContain("query JournalTypes");
+    expect(action.operation).toContain("journalTypes(first: $first)");
+    expect(action.variables).toEqual({ first: 100 });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.JOURNAL_TYPES}_REQ`,
+      `${ACTION_TYPE.JOURNAL_TYPES}_RESP`,
+      `${ACTION_TYPE.JOURNAL_TYPES}_ERR`,
+    ]);
+  });
+
+  it("creates a journal with the journal type uuid and the account uuids", () => {
+    const action = createJournal({
+      name: "Bank",
+      code: "BANK",
+      journalType: { id: "uuid-2", code: "bank" },
+      defaultDebitAccount: { uuid: "debit-uuid", code: "5120" },
+      defaultCreditAccount: { uuid: "credit-uuid", code: "7010" },
+      clientMutationLabel: "Create journal",
+    });
+
+    expect(formatMutation).toHaveBeenCalledTimes(1);
+    const [mutationName, input, label] = formatMutation.mock.calls[0];
+    expect(mutationName).toBe("createJournal");
+    expect(input).toContain('name: "Bank"');
+    expect(input).toContain('code: "BANK"');
+    expect(input).toContain('type: "uuid-2"');
+    expect(input).toContain('defaultDebitAccountId: "debit-uuid"');
+    expect(input).toContain('defaultCreditAccountId: "credit-uuid"');
+    expect(input).not.toContain("sequence");
+    expect(label).toBe("Create journal");
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.CREATE_JOURNAL}_REQ`,
+      `${ACTION_TYPE.CREATE_JOURNAL}_RESP`,
+      `${ACTION_TYPE.CREATE_JOURNAL}_ERR`,
+    ]);
   });
 });
