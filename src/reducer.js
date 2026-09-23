@@ -56,7 +56,13 @@ const initialState = {
   },
 
   partySearch: { isFetching: false, isFetched: false, error: null, results: [] },
-  partyLedgerBalance: { isFetching: false, isFetched: false, error: null, items: [], pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null } },
+  partyLedgerBalance: {
+    isFetching: false,
+    isFetched: false,
+    error: null,
+    items: [],
+    pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },
+  },
 
   funderSearch: { isFetching: false, isFetched: false, error: null, results: [] },
   funderActivityReport: { isFetching: false, isFetched: false, error: null, data: null },
@@ -70,7 +76,13 @@ const initialState = {
   mutation: {},
   submittingMutation: false,
 
-  manualReviewQueue: { isFetching: false, isFetched: false, error: null, items: [], pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null } },
+  manualReviewQueue: {
+    isFetching: false,
+    isFetched: false,
+    error: null,
+    items: [],
+    pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },
+  },
   reviewResolution: { submitting: false, error: null },
 
   exportJobs: { byPeriodId: {}, error: null },
@@ -110,8 +122,7 @@ const mapAnalyticTag = (analyticTags, axisCode) => {
 
 // Entry-level party/funder: the whole transaction is tagged server-side, so a
 // leg without its own analytic tag reuses the tag carried by the entry.
-const mapEntryTag = (value) =>
-  value ? { analyticValueId: value.id, displayName: value.displayName } : null;
+const mapEntryTag = (value) => (value ? { analyticValueId: value.id, displayName: value.displayName } : null);
 
 const mapLedgerEntryLine = (line, entryTags = {}) => ({
   id: decodeLedgerReferenceId(line.id),
@@ -150,8 +161,7 @@ const mapLedgerEntryNode = (node) => {
   // (`transaction.legs.edges[].node`); the flat `lines` array is kept as a
   // fallback for mock payloads.
   const legs = node?.transaction?.legs;
-  const rawLines =
-    node?.lines || (Array.isArray(legs) ? legs : legs?.edges?.map((edge) => edge?.node)) || [];
+  const rawLines = node?.lines || (Array.isArray(legs) ? legs : legs?.edges?.map((edge) => edge?.node)) || [];
   const entryTags = {
     partyTag: mapEntryTag(node?.party),
     funderTag: mapEntryTag(node?.funder),
@@ -268,7 +278,6 @@ const mapConnectionPageInfo = (connection) => ({
   startCursor: connection?.pageInfo?.startCursor ?? null,
   endCursor: connection?.pageInfo?.endCursor ?? null,
 });
-
 
 const mapAccountingPeriod = (period) =>
   period ? { ...period, id: decodeId(period.id), status: mapPeriodStatus(period.status) } : period;
@@ -400,12 +409,21 @@ function reducer(state = initialState, action) {
         },
       };
     case err(ACTION_TYPE.PARTY_SEARCH):
-      return { ...state, partySearch: { ...state.partySearch, isFetching: false, error: formatServerError(action.payload) } };
+      return {
+        ...state,
+        partySearch: { ...state.partySearch, isFetching: false, error: formatServerError(action.payload) },
+      };
 
     case ACTION_TYPE.PARTY_LEDGER_BALANCE_RESET:
       return {
         ...state,
-        partyLedgerBalance: { isFetching: false, isFetched: false, error: null, items: [], pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null } },
+        partyLedgerBalance: {
+          isFetching: false,
+          isFetched: false,
+          error: null,
+          items: [],
+          pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },
+        },
       };
 
     case req(ACTION_TYPE.PARTY_LEDGER_BALANCE):
@@ -429,7 +447,11 @@ function reducer(state = initialState, action) {
     case err(ACTION_TYPE.PARTY_LEDGER_BALANCE):
       return {
         ...state,
-        partyLedgerBalance: { ...state.partyLedgerBalance, isFetching: false, error: formatServerError(action.payload) },
+        partyLedgerBalance: {
+          ...state.partyLedgerBalance,
+          isFetching: false,
+          error: formatServerError(action.payload),
+        },
       };
 
     // --- User Story 3: Funder Activity -----------------------------------
@@ -454,7 +476,10 @@ function reducer(state = initialState, action) {
         },
       };
     case err(ACTION_TYPE.FUNDER_SEARCH):
-      return { ...state, funderSearch: { ...state.funderSearch, isFetching: false, error: formatServerError(action.payload) } };
+      return {
+        ...state,
+        funderSearch: { ...state.funderSearch, isFetching: false, error: formatServerError(action.payload) },
+      };
 
     case req(ACTION_TYPE.JOURNAL_SEARCH):
       return { ...state, journalSearch: { ...state.journalSearch, isFetching: true, isFetched: false, error: null } };
@@ -465,14 +490,15 @@ function reducer(state = initialState, action) {
           isFetching: false,
           isFetched: true,
           error: formatGraphQLError(action.payload),
-          results: (action.payload?.data?.ledgerJournal?.edges || [])
-            .map((edge) => edge?.node)
-            .filter(Boolean),
+          results: (action.payload?.data?.ledgerJournal?.edges || []).map((edge) => edge?.node).filter(Boolean),
           fetchedType: action.meta?.journalType ?? null,
         },
       };
     case err(ACTION_TYPE.JOURNAL_SEARCH):
-      return { ...state, journalSearch: { ...state.journalSearch, isFetching: false, error: formatServerError(action.payload) } };
+      return {
+        ...state,
+        journalSearch: { ...state.journalSearch, isFetching: false, error: formatServerError(action.payload) },
+      };
 
     case req(ACTION_TYPE.FUNDER_ACTIVITY_REPORT):
       return {
@@ -492,7 +518,11 @@ function reducer(state = initialState, action) {
     case err(ACTION_TYPE.FUNDER_ACTIVITY_REPORT):
       return {
         ...state,
-        funderActivityReport: { ...state.funderActivityReport, isFetching: false, error: formatServerError(action.payload) },
+        funderActivityReport: {
+          ...state.funderActivityReport,
+          isFetching: false,
+          error: formatServerError(action.payload),
+        },
       };
 
     // --- User Story 4: Accounting Periods lifecycle -----------------------
@@ -540,7 +570,12 @@ function reducer(state = initialState, action) {
       };
 
     case resp(ACTION_TYPE.LOCK_ACCOUNTING_PERIOD):
-      return applyPeriodTransitionResponse(state, action.payload?.data?.lockAccountingPeriod, "lockAccountingPeriod", action);
+      return applyPeriodTransitionResponse(
+        state,
+        action.payload?.data?.lockAccountingPeriod,
+        "lockAccountingPeriod",
+        action,
+      );
     case resp(ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD):
       return applyPeriodTransitionResponse(
         state,
@@ -605,10 +640,15 @@ function reducer(state = initialState, action) {
       if (message) {
         return { ...withMutation, reviewResolution: { submitting: false, error: message } };
       }
-      const updated = result?.manualReviewQueueItem;
-      if (!updated) {
+      const updatedNode = result?.manualReviewQueueItem;
+      if (!updatedNode) {
         return { ...withMutation, reviewResolution: { submitting: false, error: null } };
       }
+      // The backend answers with the GraphQL node (nested `replicationRecord`):
+      // map it like the queue query does, otherwise the raw field names would
+      // overwrite the view-model (`correctingEntryId`, decoded period ids...).
+      // Mock/legacy payloads already carry the mapped shape and are kept as-is.
+      const updated = updatedNode.replicationRecord ? mapManualReviewItem(updatedNode) : updatedNode;
       return {
         ...withMutation,
         reviewResolution: { submitting: false, error: null },
@@ -659,7 +699,10 @@ function reducer(state = initialState, action) {
         exportJobs: { ...state.exportJobs, error: formatServerError(action.payload)?.message ?? null },
       };
     case err(ACTION_TYPE.EXPORT_SEQUENCES):
-      return { ...state, exportJobs: { ...state.exportJobs, error: formatServerError(action.payload)?.message ?? null } };
+      return {
+        ...state,
+        exportJobs: { ...state.exportJobs, error: formatServerError(action.payload)?.message ?? null },
+      };
 
     // --- User Story 7: Deployment Configuration ----------------------------
     case req(ACTION_TYPE.DEPLOYMENT_CONFIGURATION):
