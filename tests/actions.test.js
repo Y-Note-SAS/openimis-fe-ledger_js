@@ -340,19 +340,9 @@ describe("Actions - Real API calls", () => {
   });
 
   it("fetchPartyLedgerBalance delegates to the PartyLedgerBalance query", () => {
-    const action = fetchPartyLedgerBalance({
-      displayName: "District Hospital",
-      periodCode: "2026-07",
-      first: 10,
-      after: null,
-    });
+    const action = fetchPartyLedgerBalance("analytic-1", "period-1");
     expect(action.operation).toContain("PartyLedgerBalance");
-    expect(action.variables).toEqual({
-      displayName: "District Hospital",
-      periodCode: "2026-07",
-      first: 10,
-      after: null,
-    });
+    expect(action.variables).toEqual({ analyticValueId: "analytic-1", accountingPeriod: "period-1" });
     expect(action.actionTypes).toEqual([
       `${ACTION_TYPE.PARTY_LEDGER_BALANCE}_REQ`,
       `${ACTION_TYPE.PARTY_LEDGER_BALANCE}_RESP`,
@@ -472,9 +462,13 @@ describe("Actions - Real API calls", () => {
   });
 
   it("fetchFunderActivityReport builds the FunderActivityReport query with period range", () => {
-    const action = fetchFunderActivityReport("analytic-1", "period-1");
+    const action = fetchFunderActivityReport("analytic-1", { start: "period-1", end: "period-2" });
     expect(action.operation).toContain("funderActivityReport");
-    expect(action.variables).toEqual({ analyticValueId: "analytic-1", accountingPeriodId: "period-1" });
+    expect(action.variables).toEqual({
+      analyticValueId: "analytic-1",
+      accountingPeriodStart: "period-1",
+      accountingPeriodEnd: "period-2",
+    });
     expect(action.actionTypes).toEqual([
       `${ACTION_TYPE.FUNDER_ACTIVITY_REPORT}_REQ`,
       `${ACTION_TYPE.FUNDER_ACTIVITY_REPORT}_RESP`,
@@ -486,9 +480,13 @@ describe("Actions - Real API calls", () => {
     expect(resetPartyLedgerBalance()).toEqual({ type: `${ACTION_TYPE.PARTY_LEDGER_BALANCE_RESET}` });
   });
 
-  it("fetchFunderActivityReport defaults the accounting period to undefined", () => {
+  it("fetchFunderActivityReport defaults the period range to null", () => {
     const action = fetchFunderActivityReport("analytic-1");
-    expect(action.variables).toEqual({ analyticValueId: "analytic-1", accountingPeriodId: undefined });
+    expect(action.variables).toEqual({
+      analyticValueId: "analytic-1",
+      accountingPeriodStart: null,
+      accountingPeriodEnd: null,
+    });
   });
 });
 
@@ -620,12 +618,8 @@ describe("Actions - Mocks (US4 period lifecycle)", () => {
 describe("Actions - Real API calls (US4)", () => {
   it("openAccountingPeriod builds the OpenAccountingPeriod mutation", () => {
     const action = openAccountingPeriod("2026-08-01", "2026-08-31");
-    expect(action.payload).toContain("openAccountingPeriod");
-    expect(action.payload).toContain('startDate: "2026-08-01"');
-    expect(action.payload).toContain('endDate: "2026-08-31"');
-    expect(action.payload).toContain('name: "2026-08"');
-    expect(action.payload).toContain('code: "2026-08"');
-    expect(action.params.clientMutationId).toBe("mock-client-mutation-id");
+    expect(action.operation).toContain("OpenAccountingPeriod");
+    expect(action.variables).toEqual({ startDate: "2026-08-01", endDate: "2026-08-31" });
     expect(action.actionTypes).toEqual([
       `${ACTION_TYPE.OPEN_ACCOUNTING_PERIOD}_REQ`,
       `${ACTION_TYPE.OPEN_ACCOUNTING_PERIOD}_RESP`,
@@ -635,9 +629,8 @@ describe("Actions - Real API calls (US4)", () => {
 
   it("lockAccountingPeriod builds the LockAccountingPeriod mutation", () => {
     const action = lockAccountingPeriod("1");
-    expect(action.payload).toContain("lockAccountingPeriod");
-    expect(action.payload).toContain('id: "1"');
-    expect(action.params.clientMutationId).toBe("mock-client-mutation-id");
+    expect(action.operation).toContain("LockAccountingPeriod");
+    expect(action.variables).toEqual({ accountingPeriodId: "1" });
     expect(action.actionTypes).toEqual([
       `${ACTION_TYPE.LOCK_ACCOUNTING_PERIOD}_REQ`,
       `${ACTION_TYPE.LOCK_ACCOUNTING_PERIOD}_RESP`,
@@ -647,9 +640,8 @@ describe("Actions - Real API calls (US4)", () => {
 
   it("closeAccountingPeriod builds the CloseAccountingPeriod mutation", () => {
     const action = closeAccountingPeriod("1");
-    expect(action.payload).toContain("closeAccountingPeriod");
-    expect(action.payload).toContain('id: "1"');
-    expect(action.params.clientMutationId).toBe("mock-client-mutation-id");
+    expect(action.operation).toContain("CloseAccountingPeriod");
+    expect(action.variables).toEqual({ accountingPeriodId: "1" });
     expect(action.actionTypes).toEqual([
       `${ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD}_REQ`,
       `${ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD}_RESP`,
@@ -659,9 +651,8 @@ describe("Actions - Real API calls (US4)", () => {
 
   it("reopenAccountingPeriod builds the ReopenAccountingPeriod mutation", () => {
     const action = reopenAccountingPeriod("1");
-    expect(action.payload).toContain("reopenAccountingPeriod");
-    expect(action.payload).toContain('id: "1"');
-    expect(action.params.clientMutationId).toBe("mock-client-mutation-id");
+    expect(action.operation).toContain("ReopenAccountingPeriod");
+    expect(action.variables).toEqual({ accountingPeriodId: "1" });
     expect(action.actionTypes).toEqual([
       `${ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD}_REQ`,
       `${ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD}_RESP`,
@@ -679,10 +670,10 @@ describe("Actions - Manual review queue (US5)", () => {
   });
 
   it("fetchManualReviewQueue builds the queue query with an optional status", () => {
-    const action = fetchManualReviewQueue({ first: 10, after: null, status: "PENDING" });
+    const action = fetchManualReviewQueue("pending");
 
     expect(action.operation).toContain("ManualReviewQueue");
-    expect(action.variables).toEqual({ first: 10, after: null, status: "PENDING" });
+    expect(action.variables).toEqual({ status: "pending" });
     expect(action.actionTypes).toEqual([
       `${ACTION_TYPE.MANUAL_REVIEW_QUEUE}_REQ`,
       `${ACTION_TYPE.MANUAL_REVIEW_QUEUE}_RESP`,
@@ -693,10 +684,12 @@ describe("Actions - Manual review queue (US5)", () => {
   it("resolveManualReviewItem builds the resolution mutation", () => {
     const action = resolveManualReviewItem("review-1", "entry-2", "Corrected manually");
 
-    expect(action.payload).toContain("resolveManualReview");
-    expect(action.payload).toContain('replicationRecordId: "review-1"');
-    expect(action.payload).toContain('resolvedByTransactionId: "entry-2"');
-    expect(action.payload).toContain('resolutionNote: "Corrected manually"');
+    expect(action.operation).toContain("ResolveManualReviewItem");
+    expect(action.variables).toEqual({
+      reviewItemId: "review-1",
+      correctingTransactionId: "entry-2",
+      resolutionNote: "Corrected manually",
+    });
     expect(action.actionTypes).toEqual([
       `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_REQ`,
       `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_RESP`,

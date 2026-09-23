@@ -1,11 +1,4 @@
-import {
-  formatServerError,
-  formatGraphQLError,
-  decodeId,
-  dispatchMutationErr,
-  dispatchMutationReq,
-  dispatchMutationResp,
-} from "@openimis/fe-core";
+import { formatServerError, formatGraphQLError, decodeId } from "@openimis/fe-core";
 import { computeLedgerEntryTotals } from "./utils/ledgerEntryTotals";
 
 // Flux Standard Action triplet suffixes, consistent with every other
@@ -56,7 +49,7 @@ const initialState = {
   },
 
   partySearch: { isFetching: false, isFetched: false, error: null, results: [] },
-  partyLedgerBalance: { isFetching: false, isFetched: false, error: null, items: [], pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null } },
+  partyLedgerBalance: { isFetching: false, isFetched: false, error: null, data: null },
 
   funderSearch: { isFetching: false, isFetched: false, error: null, results: [] },
   funderActivityReport: { isFetching: false, isFetched: false, error: null, data: null },
@@ -66,11 +59,7 @@ const initialState = {
   accountingPeriods: { isFetching: false, isFetched: false, error: null, items: [] },
   periodMutation: { submitting: false, error: null, lastRejectionReason: null },
 
-  // Standard openIMIS mutation tracking (feeds the JournalDrawer).
-  mutation: {},
-  submittingMutation: false,
-
-  manualReviewQueue: { isFetching: false, isFetched: false, error: null, items: [], pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null } },
+  manualReviewQueue: { isFetching: false, isFetched: false, error: null, items: [] },
   reviewResolution: { submitting: false, error: null },
 
   exportJobs: { byPeriodId: {}, error: null },
@@ -122,29 +111,6 @@ const mapLedgerEntryLine = (line, entryTags = {}) => ({
   funderTag: line.funderTag || mapAnalyticTag(line.analyticTags, "funder") || entryTags.funderTag || null,
 });
 
-// The backend `ledgerEntries` connection exposes neither an `orderBy` argument
-// nor a default ordering (the model has no Meta.ordering), so the current page
-// is ordered client-side: newest posted first by default.
-const LEDGER_ENTRY_SORT_KEYS = {
-  journal: (entry) => entry.journal?.code || entry.journal?.name || "",
-  accountingPeriod: (entry) => entry.accountingPeriod?.code || "",
-  sourceEventType: (entry) => entry.sourceEventType || "",
-  postedAt: (entry) => entry.postedAt || "",
-};
-
-const sortLedgerEntries = (items, orderBy) => {
-  const order = orderBy || "-postedAt";
-  const descending = order.startsWith("-");
-  const field = descending ? order.slice(1) : order;
-  const keyOf = LEDGER_ENTRY_SORT_KEYS[field] || LEDGER_ENTRY_SORT_KEYS.postedAt;
-  return [...items].sort((a, b) => {
-    const ka = keyOf(a);
-    const kb = keyOf(b);
-    if (ka === kb) return 0;
-    return (ka > kb ? 1 : -1) * (descending ? -1 : 1);
-  });
-};
-
 const mapLedgerEntryNode = (node) => {
   // The backend returns the legs as a Relay connection
   // (`transaction.legs.edges[].node`); the flat `lines` array is kept as a
@@ -176,13 +142,6 @@ const mapLedgerEntryNode = (node) => {
 };
 
 const firstErrorMessage = (errors) => (errors && errors.length ? errors[0].message : null);
-
-// The backend reports a rejected mutation as a GraphQL error (HTTP 200 with an
-// `errors` array), while mock payloads/legacy backends return the messages in
-// the mutation payload itself: accept both so the page can display the
-// backend reason verbatim (FR-009).
-const mutationErrorMessage = (mutationResult, payload) =>
-  firstErrorMessage(mutationResult?.errors) ?? firstErrorMessage(payload?.errors);
 
 // The backend exposes `operatingMode`/`externalSystem` as GraphQL enum NAMES
 // (LOCAL_ONLY, ODOO, ...) on read but expects the raw stored values
@@ -223,52 +182,14 @@ const mapAccountOption = (node) => ({ ...node, id: decodeLedgerReferenceId(node?
 
 // Mock review items use readable ids (e.g. "review-1"), while GraphQL
 // responses use openIMIS base64 ids. Keep both forms valid in the reducer.
-// The review queue is a paginated connection; the page reads a flattened
-// view-model built from the replication record + its ledger entry.
-const mapManualReviewItem = (node) => {
-  const record = node?.replicationRecord || {};
-  const entry = record.ledgerEntry || null;
-  return {
-    id: node?.id,
-    status: record.status,
-    targetSystem: record.targetSystem,
-    rejectionReason: record.rejectionReason,
-    externalReference: record.externalReference,
-    createdAt: node?.createdAt,
-    resolvedAt: node?.resolvedAt,
-    resolutionNote: node?.resolutionNote,
-    correctingEntryId: node?.resolvedByTransaction?.id || null,
-    // Ids are decoded where the front-end compares them with `ledgerEntries`
-    // items (both are decoded by the reducer) and kept encoded where they are
-    // sent back to the backend as a filter/argument: `party` expects the
-    // encoded AnalyticValue id, while `accountingPeriodId` is matched against
-    // the decoded period list before being resolved to a period code.
-    originalEntry: entry
-      ? {
-          id: decodeLedgerReferenceId(entry.id),
-          postedAt: entry.postedAt,
-          sourceEventType: entry.sourceEventType,
-          sourceEventReference: entry.sourceEventReference,
-          journal: entry.journal,
-          accountingPeriod: entry.accountingPeriod
-            ? { ...entry.accountingPeriod, id: decodeLedgerReferenceId(entry.accountingPeriod.id) }
-            : entry.accountingPeriod,
-          partyAnalyticValueId: entry.party?.id || null,
-          accountingPeriodId: decodeLedgerReferenceId(entry.accountingPeriod?.id) || null,
-          accountingPeriodCode: entry.accountingPeriod?.code || null,
-        }
-      : null,
-  };
+const decodeManualReviewId = (id) => {
+  if (id === null || id === undefined) return id;
+  try {
+    return decodeId(id);
+  } catch {
+    return id;
+  }
 };
-
-const mapConnectionPageInfo = (connection) => ({
-  totalCount: connection?.totalCount ?? 0,
-  hasNextPage: connection?.pageInfo?.hasNextPage ?? false,
-  hasPreviousPage: connection?.pageInfo?.hasPreviousPage ?? false,
-  startCursor: connection?.pageInfo?.startCursor ?? null,
-  endCursor: connection?.pageInfo?.endCursor ?? null,
-});
-
 
 const mapAccountingPeriod = (period) =>
   period ? { ...period, id: decodeId(period.id), status: mapPeriodStatus(period.status) } : period;
@@ -277,24 +198,18 @@ const mapAccountingPeriod = (period) =>
 // `accountingPeriods.items` with the mutation's returned period, or (if the
 // backend rejected the transition) leaves items untouched and surfaces
 // `errors[0].message` verbatim into `periodMutation.lastRejectionReason` (FR-009).
-// Mock payloads (and legacy backends) still return the period/errors; the real
-// backend only returns the mutation ids (the page then refetches the list), so
-// both shapes are handled.
-function applyPeriodTransitionResponse(state, mutationResult, service, action) {
-  const withMutation = dispatchMutationResp(state, service, action);
-  const rejectionReason = mutationErrorMessage(mutationResult, action.payload);
+function applyPeriodTransitionResponse(state, mutationResult) {
+  const errors = mutationResult?.errors;
+  const rejectionReason = firstErrorMessage(errors);
   if (rejectionReason) {
     return {
-      ...withMutation,
+      ...state,
       periodMutation: { submitting: false, error: rejectionReason, lastRejectionReason: rejectionReason },
     };
   }
-  if (!mutationResult?.accountingPeriod) {
-    return { ...withMutation, periodMutation: { submitting: false, error: null, lastRejectionReason: null } };
-  }
-  const updated = mapAccountingPeriod(mutationResult.accountingPeriod);
+  const updated = mapAccountingPeriod(mutationResult?.accountingPeriod);
   return {
-    ...withMutation,
+    ...state,
     periodMutation: { submitting: false, error: null, lastRejectionReason: null },
     accountingPeriods: {
       ...state.accountingPeriods,
@@ -319,10 +234,7 @@ function reducer(state = initialState, action) {
       };
     case resp(ACTION_TYPE.LEDGER_ENTRIES): {
       const connection = action.payload?.data?.ledgerEntries;
-      const items = sortLedgerEntries(
-        (connection?.edges || []).map((edge) => mapLedgerEntryNode(edge.node)),
-        action.meta?.orderBy,
-      );
+      const items = (connection?.edges || []).map((edge) => mapLedgerEntryNode(edge.node));
       return {
         ...state,
         ledgerEntries: {
@@ -405,7 +317,7 @@ function reducer(state = initialState, action) {
     case ACTION_TYPE.PARTY_LEDGER_BALANCE_RESET:
       return {
         ...state,
-        partyLedgerBalance: { isFetching: false, isFetched: false, error: null, items: [], pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null } },
+        partyLedgerBalance: { isFetching: false, isFetched: false, error: null, data: null },
       };
 
     case req(ACTION_TYPE.PARTY_LEDGER_BALANCE):
@@ -414,15 +326,18 @@ function reducer(state = initialState, action) {
         partyLedgerBalance: { ...state.partyLedgerBalance, isFetching: true, isFetched: false, error: null },
       };
     case resp(ACTION_TYPE.PARTY_LEDGER_BALANCE): {
-      const connection = action.payload?.data?.partyLedgerBalance;
+      const raw = action.payload?.data?.partyLedgerBalance;
+      const data = raw && {
+        ...raw,
+        transactions: (raw.transactions || []).map(mapLedgerEntryNode),
+      };
       return {
         ...state,
         partyLedgerBalance: {
           isFetching: false,
           isFetched: true,
           error: formatGraphQLError(action.payload),
-          items: (connection?.edges || []).map((edge) => edge.node),
-          pageInfo: mapConnectionPageInfo(connection),
+          data,
         },
       };
     }
@@ -497,26 +412,19 @@ function reducer(state = initialState, action) {
 
     // --- User Story 4: Accounting Periods lifecycle -----------------------
     case req(ACTION_TYPE.OPEN_ACCOUNTING_PERIOD):
-      return {
-        ...dispatchMutationReq(state, action),
-        periodMutation: { submitting: true, error: null, lastRejectionReason: null },
-      };
+      return { ...state, periodMutation: { submitting: true, error: null, lastRejectionReason: null } };
     case resp(ACTION_TYPE.OPEN_ACCOUNTING_PERIOD): {
       const result = action.payload?.data?.openAccountingPeriod;
-      const withMutation = dispatchMutationResp(state, "openAccountingPeriod", action);
-      const rejectionReason = mutationErrorMessage(result, action.payload);
+      const rejectionReason = firstErrorMessage(result?.errors);
       if (rejectionReason) {
         return {
-          ...withMutation,
+          ...state,
           periodMutation: { submitting: false, error: rejectionReason, lastRejectionReason: rejectionReason },
         };
       }
-      if (!result?.accountingPeriod) {
-        return { ...withMutation, periodMutation: { submitting: false, error: null, lastRejectionReason: null } };
-      }
-      const created = mapAccountingPeriod(result.accountingPeriod);
+      const created = mapAccountingPeriod(result?.accountingPeriod);
       return {
-        ...withMutation,
+        ...state,
         periodMutation: { submitting: false, error: null, lastRejectionReason: null },
         accountingPeriods: { ...state.accountingPeriods, items: [...state.accountingPeriods.items, created] },
       };
@@ -534,33 +442,20 @@ function reducer(state = initialState, action) {
     case req(ACTION_TYPE.LOCK_ACCOUNTING_PERIOD):
     case req(ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD):
     case req(ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD):
-      return {
-        ...dispatchMutationReq(state, action),
-        periodMutation: { submitting: true, error: null, lastRejectionReason: null },
-      };
+      return { ...state, periodMutation: { submitting: true, error: null, lastRejectionReason: null } };
 
     case resp(ACTION_TYPE.LOCK_ACCOUNTING_PERIOD):
-      return applyPeriodTransitionResponse(state, action.payload?.data?.lockAccountingPeriod, "lockAccountingPeriod", action);
+      return applyPeriodTransitionResponse(state, action.payload?.data?.lockAccountingPeriod);
     case resp(ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD):
-      return applyPeriodTransitionResponse(
-        state,
-        action.payload?.data?.closeAccountingPeriod,
-        "closeAccountingPeriod",
-        action,
-      );
+      return applyPeriodTransitionResponse(state, action.payload?.data?.closeAccountingPeriod);
     case resp(ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD):
-      return applyPeriodTransitionResponse(
-        state,
-        action.payload?.data?.reopenAccountingPeriod,
-        "reopenAccountingPeriod",
-        action,
-      );
+      return applyPeriodTransitionResponse(state, action.payload?.data?.reopenAccountingPeriod);
 
     case err(ACTION_TYPE.LOCK_ACCOUNTING_PERIOD):
     case err(ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD):
     case err(ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD):
       return {
-        ...dispatchMutationErr(state, action),
+        ...state,
         periodMutation: {
           submitting: false,
           error: formatServerError(action.payload)?.message ?? null,
@@ -574,19 +469,19 @@ function reducer(state = initialState, action) {
         ...state,
         manualReviewQueue: { ...state.manualReviewQueue, isFetching: true, isFetched: false, error: null },
       };
-    case resp(ACTION_TYPE.MANUAL_REVIEW_QUEUE): {
-      const connection = action.payload?.data?.manualReviewQueue;
+    case resp(ACTION_TYPE.MANUAL_REVIEW_QUEUE):
       return {
         ...state,
         manualReviewQueue: {
           isFetching: false,
           isFetched: true,
           error: formatGraphQLError(action.payload),
-          items: (connection?.edges || []).map((edge) => mapManualReviewItem(edge.node)),
-          pageInfo: mapConnectionPageInfo(connection),
+          items: (action.payload?.data?.manualReviewQueue || []).map((item) => ({
+            ...item,
+            id: decodeManualReviewId(item.id),
+          })),
         },
       };
-    }
     case err(ACTION_TYPE.MANUAL_REVIEW_QUEUE):
       return {
         ...state,
@@ -594,50 +489,41 @@ function reducer(state = initialState, action) {
       };
 
     case req(ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM):
-      return {
-        ...dispatchMutationReq(state, action),
-        reviewResolution: { submitting: true, error: null },
-      };
+      return { ...state, reviewResolution: { submitting: true, error: null } };
     case resp(ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM): {
       const result = action.payload?.data?.resolveManualReviewItem;
-      const withMutation = dispatchMutationResp(state, "resolveManualReview", action);
-      const message = mutationErrorMessage(result, action.payload);
+      const message = firstErrorMessage(result?.errors);
       if (message) {
-        return { ...withMutation, reviewResolution: { submitting: false, error: message } };
+        return { ...state, reviewResolution: { submitting: false, error: message } };
       }
       const updated = result?.manualReviewQueueItem;
-      if (!updated) {
-        return { ...withMutation, reviewResolution: { submitting: false, error: null } };
-      }
       return {
-        ...withMutation,
+        ...state,
         reviewResolution: { submitting: false, error: null },
         manualReviewQueue: {
           ...state.manualReviewQueue,
-          items: state.manualReviewQueue.items.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)),
+          items: state.manualReviewQueue.items.map((item) =>
+            item.id === decodeManualReviewId(updated?.id)
+              ? { ...item, ...updated, id: decodeManualReviewId(updated.id) }
+              : item,
+          ),
         },
       };
     }
     case err(ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM):
-      return {
-        ...dispatchMutationErr(state, action),
-        reviewResolution: { submitting: false, error: formatServerError(action.payload)?.message ?? null },
-      };
+      return { ...state, reviewResolution: { submitting: false, error: formatServerError(action.payload)?.message ?? null } };
 
     // --- User Story 6: Period Export ---------------------------------------
-    case req(ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD):
-      return { ...dispatchMutationReq(state, action), exportJobs: { ...state.exportJobs, error: null } };
     case resp(ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD): {
       const result = action.payload?.data?.exportAccountingPeriod;
       const job = result?.exportJob;
-      const withMutation = dispatchMutationResp(state, "exportAccountingPeriod", action);
-      if (!job) return withMutation;
+      if (!job) return state;
       return {
-        ...withMutation,
+        ...state,
         exportJobs: {
-          ...withMutation.exportJobs,
+          ...state.exportJobs,
           error: null,
-          byPeriodId: { ...withMutation.exportJobs.byPeriodId, [job.accountingPeriodId]: job },
+          byPeriodId: { ...state.exportJobs.byPeriodId, [job.accountingPeriodId]: job },
         },
       };
     }
@@ -654,10 +540,6 @@ function reducer(state = initialState, action) {
       };
     }
     case err(ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD):
-      return {
-        ...dispatchMutationErr(state, action),
-        exportJobs: { ...state.exportJobs, error: formatServerError(action.payload)?.message ?? null },
-      };
     case err(ACTION_TYPE.EXPORT_SEQUENCES):
       return { ...state, exportJobs: { ...state.exportJobs, error: formatServerError(action.payload)?.message ?? null } };
 
@@ -716,10 +598,7 @@ function reducer(state = initialState, action) {
       };
 
     case req(ACTION_TYPE.CREATE_DEPLOYMENT_CONFIGURATION):
-      return {
-        ...dispatchMutationReq(state, action),
-        deploymentConfiguration: { ...state.deploymentConfiguration, submitting: true, error: null },
-      };
+      return { ...state, deploymentConfiguration: { ...state.deploymentConfiguration, submitting: true, error: null } };
     case resp(ACTION_TYPE.CREATE_DEPLOYMENT_CONFIGURATION): {
       // createDeploymentConfiguration only answers with the mutation ids: the
       // submitted values (echoed through the action meta) become the current
@@ -733,7 +612,7 @@ function reducer(state = initialState, action) {
       }
       const submitted = action.meta?.deploymentConfiguration;
       return {
-        ...dispatchMutationResp(state, "createDeploymentConfiguration", action),
+        ...state,
         deploymentConfiguration: {
           ...state.deploymentConfiguration,
           submitting: false,
@@ -744,7 +623,7 @@ function reducer(state = initialState, action) {
     }
     case err(ACTION_TYPE.CREATE_DEPLOYMENT_CONFIGURATION):
       return {
-        ...dispatchMutationErr(state, action),
+        ...state,
         deploymentConfiguration: {
           ...state.deploymentConfiguration,
           submitting: false,

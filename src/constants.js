@@ -32,12 +32,9 @@ export const ACCOUNTING_PERIOD_STATUS = {
 };
 
 // Mirrors backend ManualReviewQueueItem.status (data-model.md)
-// Mirrors the backend `ExternalReplicationRecordStatus` enum (GraphQL values).
 export const MANUAL_REVIEW_STATUS = {
-  PENDING: "PENDING",
-  SUCCEEDED: "SUCCEEDED",
-  REJECTED: "REJECTED",
-  UNCONFIRMED: "UNCONFIRMED",
+  PENDING: "pending",
+  RESOLVED: "resolved",
 };
 
 // Mirrors backend ManualReviewQueueItem.targetSystem (data-model.md) — an

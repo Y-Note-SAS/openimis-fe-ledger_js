@@ -68,13 +68,12 @@
       "pageTitle": "Party Sub-Ledger",
       "balanceTitle": "Signed balance",
       "selectFiltersPrompt": "Select a party and an accounting period to view the period statement.",
-      "statementTitle": "Period statement ({count})",
-      "emptyState": "No balance rows for the selected party and period.",
+      "statementTitle": "Period statement",
+      "emptyState": "No activity for the selected period. Carried-forward balance: {carriedForwardBalance}.",
       "selectedParty": "Selected party: {party}",
       "selectedPeriod": "Selected period: {period}",
       "noPartySelected": "No party selected",
-      "noPeriodSelected": "No period selected",
-      "periodColumn": "Accounting period"
+      "noPeriodSelected": "No period selected"
     },
     "balance": {
       "owedByParty": "Positive balance: owed by the party",
@@ -124,8 +123,7 @@
         "status": "Status",
         "all": "All",
         "noResults": "No periods match the selected status."
-      },
-      "tableTitle": "Accounting Periods ({count})"
+      }
     },
     "reviewQueue": {
       "pageTitle": "Replication Review Queue",
@@ -136,9 +134,7 @@
       },
       "status": {
         "pending": "Pending",
-        "succeeded": "Succeeded",
-        "rejected": "Rejected",
-        "unconfirmed": "Unconfirmed"
+        "resolved": "Resolved"
       },
       "table": {
         "status": "Status",
@@ -166,8 +162,7 @@
         "resolutionNote": "Resolution note",
         "close": "Close",
         "resolve": "Resolve"
-      },
-      "tableTitle": "Review queue ({count})"
+      }
     },
     "export": {
       "pageTitle": "Period Export",
@@ -214,11 +209,6 @@
         "odoo": "Odoo",
         "sage": "Sage"
       }
-    },
-    "pagination": {
-      "next": "Next",
-      "first": "First",
-      "total": "{count} row(s)"
     }
   }
 }

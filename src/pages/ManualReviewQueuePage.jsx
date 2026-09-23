@@ -1,37 +1,72 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import { injectIntl } from "react-intl";
 import { connect } from "react-redux";
 import { bindActionCreators } from "redux";
-import { Alert, Button, Grid, Typography } from "@mui/material";
+import {
+  Alert,
+  Box,
+  Button,
+  Divider,
+  Grid,
+  MenuItem,
+  Paper,
+  Select,
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableRow,
+  Typography,
+} from "@mui/material";
 import { styled } from "@mui/material/styles";
-import {
-  Helmet,
-  Searcher,
-  formatMessage,
-  formatMessageWithValues,
-  journalize,
-  withModulesManager,
-} from "@openimis/fe-core";
-import { DEFAULT_PAGE_SIZE, MANUAL_REVIEW_STATUS, ROWS_PER_PAGE_OPTIONS } from "../constants";
+import { Helmet, withModulesManager, formatMessage } from "@openimis/fe-core";
 import { hasLedgerAdminRight } from "../utils/permissions";
+import { MANUAL_REVIEW_STATUS } from "../constants";
 import {
-  fetchAccountingPeriods,
   fetchLedgerEntries,
+  fetchAccountingPeriods,
   fetchManualReviewQueue,
   resolveManualReviewItem,
 } from "../actions";
-import ManualReviewFilter from "../components/ManualReviewFilter";
 import ManualReviewResolutionDialog from "../components/ManualReviewResolutionDialog";
 
 const StyledPage = styled("div")(({ theme }) => ({
   "& .page": theme.page ?? {},
 }));
 
-/**
- * User Story 5 — replication review queue. `manualReviewQueue` is a paginated
- * connection; pagination and the (server-side) status filter are handled by the
- * shared fe-core `Searcher`.
- */
+const StyledPaper = styled(Paper)(({ theme }) => ({
+  ...(theme?.paper?.paper ?? {}),
+  boxShadow: "none",
+  width: "100%",
+  maxWidth: "100%",
+  boxSizing: "border-box",
+  overflow: "hidden",
+  "& .paperHeader": {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "space-between",
+    padding: theme.spacing(0, 1),
+    minHeight: "40px",
+    width: "100%",
+    color: theme.paper?.header?.color || theme.palette.primary.main,
+    ...theme.paper?.header,
+    backgroundColor: theme.paper?.header?.backgroundColor || theme.palette.primary.light,
+  },
+  "& .paperHeaderTitle": {
+    ...theme.paper?.title,
+    backgroundColor: "transparent",
+    padding: theme.spacing(0.5, 1),
+    border: "none",
+    flexGrow: 1,
+    color: "inherit",
+    display: "flex",
+    alignItems: "center",
+  },
+  "& .paperBody": {
+    padding: theme.spacing(2),
+  },
+}));
+
 const ManualReviewQueuePage = ({
   intl,
   rights,
@@ -39,112 +74,38 @@ const ManualReviewQueuePage = ({
   ledgerEntries,
   accountingPeriods,
   reviewResolution,
-  mutation,
-  submittingMutation,
-  journalize,
   fetchManualReviewQueue,
   fetchLedgerEntries,
   fetchAccountingPeriods,
   resolveManualReviewItem,
 }) => {
-  const fetchContextRef = useRef({ pageInfo: {} });
+  const [statusFilter, setStatusFilter] = useState("");
   const [selectedItemId, setSelectedItemId] = useState(null);
   const isAdmin = hasLedgerAdminRight(rights);
 
-  // Hand the completed resolution mutation to the JournalDrawer.
-  const prevSubmittingMutationRef = useRef();
-  useEffect(() => {
-    prevSubmittingMutationRef.current = submittingMutation;
-  });
-  useEffect(() => {
-    if (prevSubmittingMutationRef.current && !submittingMutation) {
-      journalize(mutation);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [submittingMutation]);
-
   useEffect(() => {
     if (isAdmin) {
+      fetchManualReviewQueue(statusFilter || null);
       fetchAccountingPeriods();
     }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, []);
-
-  const fetch = () => {
-    const { status, pageInfo } = fetchContextRef.current;
-    return fetchManualReviewQueue({ first: pageInfo.first, after: pageInfo.after, status: status ?? null });
-  };
-
-  const filtersToQueryParams = (state) => {
-    fetchContextRef.current = {
-      status: state.filters?.status?.value ?? null,
-      pageInfo: { first: state.pageSize, after: state.afterCursor, before: state.beforeCursor },
-    };
-    const params = [];
-    if (!state.beforeCursor && !state.afterCursor) {
-      params.push(`first: ${state.pageSize}`);
-    }
-    if (state.afterCursor) {
-      params.push(`after: "${state.afterCursor}"`);
-      params.push(`first: ${state.pageSize}`);
-    }
-    if (state.beforeCursor) {
-      params.push(`before: "${state.beforeCursor}"`);
-      params.push(`last: ${state.pageSize}`);
-    }
-    return params;
-  };
+  }, [fetchAccountingPeriods, fetchManualReviewQueue, isAdmin, statusFilter]);
 
   if (!isAdmin) {
     return <Alert severity="error">{formatMessage(intl, "ledger", "ledger.accessDenied")}</Alert>;
   }
 
   const items = manualReviewQueue?.items || [];
+  const visibleItems = statusFilter ? items.filter((item) => item.status === statusFilter) : items;
   const selectedItem = items.find((item) => item.id === selectedItemId) || null;
 
   const openResolution = (item) => {
     setSelectedItemId(item.id);
-    // Same filter shape as the ledger browser: the action resolves the decoded
-    // period id to the period code the backend filters on.
-    fetchLedgerEntries(
-      {
-        accountingPeriodId: item.originalEntry?.accountingPeriodId ?? null,
-        partyAnalyticValueId: item.originalEntry?.partyAnalyticValueId ?? null,
-      },
-      { first: 100 },
-    );
+    fetchLedgerEntries([
+      `accountingPeriod: "${item.originalEntry?.accountingPeriodId}"`,
+      `party: "${item.originalEntry?.partyAnalyticValueId}"`,
+      "first: 100",
+    ]);
   };
-
-  const headers = () => [
-    "ledger.reviewQueue.table.status",
-    "ledger.reviewQueue.table.originalEntry",
-    "ledger.reviewQueue.table.reason",
-    "ledger.reviewQueue.table.targetSystem",
-    "ledger.reviewQueue.table.actions",
-  ];
-
-  const itemFormatters = () => [
-    (item) => formatMessage(intl, "ledger", `ledger.reviewQueue.status.${String(item.status || "").toLowerCase()}`),
-    (item) => (
-      <Typography variant="body2">
-        {item.originalEntry?.sourceEventReference || item.originalEntry?.id || "—"}
-        {item.originalEntry?.journal?.code ? ` · ${item.originalEntry.journal.code}` : ""}
-      </Typography>
-    ),
-    (item) => item.rejectionReason || "—",
-    (item) => item.targetSystem || "—",
-    (item) => (
-      <Button size="small" variant="outlined" onClick={() => openResolution(item)}>
-        {formatMessage(
-          intl,
-          "ledger",
-          item.status === MANUAL_REVIEW_STATUS.PENDING
-            ? "ledger.reviewQueue.action.resolve"
-            : "ledger.reviewQueue.action.view",
-        )}
-      </Button>
-    ),
-  ];
 
   return (
     <StyledPage>
@@ -152,27 +113,75 @@ const ManualReviewQueuePage = ({
         <Helmet title={formatMessage(intl, "ledger", "ledger.reviewQueue.pageTitle")} />
         <Grid container direction="column">
           <Grid size={12}>
-            <Searcher
-              module="ledger"
-              cacheFiltersKey="ledgerReviewQueueFiltersCache"
-              FilterPane={ManualReviewFilter}
-              items={items}
-              itemsPageInfo={manualReviewQueue?.pageInfo}
-              fetchingItems={manualReviewQueue?.isFetching}
-              fetchedItems={manualReviewQueue?.isFetched}
-              errorItems={manualReviewQueue?.error}
-              tableTitle={formatMessageWithValues(intl, "ledger", "ledger.reviewQueue.tableTitle", {
-                count: manualReviewQueue?.pageInfo?.totalCount ?? 0,
-              })}
-              rowsPerPageOptions={ROWS_PER_PAGE_OPTIONS}
-              defaultPageSize={DEFAULT_PAGE_SIZE}
-              defaultFilters={() => ({})}
-              fetch={fetch}
-              rowIdentifier={(item) => item.id}
-              filtersToQueryParams={filtersToQueryParams}
-              headers={headers}
-              itemFormatters={itemFormatters}
-            />
+            <StyledPaper className="paper">
+              <Grid container alignItems="center" direction="row" className="paperHeader">
+                <Grid className="paperHeaderTitle">
+                  <Typography>{formatMessage(intl, "ledger", "ledger.reviewQueue.pageTitle")}</Typography>
+                </Grid>
+                <Grid>
+                  <Select
+                    size="small"
+                    value={statusFilter}
+                    displayEmpty
+                    onChange={(event) => setStatusFilter(event.target.value)}
+                    inputProps={{ "aria-label": formatMessage(intl, "ledger", "ledger.reviewQueue.filter.status") }}
+                  >
+                    <MenuItem value="">{formatMessage(intl, "ledger", "ledger.reviewQueue.filter.all")}</MenuItem>
+                    <MenuItem value={MANUAL_REVIEW_STATUS.PENDING}>{formatMessage(intl, "ledger", "ledger.reviewQueue.status.pending")}</MenuItem>
+                    <MenuItem value={MANUAL_REVIEW_STATUS.RESOLVED}>{formatMessage(intl, "ledger", "ledger.reviewQueue.status.resolved")}</MenuItem>
+                  </Select>
+                </Grid>
+              </Grid>
+              <Divider />
+              {manualReviewQueue?.error ? (
+                <Box className="paperBody">
+                  <Alert severity="error">{manualReviewQueue.error.message || manualReviewQueue.error}</Alert>
+                </Box>
+              ) : null}
+              <Box className="paperBody" sx={{ overflowX: "auto" }}>
+                {visibleItems.length === 0 ? (
+                  <Typography variant="body2" color="text.secondary">
+                    {formatMessage(intl, "ledger", "ledger.reviewQueue.empty")}
+                  </Typography>
+                ) : (
+                  <Table size="small">
+                    <TableHead>
+                      <TableRow>
+                        <TableCell>{formatMessage(intl, "ledger", "ledger.reviewQueue.table.status")}</TableCell>
+                        <TableCell>{formatMessage(intl, "ledger", "ledger.reviewQueue.table.originalEntry")}</TableCell>
+                        <TableCell>{formatMessage(intl, "ledger", "ledger.reviewQueue.table.reason")}</TableCell>
+                        <TableCell>{formatMessage(intl, "ledger", "ledger.reviewQueue.table.targetSystem")}</TableCell>
+                        <TableCell>{formatMessage(intl, "ledger", "ledger.reviewQueue.table.actions")}</TableCell>
+                      </TableRow>
+                    </TableHead>
+                    <TableBody>
+                      {visibleItems.map((item) => (
+                        <TableRow key={item.id}>
+                          <TableCell>{formatMessage(intl, "ledger", `ledger.reviewQueue.status.${item.status}`)}</TableCell>
+                          <TableCell>
+                            {item.originalEntry?.sourceEventReference || item.originalEntry?.id || "—"}
+                            {item.originalEntry?.journalCode ? ` · ${item.originalEntry.journalCode}` : ""}
+                          </TableCell>
+                          <TableCell>{item.rejectionReason || item.flagReason || "—"}</TableCell>
+                          <TableCell>{item.targetSystem || "—"}</TableCell>
+                          <TableCell>
+                            <Button size="small" variant="outlined" onClick={() => openResolution(item)}>
+                              {formatMessage(
+                                intl,
+                                "ledger",
+                                item.status === MANUAL_REVIEW_STATUS.PENDING
+                                  ? "ledger.reviewQueue.action.resolve"
+                                  : "ledger.reviewQueue.action.view",
+                              )}
+                            </Button>
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                )}
+              </Box>
+            </StyledPaper>
           </Grid>
         </Grid>
         <ManualReviewResolutionDialog
@@ -184,9 +193,7 @@ const ManualReviewQueuePage = ({
           error={reviewResolution?.error}
           onClose={() => setSelectedItemId(null)}
           onResolve={(itemId, correctingEntryId, resolutionNote) =>
-            // The mutation payload only carries ids: refresh the queue once it
-            // settles.
-            Promise.resolve(resolveManualReviewItem(itemId, correctingEntryId, resolutionNote)).then(() => fetch())
+            resolveManualReviewItem(itemId, correctingEntryId, resolutionNote)
           }
         />
       </div>
@@ -200,13 +207,11 @@ const mapStateToProps = (state) => ({
   ledgerEntries: state.ledger.ledgerEntries,
   accountingPeriods: state.ledger.accountingPeriods,
   reviewResolution: state.ledger.reviewResolution,
-  mutation: state.ledger.mutation,
-  submittingMutation: state.ledger.submittingMutation,
 });
 
 const mapDispatchToProps = (dispatch) =>
   bindActionCreators(
-    { fetchManualReviewQueue, fetchLedgerEntries, fetchAccountingPeriods, resolveManualReviewItem, journalize },
+    { fetchManualReviewQueue, fetchLedgerEntries, fetchAccountingPeriods, resolveManualReviewItem },
     dispatch,
   );
 
