@@ -1,6 +1,6 @@
 import { graphql, graphqlWithVariables, decodeId, formatMutation } from "@openimis/fe-core";
 import { ACTION_TYPE } from "./reducer";
-import { EXPORT_JOB_POLL_INTERVAL_MS, MOCK_EXPORT_POLL_INTERVAL_MS } from "./constants";
+import { DEFAULT_PAGE_SIZE, EXPORT_JOB_POLL_INTERVAL_MS, MOCK_EXPORT_POLL_INTERVAL_MS } from "./constants";
 
 // GraphQL operation strings target the REAL openimis-be-ledger_py schema:
 // snake_case root fields, Relay connections, graphene-django camelCased root
@@ -117,91 +117,68 @@ const JOURNALS_BY_TYPE_QUERY = `
   }
 `;
 
+// User Story 2 — party sub-ledger. The backend exposes a PAGINATED connection
+// of balance rows (one per accounting period for a given analytic value).
+// Only exact filters exist: `analyticValue_DisplayName` (there is no id filter)
+// and `accountingPeriod_Code`.
 const PARTY_LEDGER_BALANCE_QUERY = `
-  query PartyLedgerBalance($analyticValueId: ID!, $accountingPeriod: ID!) {
-    partyLedgerBalance(analyticValueId: $analyticValueId, accountingPeriod: $accountingPeriod) {
-      analyticValueId accountingPeriodId debitTotal creditTotal balance carriedForwardBalance
-      transactions {
-        id journal { code name } postedAt sourceEventType sourceEventReference
-        lines: legs { id account { code name } debit credit }
+  query PartyLedgerBalance($displayName: String, $periodCode: String, $first: Int, $after: String) {
+    partyLedgerBalance(
+      analyticValue_DisplayName: $displayName
+      accountingPeriod_Code: $periodCode
+      first: $first
+      after: $after
+    ) {
+      totalCount
+      pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
+      edges {
+        node {
+          id
+          accountingPeriod { id code name startDate endDate status }
+          analyticValue { id displayName }
+          debitAmount creditAmount balanceAmount
+        }
       }
     }
   }
 `;
 
+// User Story 3 — funder activity. NOT a connection: a single aggregate for one
+// analytic value over one accounting period (both arguments are required UUIDs).
 const FUNDER_ACTIVITY_REPORT_QUERY = `
-  query FunderActivityReport($analyticValueId: ID!, $accountingPeriodStart: ID, $accountingPeriodEnd: ID) {
-    funderActivityReport(
-      analyticValueId: $analyticValueId
-      accountingPeriodStart: $accountingPeriodStart
-      accountingPeriodEnd: $accountingPeriodEnd
-    ) {
-      analyticValueId debitTotal creditTotal balance
-      byCategory { category debit credit balance }
+  query FunderActivityReport($analyticValueId: UUID!, $accountingPeriodId: UUID!) {
+    funderActivityReport(analyticValueId: $analyticValueId, accountingPeriodId: $accountingPeriodId) {
+      debitAmount creditAmount balanceAmount
     }
   }
 `;
 
-const OPEN_ACCOUNTING_PERIOD_MUTATION = `
-  mutation OpenAccountingPeriod($startDate: Date!, $endDate: Date!) {
-    openAccountingPeriod(startDate: $startDate, endDate: $endDate) {
-      clientMutationId
-      accountingPeriod { id startDate endDate status }
-      errors { field message }
-    }
-  }
-`;
+// Accounting-period lifecycle mutations use the standard openIMIS
+// `input: {...}` shape + `formatMutation` (payload exposes only
+// `clientMutationId`/`internalId`, so callers refetch the list).
 
-const LOCK_ACCOUNTING_PERIOD_MUTATION = `
-  mutation LockAccountingPeriod($accountingPeriodId: ID!) {
-    lockAccountingPeriod(accountingPeriodId: $accountingPeriodId) {
-      clientMutationId
-      accountingPeriod { id status lockedAt }
-      errors { field message }
-    }
-  }
-`;
-
-const CLOSE_ACCOUNTING_PERIOD_MUTATION = `
-  mutation CloseAccountingPeriod($accountingPeriodId: ID!) {
-    closeAccountingPeriod(accountingPeriodId: $accountingPeriodId) {
-      clientMutationId
-      accountingPeriod { id status closedAt }
-      errors { field message }
-    }
-  }
-`;
-
-const REOPEN_ACCOUNTING_PERIOD_MUTATION = `
-  mutation ReopenAccountingPeriod($accountingPeriodId: ID!) {
-    reopenAccountingPeriod(accountingPeriodId: $accountingPeriodId) {
-      clientMutationId
-      accountingPeriod { id status }
-      errors { field message }
-    }
-  }
-`;
-
+// User Story 5 — manual review queue (paginated connection).
 const MANUAL_REVIEW_QUEUE_QUERY = `
-  query ManualReviewQueue($status: String) {
-    manualReviewQueue(status: $status) {
-      id status createdAt rejectionReason targetSystem
-      originalEntry { id partyAnalyticValueId accountingPeriodId }
-      resolvedAt resolutionNote correctingEntryId
-    }
-  }
-`;
-
-const RESOLVE_MANUAL_REVIEW_ITEM_MUTATION = `
-  mutation ResolveManualReviewItem($reviewItemId: ID!, $correctingTransactionId: ID!, $resolutionNote: String!) {
-    resolveManualReviewItem(
-      reviewItemId: $reviewItemId
-      correctingTransactionId: $correctingTransactionId
-      resolutionNote: $resolutionNote
-    ) {
-      clientMutationId
-      manualReviewQueueItem { id status resolvedAt resolutionNote correctingEntryId }
-      errors { field message }
+  query ManualReviewQueue($first: Int, $after: String, $status: ExternalReplicationRecordStatus) {
+    manualReviewQueue(first: $first, after: $after, replicationRecord_Status: $status) {
+      totalCount
+      pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
+      edges {
+        node {
+          id createdAt resolvedAt resolutionNote
+          resolvedByTransaction { id }
+          replicationRecord {
+            id status targetSystem rejectionReason externalReference
+            ledgerEntry {
+              id postedAt sourceEventType sourceEventReference
+              journal { id code name }
+              accountingPeriod { id code name }
+              party { id displayName }
+              funder { id displayName }
+            }
+          }
+        }
+      }
     }
   }
 `;
@@ -984,8 +961,13 @@ export function fetchLedgerEntries(filters = {}, pageInfo = {}) {
     // open period so we never send an unscoped query. If no period can be
     // resolved at all, wait rather than requesting every entry (the page loads
     // the periods at mount).
+    // FR-001: default to the current open period on first load. The user can
+    // however explicitly clear the filter ("Any") — data-model.md §107 — in
+    // which case the query is deliberately sent unscoped so every entry is
+    // listed, whatever its period.
+    const explicitlyCleared = filters.accountingPeriodId === null;
     let accountingPeriodId = filters.accountingPeriodId;
-    if (!accountingPeriodId || !periods.some((period) => period.id === accountingPeriodId)) {
+    if (!explicitlyCleared && (!accountingPeriodId || !periods.some((period) => period.id === accountingPeriodId))) {
       const openPeriod = periods.find((period) => period.status === "open");
       accountingPeriodId = openPeriod?.id ?? null;
     }
@@ -994,7 +976,7 @@ export function fetchLedgerEntries(filters = {}, pageInfo = {}) {
       ? (periods.find((period) => period.id === accountingPeriodId)?.code ?? null)
       : null;
 
-    if (accountingPeriodId === null || accountingPeriodCode === null) {
+    if (!explicitlyCleared && (accountingPeriodId === null || accountingPeriodCode === null)) {
       return;
     }
 
@@ -1002,7 +984,7 @@ export function fetchLedgerEntries(filters = {}, pageInfo = {}) {
 
     const variables = {
       journal: filters.journal ?? null,
-      accountingPeriodCode,
+      accountingPeriodCode: explicitlyCleared ? null : accountingPeriodCode,
       party: decodeUuid(filters.partyAnalyticValueId),
       funder: decodeUuid(filters.funderAnalyticValueId),
       sourceEventType: toGrapheneEnum(filters.sourceEventType),
@@ -1017,7 +999,7 @@ export function fetchLedgerEntries(filters = {}, pageInfo = {}) {
         LEDGER_ENTRIES_QUERY,
         variables,
         [`${ACTION_TYPE.LEDGER_ENTRIES}_REQ`, `${ACTION_TYPE.LEDGER_ENTRIES}_RESP`, `${ACTION_TYPE.LEDGER_ENTRIES}_ERR`],
-        { filters: resolvedFilters },
+        { filters: resolvedFilters, orderBy: pageInfo.orderBy ?? "-postedAt" },
       ),
     );
   };
@@ -1068,8 +1050,8 @@ export function resetPartyLedgerBalance() {
   return { type: `${ACTION_TYPE.PARTY_LEDGER_BALANCE_RESET}` };
 }
 
-export function fetchPartyLedgerBalance(analyticValueId, accountingPeriodId) {
-  const variables = { analyticValueId, accountingPeriod: accountingPeriodId };
+export function fetchPartyLedgerBalance({ displayName = null, periodCode = null, first = DEFAULT_PAGE_SIZE, after = null } = {}) {
+  const variables = { displayName, periodCode, first, after };
   return graphqlWithVariables(PARTY_LEDGER_BALANCE_QUERY, variables, [
     `${ACTION_TYPE.PARTY_LEDGER_BALANCE}_REQ`,
     `${ACTION_TYPE.PARTY_LEDGER_BALANCE}_RESP`,
@@ -1089,12 +1071,8 @@ export function searchFunder(searchTerm) {
 }
 
 /** User Story 3 — aggregated funder activity, independent of any party filter. */
-export function fetchFunderActivityReport(analyticValueId, periodRange = {}) {
-  const variables = {
-    analyticValueId,
-    accountingPeriodStart: periodRange.start ?? null,
-    accountingPeriodEnd: periodRange.end ?? null,
-  };
+export function fetchFunderActivityReport(analyticValueId, accountingPeriodId) {
+  const variables = { analyticValueId, accountingPeriodId };
   return graphqlWithVariables(FUNDER_ACTIVITY_REPORT_QUERY, variables, [
     `${ACTION_TYPE.FUNDER_ACTIVITY_REPORT}_REQ`,
     `${ACTION_TYPE.FUNDER_ACTIVITY_REPORT}_RESP`,
@@ -1102,44 +1080,65 @@ export function fetchFunderActivityReport(analyticValueId, periodRange = {}) {
   ]);
 }
 
-/** User Story 4 — open a new accounting period. */
-export function openAccountingPeriod(startDate, endDate) {
-  const variables = { startDate, endDate };
-  return graphqlWithVariables(OPEN_ACCOUNTING_PERIOD_MUTATION, variables, [
-    `${ACTION_TYPE.OPEN_ACCOUNTING_PERIOD}_REQ`,
-    `${ACTION_TYPE.OPEN_ACCOUNTING_PERIOD}_RESP`,
-    `${ACTION_TYPE.OPEN_ACCOUNTING_PERIOD}_ERR`,
-  ]);
+/** Shared helper: the openIMIS `input: {...}` mutation shape. */
+const periodMutationAction = (operationName, input, clientMutationLabel, actionType) => {
+  const mutation = formatMutation(operationName, input, clientMutationLabel);
+  return graphql(
+    mutation.payload,
+    [`${actionType}_REQ`, `${actionType}_RESP`, `${actionType}_ERR`],
+    // Passed as `meta` so the reducer can track the mutation (clientMutationId,
+    // label) and the JournalDrawer can display it.
+    { clientMutationId: mutation.clientMutationId, clientMutationLabel, requestedDateTime: new Date() },
+  );
+};
+
+/** User Story 4 — open a new accounting period (`openAccountingPeriod(input: {...})`). */
+export function openAccountingPeriod(startDate, endDate, clientMutationLabel = "Open accounting period") {
+  // The backend input requires a name and a code (both `String!`); derive them
+  // from the start date (YYYY-MM), which matches the existing periods.
+  const code = (startDate || "").slice(0, 7);
+  const input = [
+    `startDate: ${JSON.stringify(startDate)}`,
+    `endDate: ${JSON.stringify(endDate)}`,
+    `name: ${JSON.stringify(code)}`,
+    `code: ${JSON.stringify(code)}`,
+  ].join(" ");
+  return periodMutationAction("openAccountingPeriod", input, clientMutationLabel, ACTION_TYPE.OPEN_ACCOUNTING_PERIOD);
 }
 
-/** User Story 4 — period lifecycle transitions. `errors[].message` is surfaced verbatim (FR-009). */
-export function lockAccountingPeriod(accountingPeriodId) {
-  return graphqlWithVariables(LOCK_ACCOUNTING_PERIOD_MUTATION, { accountingPeriodId }, [
-    `${ACTION_TYPE.LOCK_ACCOUNTING_PERIOD}_REQ`,
-    `${ACTION_TYPE.LOCK_ACCOUNTING_PERIOD}_RESP`,
-    `${ACTION_TYPE.LOCK_ACCOUNTING_PERIOD}_ERR`,
-  ]);
+/** User Story 4 — lock a period (`lockAccountingPeriod(input: { id })`). */
+export function lockAccountingPeriod(accountingPeriodId, clientMutationLabel = "Lock accounting period") {
+  return periodMutationAction(
+    "lockAccountingPeriod",
+    `id: ${JSON.stringify(accountingPeriodId)}`,
+    clientMutationLabel,
+    ACTION_TYPE.LOCK_ACCOUNTING_PERIOD,
+  );
 }
 
-export function closeAccountingPeriod(accountingPeriodId) {
-  return graphqlWithVariables(CLOSE_ACCOUNTING_PERIOD_MUTATION, { accountingPeriodId }, [
-    `${ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD}_REQ`,
-    `${ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD}_RESP`,
-    `${ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD}_ERR`,
-  ]);
+/** User Story 4 — close a period (`closeAccountingPeriod(input: { id })`). */
+export function closeAccountingPeriod(accountingPeriodId, clientMutationLabel = "Close accounting period") {
+  return periodMutationAction(
+    "closeAccountingPeriod",
+    `id: ${JSON.stringify(accountingPeriodId)}`,
+    clientMutationLabel,
+    ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD,
+  );
 }
 
-export function reopenAccountingPeriod(accountingPeriodId) {
-  return graphqlWithVariables(REOPEN_ACCOUNTING_PERIOD_MUTATION, { accountingPeriodId }, [
-    `${ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD}_REQ`,
-    `${ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD}_RESP`,
-    `${ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD}_ERR`,
-  ]);
+/** User Story 4 — reopen a period (`reopenAccountingPeriod(input: { id })`). */
+export function reopenAccountingPeriod(accountingPeriodId, clientMutationLabel = "Reopen accounting period") {
+  return periodMutationAction(
+    "reopenAccountingPeriod",
+    `id: ${JSON.stringify(accountingPeriodId)}`,
+    clientMutationLabel,
+    ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD,
+  );
 }
 
 /** User Story 5 — flagged replication items awaiting manual resolution. */
-export function fetchManualReviewQueue(status = null) {
-  return graphqlWithVariables(MANUAL_REVIEW_QUEUE_QUERY, { status }, [
+export function fetchManualReviewQueue({ first = DEFAULT_PAGE_SIZE, after = null, status = null } = {}) {
+  return graphqlWithVariables(MANUAL_REVIEW_QUEUE_QUERY, { first, after, status }, [
     `${ACTION_TYPE.MANUAL_REVIEW_QUEUE}_REQ`,
     `${ACTION_TYPE.MANUAL_REVIEW_QUEUE}_RESP`,
     `${ACTION_TYPE.MANUAL_REVIEW_QUEUE}_ERR`,
@@ -1152,22 +1151,44 @@ export function fetchManualReviewQueue(status = null) {
  * candidate per `utils/correctingEntryCandidates.js`; the original entry is
  * never edited, FR-012).
  */
-export function resolveManualReviewItem(reviewItemId, correctingTransactionId, resolutionNote) {
-  const variables = { reviewItemId, correctingTransactionId, resolutionNote };
-  return graphqlWithVariables(RESOLVE_MANUAL_REVIEW_ITEM_MUTATION, variables, [
-    `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_REQ`,
-    `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_RESP`,
-    `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_ERR`,
-  ]);
+export function resolveManualReviewItem(
+  replicationRecordId,
+  resolvedByTransactionId,
+  resolutionNote,
+  clientMutationLabel = "Resolve manual review item",
+) {
+  const input = [
+    `replicationRecordId: ${JSON.stringify(replicationRecordId)}`,
+    `resolvedByTransactionId: ${JSON.stringify(resolvedByTransactionId)}`,
+    `resolutionNote: ${JSON.stringify(resolutionNote ?? "")}`,
+  ].join(" ");
+  const mutation = formatMutation("resolveManualReview", input, clientMutationLabel);
+  return graphql(
+    mutation.payload,
+    [
+      `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_REQ`,
+      `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_RESP`,
+      `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_ERR`,
+    ],
+    { clientMutationId: mutation.clientMutationId, clientMutationLabel, requestedDateTime: new Date() },
+  );
 }
 
 /** User Story 6 — trigger an async export job; `format` is chosen per-trigger, never sourced from deployment config. */
-export function exportAccountingPeriod(accountingPeriodId, format) {
-  return graphqlWithVariables(EXPORT_ACCOUNTING_PERIOD_MUTATION, { accountingPeriodId, format }, [
-    `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_REQ`,
-    `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_RESP`,
-    `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_ERR`,
-  ]);
+export function exportAccountingPeriod(accountingPeriodId, format, clientMutationLabel = "Export accounting period") {
+  const clientMutationId =
+    globalThis.crypto?.randomUUID?.() ?? `export-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return graphqlWithVariables(
+    EXPORT_ACCOUNTING_PERIOD_MUTATION,
+    { accountingPeriodId, format },
+    [
+      `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_REQ`,
+      `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_RESP`,
+      `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_ERR`,
+    ],
+    // `meta` so the reducer tracks the mutation and the JournalDrawer shows it.
+    { clientMutationId, clientMutationLabel, requestedDateTime: new Date(), accountingPeriodId },
+  );
 }
 
 function fetchExportSequences(accountingPeriodId, journal = null) {

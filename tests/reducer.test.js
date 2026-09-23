@@ -155,7 +155,10 @@ describe("Reducer", () => {
     const state = reducer(initialState, action);
     const entry = state.ledgerEntries.items[0];
     expect(entry.lines).toHaveLength(1);
-    expect(entry.lines[0].partyTag).toEqual({ analyticValueId: "QW5hbHl0aWNWYWx1ZTox", displayName: "District Hospital" });
+    expect(entry.lines[0].partyTag).toEqual({
+      analyticValueId: "QW5hbHl0aWNWYWx1ZTox",
+      displayName: "District Hospital",
+    });
     expect(entry.lines[0].funderTag).toEqual({ analyticValueId: "QW5hbHl0aWNWYWx1ZToy", displayName: "GIZ" });
     expect(entry.totals).toEqual({ debit: 100, credit: 0, balance: 100 });
   });
@@ -223,7 +226,7 @@ describe("Reducer", () => {
   it("handles LEDGER_LEDGER_ENTRIES_ERR", () => {
     const action = {
       type: `${ACTION_TYPE.LEDGER_ENTRIES}_ERR`,
-      payload: { message: "Network error" }
+      payload: { message: "Network error" },
     };
     const state = reducer(initialState, action);
     expect(state.ledgerEntries.isFetching).toBe(false);
@@ -282,7 +285,15 @@ describe("Reducer", () => {
         data: {
           analyticValue: {
             edges: [
-              { node: { id: "QW5hbHl0aWNWYWx1ZTox", displayName: "Party A", partyType: "health_facility", funderCode: null, externalReference: "HF-1" } },
+              {
+                node: {
+                  id: "QW5hbHl0aWNWYWx1ZTox",
+                  displayName: "Party A",
+                  partyType: "health_facility",
+                  funderCode: null,
+                  externalReference: "HF-1",
+                },
+              },
             ],
           },
         },
@@ -300,7 +311,7 @@ describe("Reducer", () => {
   it("handles LEDGER_PARTY_SEARCH_ERR", () => {
     const action = {
       type: `${ACTION_TYPE.PARTY_SEARCH}_ERR`,
-      payload: { message: "Search failed" }
+      payload: { message: "Search failed" },
     };
     const state = reducer(initialState, action);
     expect(state.partySearch.isFetching).toBe(false);
@@ -313,28 +324,36 @@ describe("Reducer", () => {
       payload: {
         data: {
           partyLedgerBalance: {
-            analyticValueId: "1",
-            debitTotal: 1000,
-            creditTotal: 500,
-            balance: 500,
-            transactions: [
-              { id: "1", journal: { code: "BANK" }, lines: [{ debit: 1000, credit: 0 }] }
-            ]
-          }
-        }
-      }
+            totalCount: 1,
+            pageInfo: { hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },
+            edges: [
+              {
+                node: {
+                  id: "balance-1",
+                  accountingPeriod: { code: "2026-07" },
+                  analyticValue: { displayName: "District Hospital" },
+                  debitAmount: 1000,
+                  creditAmount: 500,
+                  balanceAmount: 500,
+                },
+              },
+            ],
+          },
+        },
+      },
     };
     const state = reducer(initialState, action);
     expect(state.partyLedgerBalance.isFetching).toBe(false);
     expect(state.partyLedgerBalance.isFetched).toBe(true);
-    expect(state.partyLedgerBalance.data).toBeDefined();
-    expect(state.partyLedgerBalance.data.debitTotal).toBe(1000);
+    expect(state.partyLedgerBalance.items).toHaveLength(1);
+    expect(state.partyLedgerBalance.items[0].balanceAmount).toBe(500);
+    expect(state.partyLedgerBalance.pageInfo.totalCount).toBe(1);
   });
 
   it("handles LEDGER_PARTY_LEDGER_BALANCE_ERR", () => {
     const action = {
       type: `${ACTION_TYPE.PARTY_LEDGER_BALANCE}_ERR`,
-      payload: { message: "Balance failed" }
+      payload: { message: "Balance failed" },
     };
     const state = reducer(initialState, action);
     expect(state.partyLedgerBalance.isFetching).toBe(false);
@@ -344,10 +363,16 @@ describe("Reducer", () => {
   it("handles LEDGER_PARTY_LEDGER_BALANCE_RESET", () => {
     const withData = reducer(initialState, {
       type: `${ACTION_TYPE.PARTY_LEDGER_BALANCE}_RESP`,
-      payload: { data: { partyLedgerBalance: { balance: 500, transactions: [] } } },
+      payload: { data: { partyLedgerBalance: { totalCount: 0, edges: [], pageInfo: {} } } },
     });
     const state = reducer(withData, { type: `${ACTION_TYPE.PARTY_LEDGER_BALANCE_RESET}` });
-    expect(state.partyLedgerBalance).toEqual({ isFetching: false, isFetched: false, error: null, data: null });
+    expect(state.partyLedgerBalance).toEqual({
+      isFetching: false,
+      isFetched: false,
+      error: null,
+      items: [],
+      pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },
+    });
   });
 
   it("handles LEDGER_FUNDER_SEARCH_RESP (analyticValue connection)", () => {
@@ -357,7 +382,15 @@ describe("Reducer", () => {
         data: {
           analyticValue: {
             edges: [
-              { node: { id: "QW5hbHl0aWNWYWx1ZToy", displayName: "Funder A", partyType: null, funderCode: "GIZ", externalReference: "GIZ" } },
+              {
+                node: {
+                  id: "QW5hbHl0aWNWYWx1ZToy",
+                  displayName: "Funder A",
+                  partyType: null,
+                  funderCode: "GIZ",
+                  externalReference: "GIZ",
+                },
+              },
             ],
           },
         },
@@ -380,10 +413,10 @@ describe("Reducer", () => {
             analyticValueId: "1",
             debitTotal: 2000,
             creditTotal: 1000,
-            balance: 1000
-          }
-        }
-      }
+            balance: 1000,
+          },
+        },
+      },
     };
     const state = reducer(initialState, action);
     expect(state.funderActivityReport.isFetching).toBe(false);
@@ -402,7 +435,7 @@ describe("Reducer", () => {
   it("handles LEDGER_FUNDER_SEARCH_ERR", () => {
     const action = {
       type: `${ACTION_TYPE.FUNDER_SEARCH}_ERR`,
-      payload: { message: "Search failed" }
+      payload: { message: "Search failed" },
     };
     const state = reducer(initialState, action);
     expect(state.funderSearch.isFetching).toBe(false);
@@ -420,7 +453,7 @@ describe("Reducer", () => {
   it("handles LEDGER_FUNDER_ACTIVITY_REPORT_ERR", () => {
     const action = {
       type: `${ACTION_TYPE.FUNDER_ACTIVITY_REPORT}_ERR`,
-      payload: { message: "Report failed" }
+      payload: { message: "Report failed" },
     };
     const state = reducer(initialState, action);
     expect(state.funderActivityReport.isFetching).toBe(false);
@@ -440,11 +473,16 @@ describe("Reducer", () => {
       payload: {
         data: {
           openAccountingPeriod: {
-            accountingPeriod: { id: "QWNjb3VudGluZ1BlcmlvZDox", startDate: "2026-08-01", endDate: "2026-08-31", status: "open" },
-            errors: []
-          }
-        }
-      }
+            accountingPeriod: {
+              id: "QWNjb3VudGluZ1BlcmlvZDox",
+              startDate: "2026-08-01",
+              endDate: "2026-08-31",
+              status: "open",
+            },
+            errors: [],
+          },
+        },
+      },
     };
     const state = reducer(initialState, action);
     expect(state.periodMutation.submitting).toBe(false);
@@ -455,7 +493,7 @@ describe("Reducer", () => {
   it("handles LEDGER_OPEN_ACCOUNTING_PERIOD_ERR with a string error message", () => {
     const action = {
       type: `${ACTION_TYPE.OPEN_ACCOUNTING_PERIOD}_ERR`,
-      payload: { message: "Network error" }
+      payload: { message: "Network error" },
     };
     const state = reducer(initialState, action);
     expect(state.periodMutation.submitting).toBe(false);
@@ -469,10 +507,10 @@ describe("Reducer", () => {
       payload: {
         data: {
           openAccountingPeriod: {
-            errors: [{ field: "startDate", message: "Invalid date" }]
-          }
-        }
-      }
+            errors: [{ field: "startDate", message: "Invalid date" }],
+          },
+        },
+      },
     };
     const state = reducer(initialState, action);
     expect(state.periodMutation.submitting).toBe(false);
@@ -485,17 +523,35 @@ describe("Reducer", () => {
       type: `${ACTION_TYPE.MANUAL_REVIEW_QUEUE}_RESP`,
       payload: {
         data: {
-          manualReviewQueue: [
-            { id: "QWNjb3VudGluZ1BlcmlvZDox", status: "pending" }
-          ]
-        }
-      }
+          manualReviewQueue: {
+            totalCount: 1,
+            pageInfo: { hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },
+            edges: [
+              {
+                node: {
+                  id: "item-1",
+                  createdAt: "2026-07-01T10:00:00Z",
+                  resolvedAt: null,
+                  resolutionNote: null,
+                  resolvedByTransaction: null,
+                  replicationRecord: { status: "PENDING", targetSystem: "ODOO", rejectionReason: "boom" },
+                },
+              },
+            ],
+          },
+        },
+      },
     };
     const state = reducer(initialState, action);
     expect(state.manualReviewQueue.isFetching).toBe(false);
     expect(state.manualReviewQueue.isFetched).toBe(true);
-    expect(state.manualReviewQueue.items.length).toBe(1);
-    expect(state.manualReviewQueue.items[0].id).toBe("QWNjb3VudGluZ1BlcmlvZDox");
+    expect(state.manualReviewQueue.items).toHaveLength(1);
+    expect(state.manualReviewQueue.items[0]).toMatchObject({
+      id: "item-1",
+      status: "PENDING",
+      targetSystem: "ODOO",
+      rejectionReason: "boom",
+    });
   });
 
   it("handles LEDGER_RESOLVE_MANUAL_REVIEW_ITEM_RESP", () => {
@@ -503,8 +559,8 @@ describe("Reducer", () => {
       ...initialState,
       manualReviewQueue: {
         ...initialState.manualReviewQueue,
-        items: [{ id: "1", status: "pending" }]
-      }
+        items: [{ id: "1", status: "pending" }],
+      },
     };
     const action = {
       type: `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_RESP`,
@@ -515,17 +571,60 @@ describe("Reducer", () => {
               id: "1",
               status: "resolved",
               resolvedAt: "2026-07-31",
-              resolutionNote: "Corrected"
+              resolutionNote: "Corrected",
             },
-            errors: []
-          }
-        }
-      }
+            errors: [],
+          },
+        },
+      },
     };
     const state = reducer(initialStateWithItem, action);
     expect(state.reviewResolution.submitting).toBe(false);
     expect(state.reviewResolution.error).toBe(null);
     expect(state.manualReviewQueue.items[0].status).toBe("resolved");
+  });
+
+  it("maps the GraphQL node returned by the backend instead of merging it raw", () => {
+    const initialStateWithItem = {
+      ...initialState,
+      manualReviewQueue: {
+        ...initialState.manualReviewQueue,
+        items: [{ id: "item-1", status: "PENDING", correctingEntryId: null }],
+      },
+    };
+    const action = {
+      type: `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_RESP`,
+      payload: {
+        data: {
+          resolveManualReviewItem: {
+            manualReviewQueueItem: {
+              id: "item-1",
+              resolvedAt: "2026-07-31T10:00:00Z",
+              resolutionNote: "Corrected",
+              resolvedByTransaction: { id: "txn-42" },
+              replicationRecord: {
+                status: "SUCCEEDED",
+                targetSystem: "odoo",
+                rejectionReason: null,
+                externalReference: "REF-1",
+                ledgerEntry: null,
+              },
+            },
+            errors: [],
+          },
+        },
+      },
+    };
+    const state = reducer(initialStateWithItem, action);
+
+    // The raw node field names must not leak into the view-model.
+    expect(state.manualReviewQueue.items[0]).toMatchObject({
+      id: "item-1",
+      status: "SUCCEEDED",
+      correctingEntryId: "txn-42",
+      resolutionNote: "Corrected",
+    });
+    expect(state.manualReviewQueue.items[0].resolvedByTransaction).toBeUndefined();
   });
 
   it("handles LEDGER_RESOLVE_MANUAL_REVIEW_ITEM_ERR", () => {
@@ -554,10 +653,10 @@ describe("Reducer", () => {
       payload: {
         data: {
           exportAccountingPeriod: {
-            exportJob: { accountingPeriodId: "1", format: "CSV", status: "in_progress" }
-          }
-        }
-      }
+            exportJob: { accountingPeriodId: "1", format: "CSV", status: "in_progress" },
+          },
+        },
+      },
     };
     const state = reducer(initialState, action);
     expect(state.exportJobs.byPeriodId["1"]).toBeDefined();
@@ -569,9 +668,14 @@ describe("Reducer", () => {
       type: `${ACTION_TYPE.EXPORT_SEQUENCES}_RESP`,
       payload: {
         data: {
-          exportSequences: { accountingPeriodId: "1", format: "CSV", status: "complete", downloadUrl: "http://example.com/export.csv" }
-        }
-      }
+          exportSequences: {
+            accountingPeriodId: "1",
+            format: "CSV",
+            status: "complete",
+            downloadUrl: "http://example.com/export.csv",
+          },
+        },
+      },
     };
     const state = reducer(initialState, action);
     expect(state.exportJobs.byPeriodId["1"]).toBeDefined();

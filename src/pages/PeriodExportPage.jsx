@@ -3,7 +3,13 @@ import { Alert, Box, Button, Divider, Grid, MenuItem, Paper, TextField, Typograp
 import { styled } from "@mui/material/styles";
 import { injectIntl } from "react-intl";
 import { connect } from "react-redux";
-import { GRID_RESPONSIVE_STANDARD, Helmet, withModulesManager, formatMessage } from "@openimis/fe-core";
+import {
+  GRID_RESPONSIVE_STANDARD,
+  Helmet,
+  journalize,
+  withModulesManager,
+  formatMessage,
+} from "@openimis/fe-core";
 import AccountingPeriodPicker from "../pickers/AccountingPeriodPicker";
 import ExportJobStatus from "../components/ExportJobStatus";
 import { EXPORT_FORMAT } from "../constants";
@@ -59,7 +65,22 @@ const PeriodExportPage = ({
   fetchAccountingPeriods: loadPeriods,
   exportAccountingPeriod: startExport,
   pollExportJob: startPolling,
+  mutation,
+  submittingMutation,
+  journalize,
 }) => {
+  // Hand the completed export mutation to the JournalDrawer (right panel).
+  const prevSubmittingMutationRef = useRef();
+  useEffect(() => {
+    prevSubmittingMutationRef.current = submittingMutation;
+  });
+  useEffect(() => {
+    if (prevSubmittingMutationRef.current && !submittingMutation) {
+      journalize(mutation);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [submittingMutation]);
+
   const [periodId, setPeriodId] = useState(null);
   const [format, setFormat] = useState(EXPORT_FORMAT.GENERIC);
   const stopPollingRef = useRef(null);
@@ -178,9 +199,12 @@ const mapStateToProps = (state) => ({
   rights: state.core?.user?.i_user?.rights || [],
   accountingPeriods: state.ledger?.accountingPeriods,
   exportJobs: state.ledger?.exportJobs,
+  mutation: state.ledger?.mutation,
+  submittingMutation: state.ledger?.submittingMutation,
 });
 
 const mapDispatchToProps = {
+  journalize,
   fetchAccountingPeriods,
   exportAccountingPeriod,
   pollExportJob,

@@ -1,4 +1,11 @@
-import { formatServerError, formatGraphQLError, decodeId } from "@openimis/fe-core";
+import {
+  formatServerError,
+  formatGraphQLError,
+  decodeId,
+  dispatchMutationErr,
+  dispatchMutationReq,
+  dispatchMutationResp,
+} from "@openimis/fe-core";
 import { computeLedgerEntryTotals } from "./utils/ledgerEntryTotals";
 
 // Flux Standard Action triplet suffixes, consistent with every other
@@ -49,7 +56,13 @@ const initialState = {
   },
 
   partySearch: { isFetching: false, isFetched: false, error: null, results: [] },
-  partyLedgerBalance: { isFetching: false, isFetched: false, error: null, data: null },
+  partyLedgerBalance: {
+    isFetching: false,
+    isFetched: false,
+    error: null,
+    items: [],
+    pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },
+  },
 
   funderSearch: { isFetching: false, isFetched: false, error: null, results: [] },
   funderActivityReport: { isFetching: false, isFetched: false, error: null, data: null },
@@ -59,7 +72,17 @@ const initialState = {
   accountingPeriods: { isFetching: false, isFetched: false, error: null, items: [] },
   periodMutation: { submitting: false, error: null, lastRejectionReason: null },
 
-  manualReviewQueue: { isFetching: false, isFetched: false, error: null, items: [] },
+  // Standard openIMIS mutation tracking (feeds the JournalDrawer).
+  mutation: {},
+  submittingMutation: false,
+
+  manualReviewQueue: {
+    isFetching: false,
+    isFetched: false,
+    error: null,
+    items: [],
+    pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },
+  },
   reviewResolution: { submitting: false, error: null },
 
   exportJobs: { byPeriodId: {}, error: null },
@@ -99,8 +122,7 @@ const mapAnalyticTag = (analyticTags, axisCode) => {
 
 // Entry-level party/funder: the whole transaction is tagged server-side, so a
 // leg without its own analytic tag reuses the tag carried by the entry.
-const mapEntryTag = (value) =>
-  value ? { analyticValueId: value.id, displayName: value.displayName } : null;
+const mapEntryTag = (value) => (value ? { analyticValueId: value.id, displayName: value.displayName } : null);
 
 const mapLedgerEntryLine = (line, entryTags = {}) => ({
   id: decodeLedgerReferenceId(line.id),
@@ -111,13 +133,35 @@ const mapLedgerEntryLine = (line, entryTags = {}) => ({
   funderTag: line.funderTag || mapAnalyticTag(line.analyticTags, "funder") || entryTags.funderTag || null,
 });
 
+// The backend `ledgerEntries` connection exposes neither an `orderBy` argument
+// nor a default ordering (the model has no Meta.ordering), so the current page
+// is ordered client-side: newest posted first by default.
+const LEDGER_ENTRY_SORT_KEYS = {
+  journal: (entry) => entry.journal?.code || entry.journal?.name || "",
+  accountingPeriod: (entry) => entry.accountingPeriod?.code || "",
+  sourceEventType: (entry) => entry.sourceEventType || "",
+  postedAt: (entry) => entry.postedAt || "",
+};
+
+const sortLedgerEntries = (items, orderBy) => {
+  const order = orderBy || "-postedAt";
+  const descending = order.startsWith("-");
+  const field = descending ? order.slice(1) : order;
+  const keyOf = LEDGER_ENTRY_SORT_KEYS[field] || LEDGER_ENTRY_SORT_KEYS.postedAt;
+  return [...items].sort((a, b) => {
+    const ka = keyOf(a);
+    const kb = keyOf(b);
+    if (ka === kb) return 0;
+    return (ka > kb ? 1 : -1) * (descending ? -1 : 1);
+  });
+};
+
 const mapLedgerEntryNode = (node) => {
   // The backend returns the legs as a Relay connection
   // (`transaction.legs.edges[].node`); the flat `lines` array is kept as a
   // fallback for mock payloads.
   const legs = node?.transaction?.legs;
-  const rawLines =
-    node?.lines || (Array.isArray(legs) ? legs : legs?.edges?.map((edge) => edge?.node)) || [];
+  const rawLines = node?.lines || (Array.isArray(legs) ? legs : legs?.edges?.map((edge) => edge?.node)) || [];
   const entryTags = {
     partyTag: mapEntryTag(node?.party),
     funderTag: mapEntryTag(node?.funder),
@@ -142,6 +186,13 @@ const mapLedgerEntryNode = (node) => {
 };
 
 const firstErrorMessage = (errors) => (errors && errors.length ? errors[0].message : null);
+
+// The backend reports a rejected mutation as a GraphQL error (HTTP 200 with an
+// `errors` array), while mock payloads/legacy backends return the messages in
+// the mutation payload itself: accept both so the page can display the
+// backend reason verbatim (FR-009).
+const mutationErrorMessage = (mutationResult, payload) =>
+  firstErrorMessage(mutationResult?.errors) ?? firstErrorMessage(payload?.errors);
 
 // The backend exposes `operatingMode`/`externalSystem` as GraphQL enum NAMES
 // (LOCAL_ONLY, ODOO, ...) on read but expects the raw stored values
@@ -182,14 +233,51 @@ const mapAccountOption = (node) => ({ ...node, id: decodeLedgerReferenceId(node?
 
 // Mock review items use readable ids (e.g. "review-1"), while GraphQL
 // responses use openIMIS base64 ids. Keep both forms valid in the reducer.
-const decodeManualReviewId = (id) => {
-  if (id === null || id === undefined) return id;
-  try {
-    return decodeId(id);
-  } catch {
-    return id;
-  }
+// The review queue is a paginated connection; the page reads a flattened
+// view-model built from the replication record + its ledger entry.
+const mapManualReviewItem = (node) => {
+  const record = node?.replicationRecord || {};
+  const entry = record.ledgerEntry || null;
+  return {
+    id: node?.id,
+    status: record.status,
+    targetSystem: record.targetSystem,
+    rejectionReason: record.rejectionReason,
+    externalReference: record.externalReference,
+    createdAt: node?.createdAt,
+    resolvedAt: node?.resolvedAt,
+    resolutionNote: node?.resolutionNote,
+    correctingEntryId: node?.resolvedByTransaction?.id || null,
+    // Ids are decoded where the front-end compares them with `ledgerEntries`
+    // items (both are decoded by the reducer) and kept encoded where they are
+    // sent back to the backend as a filter/argument: `party` expects the
+    // encoded AnalyticValue id, while `accountingPeriodId` is matched against
+    // the decoded period list before being resolved to a period code.
+    originalEntry: entry
+      ? {
+          id: decodeLedgerReferenceId(entry.id),
+          postedAt: entry.postedAt,
+          sourceEventType: entry.sourceEventType,
+          sourceEventReference: entry.sourceEventReference,
+          journal: entry.journal,
+          accountingPeriod: entry.accountingPeriod
+            ? { ...entry.accountingPeriod, id: decodeLedgerReferenceId(entry.accountingPeriod.id) }
+            : entry.accountingPeriod,
+          partyAnalyticValueId: entry.party?.id || null,
+          accountingPeriodId: decodeLedgerReferenceId(entry.accountingPeriod?.id) || null,
+          accountingPeriodCode: entry.accountingPeriod?.code || null,
+        }
+      : null,
+  };
 };
+
+const mapConnectionPageInfo = (connection) => ({
+  totalCount: connection?.totalCount ?? 0,
+  hasNextPage: connection?.pageInfo?.hasNextPage ?? false,
+  hasPreviousPage: connection?.pageInfo?.hasPreviousPage ?? false,
+  startCursor: connection?.pageInfo?.startCursor ?? null,
+  endCursor: connection?.pageInfo?.endCursor ?? null,
+});
 
 const mapAccountingPeriod = (period) =>
   period ? { ...period, id: decodeId(period.id), status: mapPeriodStatus(period.status) } : period;
@@ -198,18 +286,24 @@ const mapAccountingPeriod = (period) =>
 // `accountingPeriods.items` with the mutation's returned period, or (if the
 // backend rejected the transition) leaves items untouched and surfaces
 // `errors[0].message` verbatim into `periodMutation.lastRejectionReason` (FR-009).
-function applyPeriodTransitionResponse(state, mutationResult) {
-  const errors = mutationResult?.errors;
-  const rejectionReason = firstErrorMessage(errors);
+// Mock payloads (and legacy backends) still return the period/errors; the real
+// backend only returns the mutation ids (the page then refetches the list), so
+// both shapes are handled.
+function applyPeriodTransitionResponse(state, mutationResult, service, action) {
+  const withMutation = dispatchMutationResp(state, service, action);
+  const rejectionReason = mutationErrorMessage(mutationResult, action.payload);
   if (rejectionReason) {
     return {
-      ...state,
+      ...withMutation,
       periodMutation: { submitting: false, error: rejectionReason, lastRejectionReason: rejectionReason },
     };
   }
-  const updated = mapAccountingPeriod(mutationResult?.accountingPeriod);
+  if (!mutationResult?.accountingPeriod) {
+    return { ...withMutation, periodMutation: { submitting: false, error: null, lastRejectionReason: null } };
+  }
+  const updated = mapAccountingPeriod(mutationResult.accountingPeriod);
   return {
-    ...state,
+    ...withMutation,
     periodMutation: { submitting: false, error: null, lastRejectionReason: null },
     accountingPeriods: {
       ...state.accountingPeriods,
@@ -234,7 +328,10 @@ function reducer(state = initialState, action) {
       };
     case resp(ACTION_TYPE.LEDGER_ENTRIES): {
       const connection = action.payload?.data?.ledgerEntries;
-      const items = (connection?.edges || []).map((edge) => mapLedgerEntryNode(edge.node));
+      const items = sortLedgerEntries(
+        (connection?.edges || []).map((edge) => mapLedgerEntryNode(edge.node)),
+        action.meta?.orderBy,
+      );
       return {
         ...state,
         ledgerEntries: {
@@ -312,12 +409,21 @@ function reducer(state = initialState, action) {
         },
       };
     case err(ACTION_TYPE.PARTY_SEARCH):
-      return { ...state, partySearch: { ...state.partySearch, isFetching: false, error: formatServerError(action.payload) } };
+      return {
+        ...state,
+        partySearch: { ...state.partySearch, isFetching: false, error: formatServerError(action.payload) },
+      };
 
     case ACTION_TYPE.PARTY_LEDGER_BALANCE_RESET:
       return {
         ...state,
-        partyLedgerBalance: { isFetching: false, isFetched: false, error: null, data: null },
+        partyLedgerBalance: {
+          isFetching: false,
+          isFetched: false,
+          error: null,
+          items: [],
+          pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },
+        },
       };
 
     case req(ACTION_TYPE.PARTY_LEDGER_BALANCE):
@@ -326,25 +432,26 @@ function reducer(state = initialState, action) {
         partyLedgerBalance: { ...state.partyLedgerBalance, isFetching: true, isFetched: false, error: null },
       };
     case resp(ACTION_TYPE.PARTY_LEDGER_BALANCE): {
-      const raw = action.payload?.data?.partyLedgerBalance;
-      const data = raw && {
-        ...raw,
-        transactions: (raw.transactions || []).map(mapLedgerEntryNode),
-      };
+      const connection = action.payload?.data?.partyLedgerBalance;
       return {
         ...state,
         partyLedgerBalance: {
           isFetching: false,
           isFetched: true,
           error: formatGraphQLError(action.payload),
-          data,
+          items: (connection?.edges || []).map((edge) => edge.node),
+          pageInfo: mapConnectionPageInfo(connection),
         },
       };
     }
     case err(ACTION_TYPE.PARTY_LEDGER_BALANCE):
       return {
         ...state,
-        partyLedgerBalance: { ...state.partyLedgerBalance, isFetching: false, error: formatServerError(action.payload) },
+        partyLedgerBalance: {
+          ...state.partyLedgerBalance,
+          isFetching: false,
+          error: formatServerError(action.payload),
+        },
       };
 
     // --- User Story 3: Funder Activity -----------------------------------
@@ -369,7 +476,10 @@ function reducer(state = initialState, action) {
         },
       };
     case err(ACTION_TYPE.FUNDER_SEARCH):
-      return { ...state, funderSearch: { ...state.funderSearch, isFetching: false, error: formatServerError(action.payload) } };
+      return {
+        ...state,
+        funderSearch: { ...state.funderSearch, isFetching: false, error: formatServerError(action.payload) },
+      };
 
     case req(ACTION_TYPE.JOURNAL_SEARCH):
       return { ...state, journalSearch: { ...state.journalSearch, isFetching: true, isFetched: false, error: null } };
@@ -380,14 +490,15 @@ function reducer(state = initialState, action) {
           isFetching: false,
           isFetched: true,
           error: formatGraphQLError(action.payload),
-          results: (action.payload?.data?.ledgerJournal?.edges || [])
-            .map((edge) => edge?.node)
-            .filter(Boolean),
+          results: (action.payload?.data?.ledgerJournal?.edges || []).map((edge) => edge?.node).filter(Boolean),
           fetchedType: action.meta?.journalType ?? null,
         },
       };
     case err(ACTION_TYPE.JOURNAL_SEARCH):
-      return { ...state, journalSearch: { ...state.journalSearch, isFetching: false, error: formatServerError(action.payload) } };
+      return {
+        ...state,
+        journalSearch: { ...state.journalSearch, isFetching: false, error: formatServerError(action.payload) },
+      };
 
     case req(ACTION_TYPE.FUNDER_ACTIVITY_REPORT):
       return {
@@ -407,24 +518,35 @@ function reducer(state = initialState, action) {
     case err(ACTION_TYPE.FUNDER_ACTIVITY_REPORT):
       return {
         ...state,
-        funderActivityReport: { ...state.funderActivityReport, isFetching: false, error: formatServerError(action.payload) },
+        funderActivityReport: {
+          ...state.funderActivityReport,
+          isFetching: false,
+          error: formatServerError(action.payload),
+        },
       };
 
     // --- User Story 4: Accounting Periods lifecycle -----------------------
     case req(ACTION_TYPE.OPEN_ACCOUNTING_PERIOD):
-      return { ...state, periodMutation: { submitting: true, error: null, lastRejectionReason: null } };
+      return {
+        ...dispatchMutationReq(state, action),
+        periodMutation: { submitting: true, error: null, lastRejectionReason: null },
+      };
     case resp(ACTION_TYPE.OPEN_ACCOUNTING_PERIOD): {
       const result = action.payload?.data?.openAccountingPeriod;
-      const rejectionReason = firstErrorMessage(result?.errors);
+      const withMutation = dispatchMutationResp(state, "openAccountingPeriod", action);
+      const rejectionReason = mutationErrorMessage(result, action.payload);
       if (rejectionReason) {
         return {
-          ...state,
+          ...withMutation,
           periodMutation: { submitting: false, error: rejectionReason, lastRejectionReason: rejectionReason },
         };
       }
-      const created = mapAccountingPeriod(result?.accountingPeriod);
+      if (!result?.accountingPeriod) {
+        return { ...withMutation, periodMutation: { submitting: false, error: null, lastRejectionReason: null } };
+      }
+      const created = mapAccountingPeriod(result.accountingPeriod);
       return {
-        ...state,
+        ...withMutation,
         periodMutation: { submitting: false, error: null, lastRejectionReason: null },
         accountingPeriods: { ...state.accountingPeriods, items: [...state.accountingPeriods.items, created] },
       };
@@ -442,20 +564,38 @@ function reducer(state = initialState, action) {
     case req(ACTION_TYPE.LOCK_ACCOUNTING_PERIOD):
     case req(ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD):
     case req(ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD):
-      return { ...state, periodMutation: { submitting: true, error: null, lastRejectionReason: null } };
+      return {
+        ...dispatchMutationReq(state, action),
+        periodMutation: { submitting: true, error: null, lastRejectionReason: null },
+      };
 
     case resp(ACTION_TYPE.LOCK_ACCOUNTING_PERIOD):
-      return applyPeriodTransitionResponse(state, action.payload?.data?.lockAccountingPeriod);
+      return applyPeriodTransitionResponse(
+        state,
+        action.payload?.data?.lockAccountingPeriod,
+        "lockAccountingPeriod",
+        action,
+      );
     case resp(ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD):
-      return applyPeriodTransitionResponse(state, action.payload?.data?.closeAccountingPeriod);
+      return applyPeriodTransitionResponse(
+        state,
+        action.payload?.data?.closeAccountingPeriod,
+        "closeAccountingPeriod",
+        action,
+      );
     case resp(ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD):
-      return applyPeriodTransitionResponse(state, action.payload?.data?.reopenAccountingPeriod);
+      return applyPeriodTransitionResponse(
+        state,
+        action.payload?.data?.reopenAccountingPeriod,
+        "reopenAccountingPeriod",
+        action,
+      );
 
     case err(ACTION_TYPE.LOCK_ACCOUNTING_PERIOD):
     case err(ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD):
     case err(ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD):
       return {
-        ...state,
+        ...dispatchMutationErr(state, action),
         periodMutation: {
           submitting: false,
           error: formatServerError(action.payload)?.message ?? null,
@@ -469,19 +609,19 @@ function reducer(state = initialState, action) {
         ...state,
         manualReviewQueue: { ...state.manualReviewQueue, isFetching: true, isFetched: false, error: null },
       };
-    case resp(ACTION_TYPE.MANUAL_REVIEW_QUEUE):
+    case resp(ACTION_TYPE.MANUAL_REVIEW_QUEUE): {
+      const connection = action.payload?.data?.manualReviewQueue;
       return {
         ...state,
         manualReviewQueue: {
           isFetching: false,
           isFetched: true,
           error: formatGraphQLError(action.payload),
-          items: (action.payload?.data?.manualReviewQueue || []).map((item) => ({
-            ...item,
-            id: decodeManualReviewId(item.id),
-          })),
+          items: (connection?.edges || []).map((edge) => mapManualReviewItem(edge.node)),
+          pageInfo: mapConnectionPageInfo(connection),
         },
       };
+    }
     case err(ACTION_TYPE.MANUAL_REVIEW_QUEUE):
       return {
         ...state,
@@ -489,41 +629,55 @@ function reducer(state = initialState, action) {
       };
 
     case req(ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM):
-      return { ...state, reviewResolution: { submitting: true, error: null } };
+      return {
+        ...dispatchMutationReq(state, action),
+        reviewResolution: { submitting: true, error: null },
+      };
     case resp(ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM): {
       const result = action.payload?.data?.resolveManualReviewItem;
-      const message = firstErrorMessage(result?.errors);
+      const withMutation = dispatchMutationResp(state, "resolveManualReview", action);
+      const message = mutationErrorMessage(result, action.payload);
       if (message) {
-        return { ...state, reviewResolution: { submitting: false, error: message } };
+        return { ...withMutation, reviewResolution: { submitting: false, error: message } };
       }
-      const updated = result?.manualReviewQueueItem;
+      const updatedNode = result?.manualReviewQueueItem;
+      if (!updatedNode) {
+        return { ...withMutation, reviewResolution: { submitting: false, error: null } };
+      }
+      // The backend answers with the GraphQL node (nested `replicationRecord`):
+      // map it like the queue query does, otherwise the raw field names would
+      // overwrite the view-model (`correctingEntryId`, decoded period ids...).
+      // Mock/legacy payloads already carry the mapped shape and are kept as-is.
+      const updated = updatedNode.replicationRecord ? mapManualReviewItem(updatedNode) : updatedNode;
       return {
-        ...state,
+        ...withMutation,
         reviewResolution: { submitting: false, error: null },
         manualReviewQueue: {
           ...state.manualReviewQueue,
-          items: state.manualReviewQueue.items.map((item) =>
-            item.id === decodeManualReviewId(updated?.id)
-              ? { ...item, ...updated, id: decodeManualReviewId(updated.id) }
-              : item,
-          ),
+          items: state.manualReviewQueue.items.map((item) => (item.id === updated.id ? { ...item, ...updated } : item)),
         },
       };
     }
     case err(ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM):
-      return { ...state, reviewResolution: { submitting: false, error: formatServerError(action.payload)?.message ?? null } };
+      return {
+        ...dispatchMutationErr(state, action),
+        reviewResolution: { submitting: false, error: formatServerError(action.payload)?.message ?? null },
+      };
 
     // --- User Story 6: Period Export ---------------------------------------
+    case req(ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD):
+      return { ...dispatchMutationReq(state, action), exportJobs: { ...state.exportJobs, error: null } };
     case resp(ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD): {
       const result = action.payload?.data?.exportAccountingPeriod;
       const job = result?.exportJob;
-      if (!job) return state;
+      const withMutation = dispatchMutationResp(state, "exportAccountingPeriod", action);
+      if (!job) return withMutation;
       return {
-        ...state,
+        ...withMutation,
         exportJobs: {
-          ...state.exportJobs,
+          ...withMutation.exportJobs,
           error: null,
-          byPeriodId: { ...state.exportJobs.byPeriodId, [job.accountingPeriodId]: job },
+          byPeriodId: { ...withMutation.exportJobs.byPeriodId, [job.accountingPeriodId]: job },
         },
       };
     }
@@ -540,8 +694,15 @@ function reducer(state = initialState, action) {
       };
     }
     case err(ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD):
+      return {
+        ...dispatchMutationErr(state, action),
+        exportJobs: { ...state.exportJobs, error: formatServerError(action.payload)?.message ?? null },
+      };
     case err(ACTION_TYPE.EXPORT_SEQUENCES):
-      return { ...state, exportJobs: { ...state.exportJobs, error: formatServerError(action.payload)?.message ?? null } };
+      return {
+        ...state,
+        exportJobs: { ...state.exportJobs, error: formatServerError(action.payload)?.message ?? null },
+      };
 
     // --- User Story 7: Deployment Configuration ----------------------------
     case req(ACTION_TYPE.DEPLOYMENT_CONFIGURATION):
@@ -598,7 +759,10 @@ function reducer(state = initialState, action) {
       };
 
     case req(ACTION_TYPE.CREATE_DEPLOYMENT_CONFIGURATION):
-      return { ...state, deploymentConfiguration: { ...state.deploymentConfiguration, submitting: true, error: null } };
+      return {
+        ...dispatchMutationReq(state, action),
+        deploymentConfiguration: { ...state.deploymentConfiguration, submitting: true, error: null },
+      };
     case resp(ACTION_TYPE.CREATE_DEPLOYMENT_CONFIGURATION): {
       // createDeploymentConfiguration only answers with the mutation ids: the
       // submitted values (echoed through the action meta) become the current
@@ -612,7 +776,7 @@ function reducer(state = initialState, action) {
       }
       const submitted = action.meta?.deploymentConfiguration;
       return {
-        ...state,
+        ...dispatchMutationResp(state, "createDeploymentConfiguration", action),
         deploymentConfiguration: {
           ...state.deploymentConfiguration,
           submitting: false,
@@ -623,7 +787,7 @@ function reducer(state = initialState, action) {
     }
     case err(ACTION_TYPE.CREATE_DEPLOYMENT_CONFIGURATION):
       return {
-        ...state,
+        ...dispatchMutationErr(state, action),
         deploymentConfiguration: {
           ...state.deploymentConfiguration,
           submitting: false,
