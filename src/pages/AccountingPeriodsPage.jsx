@@ -124,19 +124,15 @@ const AccountingPeriodsPage = ({
   const submitting = periodMutation?.submitting || false;
   const mutationError = periodMutation?.error || periodMutation?.lastRejectionReason || null;
 
-  // The mutation payload only carries ids, so the list is refreshed once the
-  // mutation settles (a failed transition simply refetches the same list).
-  const refreshAfter = (mutation) => Promise.resolve(mutation).then(() => fetchAccountingPeriods());
-
   const runAction = (period, action) => {
-    if (action === PERIOD_ACTION.LOCK) refreshAfter(lockAccountingPeriod(period.id));
-    if (action === PERIOD_ACTION.CLOSE) refreshAfter(closeAccountingPeriod(period.id));
-    if (action === PERIOD_ACTION.REOPEN) refreshAfter(reopenAccountingPeriod(period.id));
+    if (action === PERIOD_ACTION.LOCK) lockAccountingPeriod(period.id);
+    if (action === PERIOD_ACTION.CLOSE) closeAccountingPeriod(period.id);
+    if (action === PERIOD_ACTION.REOPEN) reopenAccountingPeriod(period.id);
   };
 
   const openPeriod = () => {
     if (newStartDate && newEndDate) {
-      refreshAfter(openAccountingPeriod(newStartDate, newEndDate));
+      openAccountingPeriod(newStartDate, newEndDate);
     }
   };
 

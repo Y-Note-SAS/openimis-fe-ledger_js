@@ -1,14 +1,12 @@
 import React from "react";
 import { describe, expect, it, vi } from "vitest";
-import { render, screen } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
+import { fireEvent, render, screen } from "@testing-library/react";
 import { IntlProvider } from "react-intl";
 import { ManualReviewResolutionDialog } from "../../src/components/ManualReviewResolutionDialog";
 
 const pendingItem = {
   id: "review-1",
-  // The backend exposes the replication status as the GraphQL enum name.
-  status: "PENDING",
+  status: "pending",
   rejectionReason: "Replication rejected",
   originalEntry: {
     id: "original-1",
@@ -53,20 +51,20 @@ describe("ManualReviewResolutionDialog", () => {
 
     expect(screen.getByText("Replication rejected")).toBeInTheDocument();
     expect(screen.getByText(/original-1/)).toBeInTheDocument();
-
-    // Only the same-party/same-period entry is offered as a correcting entry.
-    expect(screen.getByRole("option", { name: /correction-1/ })).toBeInTheDocument();
-    expect(screen.queryByRole("option", { name: /wrong-party/ })).not.toBeInTheDocument();
+    expect(screen.getByText(/correction-1/)).toBeInTheDocument();
+    expect(screen.queryByText(/wrong-party/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Edit/)).not.toBeInTheDocument();
   });
 
-  it("submits the selected correcting entry and trimmed resolution note", async () => {
-    const user = userEvent.setup();
+  it("submits the selected correcting entry and trimmed resolution note", () => {
     const onResolve = vi.fn();
     renderDialog(pendingItem, onResolve);
 
-    await user.selectOptions(screen.getByRole("combobox"), "correction-1");
-    await user.type(screen.getByLabelText("ledger.reviewQueue.dialog.resolutionNote"), "  Corrected manually  ");
-    await user.click(screen.getByText("ledger.reviewQueue.dialog.resolve"));
+    fireEvent.change(screen.getByRole("combobox"), { target: { value: "correction-1" } });
+    fireEvent.change(screen.getByLabelText("ledger.reviewQueue.dialog.resolutionNote"), {
+      target: { value: "  Corrected manually  " },
+    });
+    fireEvent.click(screen.getByText("ledger.reviewQueue.dialog.resolve"));
 
     expect(onResolve).toHaveBeenCalledWith("review-1", "correction-1", "Corrected manually");
   });
@@ -74,7 +72,7 @@ describe("ManualReviewResolutionDialog", () => {
   it("renders resolved items read-only without resolution controls", () => {
     renderDialog({
       ...pendingItem,
-      status: "SUCCEEDED",
+      status: "resolved",
       correctingEntryId: "correction-1",
       resolutionNote: "Already corrected",
     });

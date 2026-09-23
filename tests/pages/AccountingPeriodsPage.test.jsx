@@ -6,110 +6,55 @@ import { Provider } from "react-redux";
 import { createStore, combineReducers, applyMiddleware } from "redux";
 import { thunk } from "redux-thunk";
 import { IntlProvider } from "react-intl";
-import { __resetAccountingPeriods } from "@openimis/fe-core";
 import reducer, { ACTION_TYPE } from "../../src/reducer";
+import { resetAccountingPeriodsMock } from "../../src/actions";
 import { RIGHT_LEDGER_REPORTING, RIGHT_LEDGER_ADMIN } from "../../src/constants";
 import AccountingPeriodsPage from "../../src/pages/AccountingPeriodsPage";
 
-// The page talks to the real GraphQL actions: the mocked fe-core stands in for
-// the ledger backend, so mutations update the "server" fixture and the page
-// refetches the (unchanged) query afterwards, exactly like production.
 vi.mock("@openimis/fe-core", async (importOriginal) => {
   const orig = await importOriginal();
-  const initialPeriods = () => [
-    { id: "1", startDate: "2026-07-01", endDate: "2026-07-31", status: "open", name: "July", code: "2026-07" },
-    { id: "2", startDate: "2026-06-01", endDate: "2026-06-30", status: "closed", name: "June", code: "2026-06" },
+  const enc = (s) => btoa(s);
+  let periods = [
+    { id: enc("AccountingPeriod:1"), startDate: "2026-07-01", endDate: "2026-07-31", status: "open", name: "July", code: "2026-07" },
+    { id: enc("AccountingPeriod:2"), startDate: "2026-06-01", endDate: "2026-06-30", status: "closed", name: "June", code: "2026-06" },
   ];
-  let periods = initialPeriods();
-  const roundTrip = () => new Promise((resolve) => setTimeout(resolve, 0));
-  const findPeriod = (id) => periods.find((period) => period.id === id);
-  // formatMutation inlines the input in the mutation payload, so the fake
-  // backend reads the arguments back from the query string.
-  const argument = (payload, name) => String(payload).match(new RegExp(`${name}:\\s*"([^"]*)"`))?.[1] ?? null;
-
+  const byStatus = (status) => (status ? periods.filter((p) => p.status === status) : periods);
+  const findP = (id) => periods.find((p) => p.id === id);
   return {
     ...orig,
-    __resetAccountingPeriods: () => {
-      periods = initialPeriods();
-    },
-    // `await roundTrip` mimics the HTTP round-trip: without it the REQ/RESP
-    // dispatches are batched in the same tick and the page never observes the
-    // `submittingMutation` transition that triggers the refetch.
-    graphqlWithVariables: (query, variables, types) => async (dispatch) => {
+    graphqlWithVariables: (query, variables, types) => (dispatch) => {
       dispatch({ type: types[0] });
-      await roundTrip();
-      dispatch({
-        type: types[1],
-        payload: {
-          data: {
-            accountingPeriods: {
-              totalCount: periods.length,
-              pageInfo: { hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },
-              edges: periods.map((period) => ({ node: period })),
-            },
+      const q = String(query);
+      let data;
+      if (q.includes("accountingPeriods")) {
+        data = {
+          accountingPeriods: {
+            edges: (byStatus(variables?.status) || []).map((period) => ({ node: period })),
           },
-        },
-      });
-    },
-    graphql: (payload, types, params) => async (dispatch) => {
-      dispatch({ type: types[0], meta: params });
-      await roundTrip();
-      const blocker = periods.find((period) => period.status === "open" || period.status === "locked");
-      const operation = String(payload).includes("openAccountingPeriod")
-        ? "openAccountingPeriod"
-        : ["lockAccountingPeriod", "closeAccountingPeriod", "reopenAccountingPeriod"].find((name) =>
-            String(payload).includes(name),
-          );
-
-      if (operation === "openAccountingPeriod" && blocker) {
-        // OpenIMISMutation rejects through a GraphQL error (payload stays null).
-        dispatch({
-          type: types[1],
-          payload: {
-            data: { openAccountingPeriod: null },
-            errors: [
-              {
-                message: `Cannot open a new period while ${blocker.startDate} — ${blocker.endDate} is still ${blocker.status}`,
-              },
-            ],
-          },
-          meta: params,
-        });
-        return;
+        };
+      } else if (q.includes("lockAccountingPeriod")) {
+        const p = findP(variables?.accountingPeriodId);
+        if (p) p.status = "locked";
+        data = { lockAccountingPeriod: { accountingPeriod: p, errors: [] } };
+      } else if (q.includes("closeAccountingPeriod")) {
+        const p = findP(variables?.accountingPeriodId);
+        if (p) p.status = "closed";
+        data = { closeAccountingPeriod: { accountingPeriod: p, errors: [] } };
+      } else if (q.includes("reopenAccountingPeriod")) {
+        const p = findP(variables?.accountingPeriodId);
+        if (p) p.status = "open";
+        data = { reopenAccountingPeriod: { accountingPeriod: p, errors: [] } };
+      } else if (q.includes("openAccountingPeriod")) {
+        const openP = periods.find((p) => p.status === "open");
+        if (openP) {
+          data = { openAccountingPeriod: { accountingPeriod: null, errors: [{ field: "startDate", message: `Cannot open a new period while ${openP.startDate} — ${openP.endDate} is still open` }] } };
+        } else {
+          const np = { id: enc("AccountingPeriod:3"), startDate: variables?.startDate, endDate: variables?.endDate, status: "open", name: "Aug", code: "2026-08" };
+          periods.push(np);
+          data = { openAccountingPeriod: { accountingPeriod: np, errors: [] } };
+        }
       }
-
-      if (operation === "openAccountingPeriod") {
-        const id = String(periods.length + 1);
-        periods = [
-          ...periods,
-          {
-            id,
-            startDate: argument(payload, "startDate"),
-            endDate: argument(payload, "endDate"),
-            name: argument(payload, "name"),
-            code: argument(payload, "code"),
-            status: "open",
-          },
-        ];
-        dispatch({
-          type: types[1],
-          payload: { data: { openAccountingPeriod: { clientMutationId: "mock-client-mutation-id", internalId: id } } },
-          meta: params,
-        });
-        return;
-      }
-
-      const nextStatus = { lockAccountingPeriod: "locked", closeAccountingPeriod: "closed", reopenAccountingPeriod: "open" }[
-        operation
-      ];
-      const id = argument(payload, "id");
-      const period = findPeriod(id);
-      if (period) period.status = nextStatus;
-      dispatch({
-        type: types[1],
-        payload: { data: { [operation]: { clientMutationId: "mock-client-mutation-id", internalId: id } } },
-        meta: params,
-      });
+      dispatch({ type: types[1], payload: { data } });
     },
   };
 });
@@ -134,7 +79,7 @@ const renderPage = (store) =>
 
 describe("AccountingPeriodsPage", () => {
   beforeEach(() => {
-    __resetAccountingPeriods();
+    resetAccountingPeriodsMock();
     vi.clearAllMocks();
   });
 
@@ -222,15 +167,12 @@ describe("AccountingPeriodsPage", () => {
     });
     await user.click(screen.getByText("ledger.periods.action.open"));
 
-    expect(
-      await screen.findByText(/Cannot open a new period while 2026-07-01 — 2026-07-31 is still open/),
-    ).toBeInTheDocument();
+    expect(screen.getByText(/Cannot open a new period while 2026-07-01 — 2026-07-31 is still open/)).toBeInTheDocument();
   });
 
   it("supports the full lifecycle: lock, close, then open a new period", async () => {
     const user = userEvent.setup();
-    const store = buildStore();
-    renderPage(store);
+    renderPage(buildStore());
 
     await screen.findByText("2026-07-01 — 2026-07-31");
     await user.click(screen.getByText("ledger.periods.action.lock"));

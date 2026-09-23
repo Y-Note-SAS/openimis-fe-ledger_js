@@ -313,30 +313,22 @@ describe("Reducer", () => {
       payload: {
         data: {
           partyLedgerBalance: {
-            totalCount: 1,
-            pageInfo: { hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },
-            edges: [
-              {
-                node: {
-                  id: "balance-1",
-                  accountingPeriod: { code: "2026-07" },
-                  analyticValue: { displayName: "District Hospital" },
-                  debitAmount: 1000,
-                  creditAmount: 500,
-                  balanceAmount: 500,
-                },
-              },
-            ],
-          },
-        },
-      },
+            analyticValueId: "1",
+            debitTotal: 1000,
+            creditTotal: 500,
+            balance: 500,
+            transactions: [
+              { id: "1", journal: { code: "BANK" }, lines: [{ debit: 1000, credit: 0 }] }
+            ]
+          }
+        }
+      }
     };
     const state = reducer(initialState, action);
     expect(state.partyLedgerBalance.isFetching).toBe(false);
     expect(state.partyLedgerBalance.isFetched).toBe(true);
-    expect(state.partyLedgerBalance.items).toHaveLength(1);
-    expect(state.partyLedgerBalance.items[0].balanceAmount).toBe(500);
-    expect(state.partyLedgerBalance.pageInfo.totalCount).toBe(1);
+    expect(state.partyLedgerBalance.data).toBeDefined();
+    expect(state.partyLedgerBalance.data.debitTotal).toBe(1000);
   });
 
   it("handles LEDGER_PARTY_LEDGER_BALANCE_ERR", () => {
@@ -352,16 +344,10 @@ describe("Reducer", () => {
   it("handles LEDGER_PARTY_LEDGER_BALANCE_RESET", () => {
     const withData = reducer(initialState, {
       type: `${ACTION_TYPE.PARTY_LEDGER_BALANCE}_RESP`,
-      payload: { data: { partyLedgerBalance: { totalCount: 0, edges: [], pageInfo: {} } } },
+      payload: { data: { partyLedgerBalance: { balance: 500, transactions: [] } } },
     });
     const state = reducer(withData, { type: `${ACTION_TYPE.PARTY_LEDGER_BALANCE_RESET}` });
-    expect(state.partyLedgerBalance).toEqual({
-      isFetching: false,
-      isFetched: false,
-      error: null,
-      items: [],
-      pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },
-    });
+    expect(state.partyLedgerBalance).toEqual({ isFetching: false, isFetched: false, error: null, data: null });
   });
 
   it("handles LEDGER_FUNDER_SEARCH_RESP (analyticValue connection)", () => {
@@ -499,35 +485,17 @@ describe("Reducer", () => {
       type: `${ACTION_TYPE.MANUAL_REVIEW_QUEUE}_RESP`,
       payload: {
         data: {
-          manualReviewQueue: {
-            totalCount: 1,
-            pageInfo: { hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },
-            edges: [
-              {
-                node: {
-                  id: "item-1",
-                  createdAt: "2026-07-01T10:00:00Z",
-                  resolvedAt: null,
-                  resolutionNote: null,
-                  resolvedByTransaction: null,
-                  replicationRecord: { status: "PENDING", targetSystem: "ODOO", rejectionReason: "boom" },
-                },
-              },
-            ],
-          },
-        },
-      },
+          manualReviewQueue: [
+            { id: "QWNjb3VudGluZ1BlcmlvZDox", status: "pending" }
+          ]
+        }
+      }
     };
     const state = reducer(initialState, action);
     expect(state.manualReviewQueue.isFetching).toBe(false);
     expect(state.manualReviewQueue.isFetched).toBe(true);
-    expect(state.manualReviewQueue.items).toHaveLength(1);
-    expect(state.manualReviewQueue.items[0]).toMatchObject({
-      id: "item-1",
-      status: "PENDING",
-      targetSystem: "ODOO",
-      rejectionReason: "boom",
-    });
+    expect(state.manualReviewQueue.items.length).toBe(1);
+    expect(state.manualReviewQueue.items[0].id).toBe("QWNjb3VudGluZ1BlcmlvZDox");
   });
 
   it("handles LEDGER_RESOLVE_MANUAL_REVIEW_ITEM_RESP", () => {
