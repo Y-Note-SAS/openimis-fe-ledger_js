@@ -1,15 +1,9 @@
-import React, { useEffect, useMemo, useRef, useState } from "react";
+import React, { useEffect, useMemo, useState } from "react";
 import { Alert, Autocomplete, Box, Button, Divider, Grid, MenuItem, Paper, TextField, Typography } from "@mui/material";
 import { styled } from "@mui/material/styles";
 import { injectIntl } from "react-intl";
 import { connect } from "react-redux";
-import {
-  GRID_RESPONSIVE_STANDARD,
-  Helmet,
-  journalize,
-  withModulesManager,
-  formatMessage,
-} from "@openimis/fe-core";
+import { GRID_RESPONSIVE_STANDARD, Helmet, withModulesManager, formatMessage } from "@openimis/fe-core";
 import ForwardOnlyModeWarningDialog from "../components/ForwardOnlyModeWarningDialog";
 import AccountPicker from "../pickers/AccountPicker";
 import {
@@ -66,22 +60,7 @@ const DeploymentConfigurationPage = ({
   accountOptions,
   fetchLedgerDeploymentConfiguration: loadConfiguration,
   createDeploymentConfiguration: saveConfiguration,
-  mutation,
-  submittingMutation,
-  journalize,
 }) => {
-  // Hand the completed mutation to the JournalDrawer (right panel).
-  const prevSubmittingMutationRef = useRef();
-  useEffect(() => {
-    prevSubmittingMutationRef.current = submittingMutation;
-  });
-  useEffect(() => {
-    if (prevSubmittingMutationRef.current && !submittingMutation) {
-      journalize(mutation);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [submittingMutation]);
-
   const [operatingMode, setOperatingMode] = useState(OPERATING_MODE.LOCAL_ONLY);
   const [externalSystem, setExternalSystem] = useState("");
   const [currencyCode, setCurrencyCode] = useState(DEFAULT_CURRENCY_CODE);
@@ -284,12 +263,9 @@ const mapStateToProps = (state) => ({
   rights: state.core?.user?.i_user?.rights || [],
   deploymentConfiguration: state.ledger?.deploymentConfiguration,
   accountOptions: state.ledger?.accountOptions,
-  mutation: state.ledger?.mutation,
-  submittingMutation: state.ledger?.submittingMutation,
 });
 
 const mapDispatchToProps = {
-  journalize,
   fetchLedgerDeploymentConfiguration,
   createDeploymentConfiguration,
 };
