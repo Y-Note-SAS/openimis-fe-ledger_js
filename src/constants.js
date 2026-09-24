@@ -50,16 +50,10 @@ export const REPLICATION_TARGET_SYSTEM = {
 };
 
 // Mirrors backend ExportJob.format (data-model.md / contracts/graphql-operations.md)
+// `export_type` du endpoint REST `ledger/registers/download_period/<uuid>/<type>/`
 export const EXPORT_FORMAT = {
-  OHADA_FEC: "ohada_fec",
-  GENERIC: "generic",
-};
-
-// Mirrors backend ExportJob.status (data-model.md)
-export const EXPORT_JOB_STATUS = {
-  IN_PROGRESS: "in_progress",
-  COMPLETE: "complete",
-  FAILED: "failed",
+  STANDARD: "standard",
+  FEC: "fec",
 };
 
 // Mirrors backend DeploymentConfiguration.operatingMode (data-model.md)
@@ -74,14 +68,6 @@ export const PERIOD_ACTION = {
   CLOSE: "close",
   REOPEN: "reopen",
 };
-
-// Export job polling interval in ms (research.md §5)
-export const EXPORT_JOB_POLL_INTERVAL_MS = 3000;
-
-// Set to false when the ledger backend export API is available. The page keeps
-// the real export actions untouched and only swaps the demo process here.
-export const USE_MOCK_EXPORT = true;
-export const MOCK_EXPORT_POLL_INTERVAL_MS = 1000;
 
 // Mirrors backend DeploymentConfiguration.EXTERNAL_SYSTEMS (models.py).
 // The explicit list is constant by design: the backend validates the value on
