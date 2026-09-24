@@ -3,7 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import { fireEvent, render, screen } from "@testing-library/react";
 import { IntlProvider } from "react-intl";
 import { PeriodExportPage } from "../../src/pages/PeriodExportPage";
-import { RIGHT_LEDGER_ADMIN } from "../../src/constants";
+import { RIGHT_LEDGER_ADMIN, RIGHT_LEDGER_REPORTING } from "../../src/constants";
 
 vi.mock("../../src/pickers/AccountingPeriodPicker", () => ({
   default: ({ label, onChange }) => (
@@ -17,14 +17,13 @@ vi.mock("../../src/pickers/AccountingPeriodPicker", () => ({
 const renderPage = (props = {}) => {
   const pageProps = {
     intl: {},
-    rights: [RIGHT_LEDGER_ADMIN],
+    rights: [RIGHT_LEDGER_REPORTING],
     accountingPeriods: {
       items: [{ id: "period-1", startDate: "2026-07-01", endDate: "2026-07-31", status: "open" }],
     },
-    exportJobs: { byPeriodId: {} },
+    exportDownload: { isFetching: false, error: null },
     fetchAccountingPeriods: vi.fn(),
-    exportAccountingPeriod: vi.fn(),
-    pollExportJob: vi.fn(() => vi.fn()),
+    downloadPeriodRegister: vi.fn(),
     ...props,
   };
 
@@ -36,7 +35,7 @@ const renderPage = (props = {}) => {
 };
 
 describe("PeriodExportPage", () => {
-  it("denies access without the finance administrator right", () => {
+  it("denies access without the ledger reporting right and does not load the periods", () => {
     const fetchAccountingPeriods = vi.fn();
     renderPage({ rights: [], fetchAccountingPeriods });
 
@@ -44,24 +43,61 @@ describe("PeriodExportPage", () => {
     expect(fetchAccountingPeriods).not.toHaveBeenCalled();
   });
 
-  it("shows both export formats and triggers the selected generic export", () => {
-    const exportAccountingPeriod = vi.fn();
-    const pollExportJob = vi.fn(() => vi.fn());
-    renderPage({ exportAccountingPeriod, pollExportJob });
+  it("is also available to ledger administrators", () => {
+    const fetchAccountingPeriods = vi.fn();
+    renderPage({ rights: [RIGHT_LEDGER_ADMIN], fetchAccountingPeriods });
 
-    expect(screen.getByText("ledger.export.formats.generic")).toBeInTheDocument();
-    expect(screen.getByText("ledger.export.formats.ohadaFec")).toBeInTheDocument();
+    expect(fetchAccountingPeriods).toHaveBeenCalled();
+    expect(screen.queryByText("ledger.accessDenied")).not.toBeInTheDocument();
+  });
+
+  it("shows both registers and downloads the selected one", () => {
+    const downloadPeriodRegister = vi.fn();
+    renderPage({ downloadPeriodRegister });
+
+    expect(screen.getByText("ledger.export.formats.standard")).toBeInTheDocument();
+    expect(screen.getByText("ledger.export.formats.fec")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByLabelText("ledger.export.period"), { target: { value: "period-1" } });
+    // The general ledger is the default register.
+    fireEvent.click(screen.getByText("ledger.export.trigger"));
+
+    expect(downloadPeriodRegister).toHaveBeenCalledWith("period-1", "standard");
+  });
+
+  it("downloads the OHADA/FEC register when it is selected", () => {
+    const downloadPeriodRegister = vi.fn();
+    renderPage({ downloadPeriodRegister });
+
+    fireEvent.change(screen.getByLabelText("ledger.export.period"), { target: { value: "period-1" } });
+    fireEvent.change(screen.getByLabelText("ledger.export.format"), { target: { value: "fec" } });
+    fireEvent.click(screen.getByText("ledger.export.trigger"));
+
+    expect(downloadPeriodRegister).toHaveBeenCalledWith("period-1", "fec");
+  });
+
+  it("keeps the download disabled until a period is selected", () => {
+    const downloadPeriodRegister = vi.fn();
+    renderPage({ downloadPeriodRegister });
+
+    fireEvent.click(screen.getByText("ledger.export.trigger"));
+
+    expect(downloadPeriodRegister).not.toHaveBeenCalled();
+  });
+
+  it("disables the download while a register is being fetched", () => {
+    const downloadPeriodRegister = vi.fn();
+    renderPage({ downloadPeriodRegister, exportDownload: { isFetching: true, error: null } });
 
     fireEvent.change(screen.getByLabelText("ledger.export.period"), { target: { value: "period-1" } });
     fireEvent.click(screen.getByText("ledger.export.trigger"));
 
-    expect(exportAccountingPeriod).toHaveBeenCalledWith("period-1", "generic");
-    expect(pollExportJob).toHaveBeenCalledWith("period-1");
+    expect(downloadPeriodRegister).not.toHaveBeenCalled();
   });
 
-  it("shows the export error message when provided", () => {
-    renderPage({ exportJobs: { byPeriodId: {}, error: "Network error" } });
+  it("displays the failure returned by the backend", () => {
+    renderPage({ exportDownload: { isFetching: false, error: "ledger.export.errors.forbidden" } });
 
-    expect(screen.getByText("Network error")).toBeInTheDocument();
+    expect(screen.getByText("ledger.export.errors.forbidden")).toBeInTheDocument();
   });
 });

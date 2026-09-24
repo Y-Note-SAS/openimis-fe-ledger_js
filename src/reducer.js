@@ -27,8 +27,7 @@ export const ACTION_TYPE = {
   CLOSE_ACCOUNTING_PERIOD: "LEDGER_CLOSE_ACCOUNTING_PERIOD",
   REOPEN_ACCOUNTING_PERIOD: "LEDGER_REOPEN_ACCOUNTING_PERIOD",
   RESOLVE_MANUAL_REVIEW_ITEM: "LEDGER_RESOLVE_MANUAL_REVIEW_ITEM",
-  EXPORT_ACCOUNTING_PERIOD: "LEDGER_EXPORT_ACCOUNTING_PERIOD",
-  EXPORT_SEQUENCES: "LEDGER_EXPORT_SEQUENCES",
+  EXPORT_PERIOD_REGISTER: "LEDGER_EXPORT_PERIOD_REGISTER",
   CONFIGURE_DEPLOYMENT: "LEDGER_CONFIGURE_DEPLOYMENT",
 };
 
@@ -85,7 +84,7 @@ const initialState = {
   },
   reviewResolution: { submitting: false, error: null },
 
-  exportJobs: { byPeriodId: {}, error: null },
+  exportDownload: { isFetching: false, error: null },
 
   deploymentConfiguration: { isFetching: false, isFetched: false, error: null, data: null, submitting: false },
 
@@ -664,44 +663,21 @@ function reducer(state = initialState, action) {
         reviewResolution: { submitting: false, error: formatServerError(action.payload)?.message ?? null },
       };
 
-    // --- User Story 6: Period Export ---------------------------------------
-    case req(ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD):
-      return { ...dispatchMutationReq(state, action), exportJobs: { ...state.exportJobs, error: null } };
-    case resp(ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD): {
-      const result = action.payload?.data?.exportAccountingPeriod;
-      const job = result?.exportJob;
-      const withMutation = dispatchMutationResp(state, "exportAccountingPeriod", action);
-      if (!job) return withMutation;
-      return {
-        ...withMutation,
-        exportJobs: {
-          ...withMutation.exportJobs,
-          error: null,
-          byPeriodId: { ...withMutation.exportJobs.byPeriodId, [job.accountingPeriodId]: job },
-        },
-      };
-    }
-    case resp(ACTION_TYPE.EXPORT_SEQUENCES): {
-      const job = action.payload?.data?.exportSequences;
-      if (!job) return state;
+    // --- User Story 6: Period Export (ticket 38018) -------------------------
+    // The register is a plain CSV download, so only the request state and the
+    // failure (rights, unknown period, backend error) live in the store.
+    case req(ACTION_TYPE.EXPORT_PERIOD_REGISTER):
+      return { ...state, exportDownload: { isFetching: true, error: null } };
+    case resp(ACTION_TYPE.EXPORT_PERIOD_REGISTER):
+      return { ...state, exportDownload: { isFetching: false, error: null } };
+    case err(ACTION_TYPE.EXPORT_PERIOD_REGISTER):
       return {
         ...state,
-        exportJobs: {
-          ...state.exportJobs,
-          error: null,
-          byPeriodId: { ...state.exportJobs.byPeriodId, [job.accountingPeriodId]: job },
+        exportDownload: {
+          isFetching: false,
+          // The action stores a translation key; the page resolves it.
+          error: action.payload?.message ?? "ledger.export.errors.failed",
         },
-      };
-    }
-    case err(ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD):
-      return {
-        ...dispatchMutationErr(state, action),
-        exportJobs: { ...state.exportJobs, error: formatServerError(action.payload)?.message ?? null },
-      };
-    case err(ACTION_TYPE.EXPORT_SEQUENCES):
-      return {
-        ...state,
-        exportJobs: { ...state.exportJobs, error: formatServerError(action.payload)?.message ?? null },
       };
 
     // --- User Story 7: Deployment Configuration ----------------------------

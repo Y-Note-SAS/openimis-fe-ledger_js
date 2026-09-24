@@ -1,24 +1,13 @@
-import React, { useEffect, useRef, useState } from "react";
-import { Alert, Box, Button, Divider, Grid, MenuItem, Paper, TextField, Typography } from "@mui/material";
+import React, { useEffect, useState } from "react";
+import { Alert, Button, Divider, Grid, MenuItem, Paper, TextField, Typography } from "@mui/material";
 import { styled } from "@mui/material/styles";
 import { injectIntl } from "react-intl";
 import { connect } from "react-redux";
-import {
-  GRID_RESPONSIVE_STANDARD,
-  Helmet,
-  journalize,
-  withModulesManager,
-  formatMessage,
-} from "@openimis/fe-core";
+import { GRID_RESPONSIVE_STANDARD, Helmet, withModulesManager, formatMessage } from "@openimis/fe-core";
 import AccountingPeriodPicker from "../pickers/AccountingPeriodPicker";
-import ExportJobStatus from "../components/ExportJobStatus";
 import { EXPORT_FORMAT } from "../constants";
-import { hasLedgerAdminRight } from "../utils/permissions";
-import {
-  exportAccountingPeriod,
-  fetchAccountingPeriods,
-  pollExportJob,
-} from "../actions";
+import { hasLedgerReportingRight } from "../utils/permissions";
+import { downloadPeriodRegister, fetchAccountingPeriods } from "../actions";
 
 const StyledPage = styled("div")(({ theme }) => ({
   "& .page": theme.page ?? {},
@@ -61,62 +50,32 @@ const PeriodExportPage = ({
   intl,
   rights,
   accountingPeriods,
-  exportJobs,
+  exportDownload,
   fetchAccountingPeriods: loadPeriods,
-  exportAccountingPeriod: startExport,
-  pollExportJob: startPolling,
-  mutation,
-  submittingMutation,
-  journalize,
+  downloadPeriodRegister: downloadRegister,
 }) => {
-  // Hand the completed export mutation to the JournalDrawer (right panel).
-  const prevSubmittingMutationRef = useRef();
-  useEffect(() => {
-    prevSubmittingMutationRef.current = submittingMutation;
-  });
-  useEffect(() => {
-    if (prevSubmittingMutationRef.current && !submittingMutation) {
-      journalize(mutation);
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [submittingMutation]);
-
   const [periodId, setPeriodId] = useState(null);
-  const [format, setFormat] = useState(EXPORT_FORMAT.GENERIC);
-  const stopPollingRef = useRef(null);
+  const [format, setFormat] = useState(EXPORT_FORMAT.STANDARD);
   const periods = accountingPeriods?.items || [];
   const selectedPeriod = periods.find((period) => period.id === periodId);
-  const job = periodId ? exportJobs?.byPeriodId?.[periodId] : null;
-  const isAdmin = hasLedgerAdminRight(rights);
+  // The backend serves the download with the `gql_query_ledger_perms` right,
+  // i.e. the same right as the reporting screens.
+  const canRead = hasLedgerReportingRight(rights);
+  const submitting = exportDownload?.isFetching || false;
 
   useEffect(() => {
-    if (isAdmin) {
+    if (canRead) {
       loadPeriods();
     }
-    return () => stopPollingRef.current?.();
-  }, [isAdmin, loadPeriods]);
+  }, [canRead, loadPeriods]);
 
-  useEffect(() => {
-    stopPollingRef.current?.();
-    stopPollingRef.current = null;
-  }, [periodId]);
-
-  useEffect(() => {
-    if (!job || job.status !== "in_progress" || !periodId) return undefined;
-    stopPollingRef.current?.();
-    stopPollingRef.current = startPolling(periodId);
-    return () => stopPollingRef.current?.();
-  }, [job?.status, periodId, startPolling]);
-
-  if (!isAdmin) {
+  if (!canRead) {
     return <Alert severity="error">{formatMessage(intl, "ledger", "ledger.accessDenied")}</Alert>;
   }
 
   const triggerExport = () => {
-    if (!periodId) return;
-    stopPollingRef.current?.();
-    startExport(periodId, format);
-    stopPollingRef.current = startPolling(periodId);
+    if (!periodId || submitting) return;
+    downloadRegister(periodId, format);
   };
 
   return (
@@ -151,16 +110,20 @@ const PeriodExportPage = ({
                     onChange={(event) => setFormat(event.target.value)}
                     aria-label={formatMessage(intl, "ledger", "ledger.export.format")}
                   >
-                    <MenuItem value={EXPORT_FORMAT.GENERIC}>
-                      {formatMessage(intl, "ledger", "ledger.export.formats.generic")}
+                    <MenuItem value={EXPORT_FORMAT.STANDARD}>
+                      {formatMessage(intl, "ledger", "ledger.export.formats.standard")}
                     </MenuItem>
-                    <MenuItem value={EXPORT_FORMAT.OHADA_FEC}>
-                      {formatMessage(intl, "ledger", "ledger.export.formats.ohadaFec")}
+                    <MenuItem value={EXPORT_FORMAT.FEC}>
+                      {formatMessage(intl, "ledger", "ledger.export.formats.fec")}
                     </MenuItem>
                   </TextField>
                 </Grid>
                 <Grid size={GRID_RESPONSIVE_STANDARD} className="item">
-                  <Button variant="contained" disabled={!selectedPeriod || !format} onClick={triggerExport}>
+                  <Button
+                    variant="contained"
+                    disabled={!selectedPeriod || !format || submitting}
+                    onClick={triggerExport}
+                  >
                     {formatMessage(intl, "ledger", "ledger.export.trigger")}
                   </Button>
                 </Grid>
@@ -168,25 +131,9 @@ const PeriodExportPage = ({
             </StyledPaper>
           </Grid>
 
-          {exportJobs?.error ? (
+          {exportDownload?.error ? (
             <Grid size={12}>
-              <Alert severity="error">{exportJobs.error}</Alert>
-            </Grid>
-          ) : null}
-
-          {job ? (
-            <Grid size={12}>
-              <StyledPaper className="paper">
-                <Grid container alignItems="center" direction="row" className="paperHeader">
-                  <Grid className="paperHeaderTitle">
-                    <Typography>{formatMessage(intl, "ledger", "ledger.export.resultTitle")}</Typography>
-                  </Grid>
-                </Grid>
-                <Divider />
-                <Box className="paperBody">
-                  <ExportJobStatus job={job} />
-                </Box>
-              </StyledPaper>
+              <Alert severity="error">{formatMessage(intl, "ledger", exportDownload.error)}</Alert>
             </Grid>
           ) : null}
         </Grid>
@@ -198,16 +145,12 @@ const PeriodExportPage = ({
 const mapStateToProps = (state) => ({
   rights: state.core?.user?.i_user?.rights || [],
   accountingPeriods: state.ledger?.accountingPeriods,
-  exportJobs: state.ledger?.exportJobs,
-  mutation: state.ledger?.mutation,
-  submittingMutation: state.ledger?.submittingMutation,
+  exportDownload: state.ledger?.exportDownload,
 });
 
 const mapDispatchToProps = {
-  journalize,
   fetchAccountingPeriods,
-  exportAccountingPeriod,
-  pollExportJob,
+  downloadPeriodRegister,
 };
 
 export { PeriodExportPage };

@@ -1,6 +1,6 @@
-import { graphql, graphqlWithVariables, decodeId, formatMutation } from "@openimis/fe-core";
+import { baseApiUrl, graphql, graphqlWithVariables, decodeId, formatMutation, openBlob } from "@openimis/fe-core";
 import { ACTION_TYPE } from "./reducer";
-import { DEFAULT_PAGE_SIZE, EXPORT_JOB_POLL_INTERVAL_MS, MOCK_EXPORT_POLL_INTERVAL_MS } from "./constants";
+import { DEFAULT_PAGE_SIZE, EXPORT_FORMAT } from "./constants";
 
 // GraphQL operation strings target the REAL openimis-be-ledger_py schema:
 // snake_case root fields, Relay connections, graphene-django camelCased root
@@ -179,24 +179,6 @@ const MANUAL_REVIEW_QUEUE_QUERY = `
           }
         }
       }
-    }
-  }
-`;
-
-const EXPORT_ACCOUNTING_PERIOD_MUTATION = `
-  mutation ExportAccountingPeriod($accountingPeriodId: ID!, $format: String!) {
-    exportAccountingPeriod(accountingPeriodId: $accountingPeriodId, format: $format) {
-      clientMutationId
-      exportJob { accountingPeriodId format status provisional }
-      errors { field message }
-    }
-  }
-`;
-
-const EXPORT_SEQUENCES_QUERY = `
-  query ExportSequences($accountingPeriod: ID!, $journal: String) {
-    exportSequences(accountingPeriod: $accountingPeriod, journal: $journal) {
-      accountingPeriodId format status provisional downloadUrl failureMessage
     }
   }
 `;
@@ -1174,107 +1156,59 @@ export function resolveManualReviewItem(
   );
 }
 
-/** User Story 6 — trigger an async export job; `format` is chosen per-trigger, never sourced from deployment config. */
-export function exportAccountingPeriod(accountingPeriodId, format, clientMutationLabel = "Export accounting period") {
-  const clientMutationId =
-    globalThis.crypto?.randomUUID?.() ?? `export-${Date.now()}-${Math.random().toString(16).slice(2)}`;
-  return graphqlWithVariables(
-    EXPORT_ACCOUNTING_PERIOD_MUTATION,
-    { accountingPeriodId, format },
-    [
-      `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_REQ`,
-      `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_RESP`,
-      `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_ERR`,
-    ],
-    // `meta` so the reducer tracks the mutation and the JournalDrawer shows it.
-    { clientMutationId, clientMutationLabel, requestedDateTime: new Date(), accountingPeriodId },
-  );
-}
-
-function fetchExportSequences(accountingPeriodId, journal = null) {
-  return graphqlWithVariables(
-    EXPORT_SEQUENCES_QUERY,
-    { accountingPeriod: accountingPeriodId, journal },
-    [`${ACTION_TYPE.EXPORT_SEQUENCES}_REQ`, `${ACTION_TYPE.EXPORT_SEQUENCES}_RESP`, `${ACTION_TYPE.EXPORT_SEQUENCES}_ERR`],
-    { accountingPeriodId },
-  );
-}
-
 /**
- * User Story 6 — polls `exportSequences` at a fixed interval while the job
- * is `in_progress` (research.md §5, FR-014 "no manual reload"), clearing the
- * interval once a terminal status (`complete`/`failed`) is reached. Returns
- * a `stop()` function the caller (PeriodExportPage) invokes on unmount.
+ * User Story 6 — accounting period registers (ticket 38018).
+ *
+ * The backend serves them as plain CSV downloads (REST, not GraphQL):
+ *   GET /ledger/registers/download_period/<period-uuid>/<standard|fec>/
+ * `standard` is the general ledger, `fec` the OHADA/FEC register. The path is
+ * called with the period uuid (the picker's decoded id) and the trailing slash
+ * the Django route expects; the file name comes from `Content-Disposition`.
  */
-export function pollExportJob(accountingPeriodId, intervalMs = EXPORT_JOB_POLL_INTERVAL_MS) {
-  return (dispatch, getState) => {
-    let intervalId;
-    let stopped = false;
-    const tick = async () => {
-      if (stopped) return;
-      await dispatch(fetchExportSequences(accountingPeriodId));
-      if (stopped) return;
-      const status = getState().ledger?.exportJobs?.byPeriodId?.[accountingPeriodId]?.status;
-      if (status === "complete" || status === "failed") {
-        clearInterval(intervalId);
+const periodRegisterUrl = (periodId, exportType) =>
+  `${baseApiUrl}/ledger/registers/download_period/${periodId}/${exportType}/`;
+
+/** HTTP status -> translation key (resolved by the page, like the mutation messages). */
+const periodExportErrorKey = (status) => {
+  if (status === 403) return "ledger.export.errors.forbidden";
+  if (status === 404) return "ledger.export.errors.notFound";
+  return "ledger.export.errors.failed";
+};
+
+/** `attachment; filename="FEC_2026-05.csv"` -> `FEC_2026-05.csv` */
+const filenameFromDisposition = (disposition, fallback) => {
+  const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition || "");
+  return match ? decodeURIComponent(match[1]) : fallback;
+};
+
+const defaultRegisterFilename = (periodId, exportType) =>
+  exportType === EXPORT_FORMAT.FEC ? `FEC_${periodId}.csv` : `grand_livre_${periodId}.csv`;
+
+export function downloadPeriodRegister(periodId, exportType) {
+  return async (dispatch) => {
+    dispatch({ type: `${ACTION_TYPE.EXPORT_PERIOD_REGISTER}_REQ` });
+    try {
+      const response = await fetch(periodRegisterUrl(periodId, exportType), { credentials: "include" });
+      if (!response.ok) {
+        throw new Error(periodExportErrorKey(response.status));
       }
-    };
-    intervalId = setInterval(tick, intervalMs);
-    tick();
-    return () => {
-      stopped = true;
-      clearInterval(intervalId);
-    };
-  };
-}
-
-/** Demo-only export flow. The real actions above remain unchanged. */
-export function exportAccountingPeriodMock(accountingPeriodId, format, provisional = true) {
-  return (dispatch) => {
-    const job = { accountingPeriodId, format, status: "in_progress", provisional };
-    dispatch({ type: `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_REQ` });
-    dispatch({
-      type: `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_RESP`,
-      payload: { data: { exportAccountingPeriod: { exportJob: job } } },
-    });
-  };
-}
-
-/** Demo-only polling flow: complete the job after two visible progress ticks. */
-export function pollExportJobMock(
-  accountingPeriodId,
-  format = "generic",
-  provisional = true,
-  intervalMs = MOCK_EXPORT_POLL_INTERVAL_MS,
-) {
-  return (dispatch) => {
-    let ticks = 0;
-    let stopped = false;
-    const tick = () => {
-      if (stopped) return;
-      ticks += 1;
-      if (ticks < 3) return;
+      const blob = await response.blob();
+      const filename = filenameFromDisposition(
+        response.headers?.get?.("Content-Disposition"),
+        defaultRegisterFilename(periodId, exportType),
+      );
+      openBlob(blob, filename, "csv");
       dispatch({
-        type: `${ACTION_TYPE.EXPORT_SEQUENCES}_RESP`,
-        payload: {
-          data: {
-            exportSequences: {
-              accountingPeriodId,
-              format,
-              status: "complete",
-              provisional,
-              downloadUrl: `data:text/csv;charset=utf-8,accountingPeriodId%2Cstatus%0A${accountingPeriodId}%2Ccomplete`,
-            },
-          },
-        },
+        type: `${ACTION_TYPE.EXPORT_PERIOD_REGISTER}_RESP`,
+        payload: { filename },
+        meta: { periodId, exportType },
       });
-      clearInterval(intervalId);
-    };
-    const intervalId = setInterval(tick, intervalMs);
-    return () => {
-      stopped = true;
-      clearInterval(intervalId);
-    };
+      return { ok: true, filename };
+    } catch (error) {
+      const message = error?.message?.startsWith("ledger.") ? error.message : "ledger.export.errors.failed";
+      dispatch({ type: `${ACTION_TYPE.EXPORT_PERIOD_REGISTER}_ERR`, payload: { message } });
+      return { ok: false, error: message };
+    }
   };
 }
 

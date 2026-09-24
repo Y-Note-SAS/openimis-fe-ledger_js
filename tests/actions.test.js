@@ -27,13 +27,12 @@ import {
   lockAccountingPeriod,
   closeAccountingPeriod,
   reopenAccountingPeriod,
-  exportAccountingPeriod,
-  pollExportJob,
+  downloadPeriodRegister,
   fetchLedgerDeploymentConfiguration,
   fetchAccountOptions,
   createDeploymentConfiguration,
 } from "../src/actions";
-import { graphql, formatMutation } from "@openimis/fe-core";
+import { graphql, formatMutation, openBlob } from "@openimis/fe-core";
 import reducer, { ACTION_TYPE } from "../src/reducer";
 import { EXPORT_FORMAT } from "../src/constants";
 
@@ -184,64 +183,79 @@ describe("Actions - Mocks", () => {
   });
 });
 
-describe("Actions - Period export", () => {
-  beforeEach(() => {
-    vi.useRealTimers();
-  });
-
+describe("Actions - Period export (ticket 38018)", () => {
   afterEach(() => {
-    vi.useRealTimers();
+    vi.unstubAllGlobals();
+    vi.clearAllMocks();
   });
 
-  it("creates an export mutation action with the selected period and format", () => {
-    const action = exportAccountingPeriod("period-1", EXPORT_FORMAT.OHADA_FEC);
+  const okResponse = (headers = {}) => ({
+    ok: true,
+    status: 200,
+    headers: { get: (name) => headers[name] ?? null },
+    blob: () => Promise.resolve(new Blob(["a;b"], { type: "text/csv" })),
+  });
 
-    expect(action.variables).toEqual({
-      accountingPeriodId: "period-1",
-      format: EXPORT_FORMAT.OHADA_FEC,
+  it("downloads the period register from the REST endpoint with the uuid and the format", async () => {
+    const fetchMock = vi.fn(() =>
+      Promise.resolve(okResponse({ "Content-Disposition": 'attachment; filename="FEC_2026-05.csv"' })),
+    );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const dispatched = [];
+    const result = await downloadPeriodRegister("period-uuid", EXPORT_FORMAT.FEC)((action) => {
+      dispatched.push(action);
+      return Promise.resolve(action);
     });
-    expect(action.actionTypes).toEqual([
-      `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_REQ`,
-      `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_RESP`,
-      `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_ERR`,
-    ]);
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/ledger/registers/download_period/period-uuid/fec/", {
+      credentials: "include",
+    });
+    expect(openBlob).toHaveBeenCalledWith(expect.anything(), "FEC_2026-05.csv", "csv");
+    expect(result).toEqual({ ok: true, filename: "FEC_2026-05.csv" });
+    expect(dispatched[0].type).toBe(`${ACTION_TYPE.EXPORT_PERIOD_REGISTER}_REQ`);
+    expect(dispatched.at(-1).type).toBe(`${ACTION_TYPE.EXPORT_PERIOD_REGISTER}_RESP`);
   });
 
-  it("stops polling when the export reaches a terminal status", async () => {
-    vi.useFakeTimers();
-    const dispatch = vi.fn(() => Promise.resolve());
-    const getState = vi.fn(() => ({
-      ledger: { exportJobs: { byPeriodId: { "period-1": { status: "complete" } } } },
-    }));
+  it("falls back to a readable file name when the backend sends no Content-Disposition", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(okResponse())));
 
-    const stop = pollExportJob("period-1", 1000)(dispatch, getState);
-    await Promise.resolve();
-    const callsAfterFirstTick = dispatch.mock.calls.length;
+    const result = await downloadPeriodRegister("period-uuid", EXPORT_FORMAT.STANDARD)(() => Promise.resolve());
 
-    vi.advanceTimersByTime(1000);
-    await Promise.resolve();
-
-    expect(dispatch).toHaveBeenCalled();
-    expect(dispatch.mock.calls.length).toBe(callsAfterFirstTick);
-    stop();
+    expect(result.filename).toBe("grand_livre_period-uuid.csv");
   });
 
-  it("clears the polling interval when stop is called", async () => {
-    vi.useFakeTimers();
-    const dispatch = vi.fn(() => Promise.resolve());
-    const getState = vi.fn(() => ({
-      ledger: { exportJobs: { byPeriodId: { "period-1": { status: "in_progress" } } } },
-    }));
+  it("reports a forbidden download with a translation key", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve({ ok: false, status: 403, headers: { get: () => null } })));
 
-    const stop = pollExportJob("period-1", 1000)(dispatch, getState);
-    await Promise.resolve();
-    const callsBeforeStop = dispatch.mock.calls.length;
-    stop();
+    const dispatched = [];
+    const result = await downloadPeriodRegister("period-uuid", EXPORT_FORMAT.STANDARD)((action) => {
+      dispatched.push(action);
+      return Promise.resolve(action);
+    });
 
-    vi.advanceTimersByTime(3000);
-    await Promise.resolve();
+    expect(result).toEqual({ ok: false, error: "ledger.export.errors.forbidden" });
+    expect(dispatched.at(-1)).toMatchObject({
+      type: `${ACTION_TYPE.EXPORT_PERIOD_REGISTER}_ERR`,
+      payload: { message: "ledger.export.errors.forbidden" },
+    });
+    expect(openBlob).not.toHaveBeenCalled();
+  });
 
-    expect(dispatch.mock.calls.length).toBe(callsBeforeStop);
+  it("reports an unknown period as not found", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.resolve({ ok: false, status: 404, headers: { get: () => null } })));
+
+    const result = await downloadPeriodRegister("missing", EXPORT_FORMAT.STANDARD)(() => Promise.resolve());
+
+    expect(result.error).toBe("ledger.export.errors.notFound");
+  });
+
+  it("reports a network failure as a generic export error", async () => {
+    vi.stubGlobal("fetch", vi.fn(() => Promise.reject(new Error("Failed to fetch"))));
+
+    const result = await downloadPeriodRegister("period-uuid", EXPORT_FORMAT.STANDARD)(() => Promise.resolve());
+
+    expect(result).toEqual({ ok: false, error: "ledger.export.errors.failed" });
   });
 });
 

@@ -24,6 +24,10 @@ export const graphqlWithVariables = vi.fn((operation, variables, type, params) =
   params,
 }));
 
+/** The period register download goes through a REST call + a blob link. */
+export const baseApiUrl = "/api";
+export const openBlob = vi.fn((data, filename, mime) => ({ data, filename, mime }));
+
 export const graphql = vi.fn((payload, type, params) => ({ type: "MOCK_THUNK", payload, actionTypes: type, params }));
 
 export const formatMutation = vi.fn((name, gqlArgs, label) => ({

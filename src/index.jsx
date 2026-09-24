@@ -76,7 +76,8 @@ const DEFAULT_CONFIG = {
       path: ROUTE_PERIOD_EXPORT,
       id: "ledger.periodExport",
       component: PeriodExportPage,
-      rights: ADMIN_ONLY_RIGHTS,
+      // The backend serves the download with `gql_query_ledger_perms` (reporting).
+      rights: READ_RIGHTS,
       icon: "FileDownload",
       text: "ledger.menu.periodExport",
     },
