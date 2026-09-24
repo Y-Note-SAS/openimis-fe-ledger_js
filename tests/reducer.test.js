@@ -647,58 +647,24 @@ describe("Reducer", () => {
     expect(state.reviewResolution.error).toBe(null);
   });
 
-  it("handles LEDGER_EXPORT_ACCOUNTING_PERIOD_RESP", () => {
-    const action = {
-      type: `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_RESP`,
-      payload: {
-        data: {
-          exportAccountingPeriod: {
-            exportJob: { accountingPeriodId: "1", format: "CSV", status: "in_progress" },
-          },
-        },
-      },
-    };
-    const state = reducer(initialState, action);
-    expect(state.exportJobs.byPeriodId["1"]).toBeDefined();
-    expect(state.exportJobs.byPeriodId["1"].status).toBe("in_progress");
-  });
+  it("handles LEDGER_EXPORT_PERIOD_REGISTER_REQ/RESP/ERR", () => {
+    const requested = reducer(initialState, { type: `${ACTION_TYPE.EXPORT_PERIOD_REGISTER}_REQ` });
+    expect(requested.exportDownload.isFetching).toBe(true);
+    expect(requested.exportDownload.error).toBe(null);
 
-  it("handles LEDGER_EXPORT_SEQUENCES_RESP", () => {
-    const action = {
-      type: `${ACTION_TYPE.EXPORT_SEQUENCES}_RESP`,
-      payload: {
-        data: {
-          exportSequences: {
-            accountingPeriodId: "1",
-            format: "CSV",
-            status: "complete",
-            downloadUrl: "http://example.com/export.csv",
-          },
-        },
-      },
-    };
-    const state = reducer(initialState, action);
-    expect(state.exportJobs.byPeriodId["1"]).toBeDefined();
-    expect(state.exportJobs.byPeriodId["1"].status).toBe("complete");
-    expect(state.exportJobs.byPeriodId["1"].downloadUrl).toBe("http://example.com/export.csv");
-  });
+    const succeeded = reducer(requested, {
+      type: `${ACTION_TYPE.EXPORT_PERIOD_REGISTER}_RESP`,
+      payload: { filename: "FEC_2026-05.csv" },
+    });
+    expect(succeeded.exportDownload.isFetching).toBe(false);
+    expect(succeeded.exportDownload.error).toBe(null);
 
-  it("handles LEDGER_EXPORT_ACCOUNTING_PERIOD_ERR", () => {
-    const action = {
-      type: `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_ERR`,
-      payload: { message: "Network error" },
-    };
-    const state = reducer(initialState, action);
-    expect(state.exportJobs.error).toBe("Network error");
-  });
-
-  it("handles LEDGER_EXPORT_SEQUENCES_ERR", () => {
-    const action = {
-      type: `${ACTION_TYPE.EXPORT_SEQUENCES}_ERR`,
-      payload: { message: "Network error" },
-    };
-    const state = reducer(initialState, action);
-    expect(state.exportJobs.error).toBe("Network error");
+    const failed = reducer(requested, {
+      type: `${ACTION_TYPE.EXPORT_PERIOD_REGISTER}_ERR`,
+      payload: { message: "ledger.export.errors.forbidden" },
+    });
+    expect(failed.exportDownload.isFetching).toBe(false);
+    expect(failed.exportDownload.error).toBe("ledger.export.errors.forbidden");
   });
 
   it("handles LEDGER_DEPLOYMENT_CONFIGURATION_REQ", () => {
