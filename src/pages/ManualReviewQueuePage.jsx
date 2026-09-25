@@ -186,7 +186,14 @@ const ManualReviewQueuePage = ({
           onResolve={(itemId, correctingEntryId, resolutionNote) =>
             // The mutation payload only carries ids: refresh the queue once it
             // settles.
-            Promise.resolve(resolveManualReviewItem(itemId, correctingEntryId, resolutionNote)).then(() => fetch())
+            Promise.resolve(
+              resolveManualReviewItem(
+                itemId,
+                correctingEntryId,
+                resolutionNote,
+                formatMessage(intl, "ledger", "ledger.reviewQueue.mutationLabel.resolve"),
+              ),
+            ).then(() => fetch())
           }
         />
       </div>

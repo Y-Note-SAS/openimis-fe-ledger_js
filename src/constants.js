@@ -31,8 +31,8 @@ export const ACCOUNTING_PERIOD_STATUS = {
   CLOSED: "closed",
 };
 
-// Mirrors backend ManualReviewQueueItem.status (data-model.md)
-// Mirrors the backend `ExternalReplicationRecordStatus` enum (GraphQL values).
+// Mirrors the backend `ExternalReplicationRecordStatus` enum (GraphQL names):
+// the queue exposes the replication record status, not a local one.
 export const MANUAL_REVIEW_STATUS = {
   PENDING: "PENDING",
   SUCCEEDED: "SUCCEEDED",
@@ -102,6 +102,11 @@ export const ACCOUNT_TYPE = {
   EQUITY: "EQ",
   TRADING: "TR",
 };
+
+// hordak's Account.code is a CharField(max_length=6) and the database rejects
+// anything longer (the mutation wrapper swallows the resulting database error),
+// so the form caps the input instead of failing silently.
+export const ACCOUNT_CODE_MAX_LENGTH = 6;
 
 // Deployment configuration is validated server-side: the retained earnings
 // account must not be an income or expense account.

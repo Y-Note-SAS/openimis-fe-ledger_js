@@ -16,6 +16,8 @@ import {
 } from "@openimis/fe-core";
 import { fetchAccountingPeriods, fetchLedgerEntries } from "../actions";
 import { DEFAULT_PAGE_SIZE, ROWS_PER_PAGE_OPTIONS } from "../constants";
+import { graphqlString } from "../utils/graphqlLiteral";
+import { sourceEventTypeEnumName } from "../utils/sourceEventType";
 import LedgerEntryFilter from "./LedgerEntryFilter";
 
 const ExpandIcon = GetIconComponent("ExpandMore");
@@ -135,7 +137,7 @@ const LedgerEntrySearcher = ({
     return {
       accountingPeriodId: {
         value: openPeriod.id,
-        filter: `accountingPeriod: "${openPeriod.id}"`,
+        filter: `accountingPeriod: ${graphqlString(openPeriod.id)}`,
       },
     };
   };
@@ -151,7 +153,9 @@ const LedgerEntrySearcher = ({
         journal: typeof valueOf("journal") === "string" ? valueOf("journal") : null,
         accountingPeriodId:
           valueOf("accountingPeriodId") === ALL_PERIODS_FILTER_VALUE ? null : valueOf("accountingPeriodId"),
-        sourceEventType: typeof valueOf("sourceEventType") === "string" ? valueOf("sourceEventType") : null,
+        // The ledger query takes the enum NAME (`CLAIM_PAYMENT`), not the stored value.
+        sourceEventType:
+          typeof valueOf("sourceEventType") === "string" ? sourceEventTypeEnumName(valueOf("sourceEventType")) : null,
         partyAnalyticValueId: partyValue?.analyticValueId ?? partyValue,
         funderAnalyticValueId: funderValue?.analyticValueId ?? funderValue,
       },
@@ -222,7 +226,7 @@ const LedgerEntrySearcher = ({
   };
 
   const toggleEntry = (entry) => {
-    setExpandedEntryId((prevId) => prevId === entry.id ? null : entry.id);
+    setExpandedEntryId((prevId) => (prevId === entry.id ? null : entry.id));
   };
 
   const displayItems = () => {
@@ -343,9 +347,7 @@ const LedgerEntrySearcher = ({
       defaultOrderBy="-postedAt"
       headers={headers}
       itemFormatters={itemFormatters}
-      detailRowFormatter={(entry) =>
-        entry.id === expandedEntryId ? renderEntryDetails(entry) : null
-      }
+      detailRowFormatter={(entry) => (entry.id === expandedEntryId ? renderEntryDetails(entry) : null)}
       onRowClick={toggleEntry}
       sorts={sorts}
     />
@@ -366,7 +368,5 @@ const mapDispatchToProps = {
 
 export { LEDGER_ENTRY_SEARCHER_CONTRIBUTION_KEY };
 export default withModulesManager(
-  withHistory(
-    connect(mapStateToProps, mapDispatchToProps)(injectIntl(LedgerEntrySearcher))
-  )
+  withHistory(connect(mapStateToProps, mapDispatchToProps)(injectIntl(LedgerEntrySearcher))),
 );

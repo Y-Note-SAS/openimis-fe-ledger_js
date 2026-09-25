@@ -31,15 +31,16 @@ export const formatMutation = vi.fn((name, gqlArgs, label) => ({
   clientMutationId: "mock-client-mutation-id",
 }));
 
-export const withModulesManager = (Component) => (props) => (
-  <Component {...props} modulesManager={{ getConf: () => null }} />
-);
+export const withModulesManager = (Component) => (props) =>
+  <Component {...props} modulesManager={{ getConf: () => null }} />;
 
 export const withHistory = (Component) => (props) => <Component {...props} history={{ push: vi.fn() }} />;
 
 export const historyPush = vi.fn();
 
 export const GetIconComponent = (name) => (props) => <span data-icon={name} {...props} />;
+
+export const withTooltip = (component, title) => <span data-tooltip={title}>{component}</span>;
 
 export const Helmet = () => null;
 

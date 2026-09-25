@@ -30,12 +30,49 @@ import {
   exportAccountingPeriod,
   pollExportJob,
   fetchLedgerDeploymentConfiguration,
+  fetchJournalsList,
+  fetchJournalTypes,
+  createJournal,
+  updateJournal,
+  deleteJournal,
+  fetchAccounts,
+  createAccount,
+  updateAccount,
+  deleteAccount,
   fetchAccountOptions,
   createDeploymentConfiguration,
 } from "../src/actions";
-import { graphql, formatMutation } from "@openimis/fe-core";
+import { graphql, graphqlWithVariables, formatMutation } from "@openimis/fe-core";
 import reducer, { ACTION_TYPE } from "../src/reducer";
 import { EXPORT_FORMAT } from "../src/constants";
+
+/**
+ * The ledger mutations poll `mutationLogs(clientMutationId)` after the write:
+ * stub the log response for the next `graphqlWithVariables` call.
+ */
+const mockMutationLog = (node) =>
+  graphqlWithVariables.mockImplementationOnce(() => ({
+    type: "MOCK_GRAPHQL_RESPONSE",
+    payload: { data: { mutationLogs: { edges: node ? [{ node }] : [] } } },
+  }));
+
+const mockMutationLogSuccess = () => mockMutationLog({ status: 2, error: null });
+
+/**
+ * Runs a mutation thunk against a real store so the nested thunks (the ledger
+ * mutations chain the mutation-log confirmation) actually execute. The
+ * dispatched actions and the resolved value are returned alongside the state.
+ */
+const runMutation = async (action) => {
+  const store = createStore(reducer, applyMiddleware(thunk));
+  const dispatched = [];
+  const spy = (a) => {
+    dispatched.push(a);
+    return store.dispatch(a);
+  };
+  const result = await action(spy);
+  return { dispatched, state: store.getState(), result };
+};
 
 describe("Actions - Mocks", () => {
   let dispatch;
@@ -92,7 +129,9 @@ describe("Actions - Mocks", () => {
       payload: expect.objectContaining({
         data: expect.objectContaining({
           accountingPeriods: expect.objectContaining({
-            edges: expect.arrayContaining([expect.objectContaining({ node: expect.objectContaining({ status: expect.any(String) }) })]),
+            edges: expect.arrayContaining([
+              expect.objectContaining({ node: expect.objectContaining({ status: expect.any(String) }) }),
+            ]),
           }),
         }),
       }),
@@ -181,6 +220,62 @@ describe("Actions - Mocks", () => {
     const gizAllReport = dispatch.mock.calls[5][0].payload.data.funderActivityReport;
     expect(gizAllReport.debitTotal).toBe(33400);
     expect(gizAllReport.creditTotal).toBe(33400);
+  });
+});
+
+describe("Actions - GraphQL inputs", () => {
+  // The backend parses the document with graphql-core 2.3.2, whose parser
+  // rejects the `null` literal inside an input object ("Unexpected Name
+  // \"null\""): an absent optional value must be omitted, not sent as null.
+  // `formatMutation` receives the generated input, which is what we inspect.
+  const generatedInputs = () => formatMutation.mock.calls.map(([, input]) => String(input));
+
+  it("never emits an inline null literal, even with every optional value empty", () => {
+    formatMutation.mockClear();
+
+    createJournal({ clientMutationLabel: "Create journal" });
+    updateJournal({ clientMutationLabel: "Update journal" });
+    createAccount({ clientMutationLabel: "Create account" });
+    updateAccount({ clientMutationLabel: "Update account" });
+    // The uuid of a deletion is mandatory (the row action always provides it).
+    deleteJournal({ journalUuid: "journal-uuid", clientMutationLabel: "Delete journal" });
+    deleteAccount({ accountUuid: "account-uuid", clientMutationLabel: "Delete account" });
+    createDeploymentConfiguration({ operatingMode: "local_only", currencyCode: "XAF", clientMutationLabel: "cfg" });
+
+    const inputs = generatedInputs();
+    expect(inputs).toHaveLength(7);
+    inputs.forEach((input) => {
+      expect(input).not.toMatch(/:\s*null\b/);
+      expect(input).not.toContain("undefined");
+    });
+  });
+
+  it("still sends the populated optional fields", () => {
+    formatMutation.mockClear();
+
+    createAccount({
+      name: "Caisse",
+      code: "5711",
+      parentId: "parent-uuid",
+      type: "AS",
+      isBankAccount: true,
+      currencies: ["XAF"],
+      clientMutationLabel: "Create account",
+    });
+    createJournal({
+      name: "Caisse",
+      code: "CAISSE",
+      journalType: { id: "type-uuid" },
+      defaultDebitAccount: { uuid: "debit-uuid" },
+      defaultCreditAccount: { uuid: "credit-uuid" },
+      clientMutationLabel: "Create journal",
+    });
+
+    const [accountInput, journalInput] = generatedInputs();
+    expect(accountInput).toContain('parentId: "parent-uuid"');
+    expect(journalInput).toContain('type: "type-uuid"');
+    expect(journalInput).toContain('defaultDebitAccountId: "debit-uuid"');
+    expect(journalInput).toContain('defaultCreditAccountId: "credit-uuid"');
   });
 });
 
@@ -720,5 +815,320 @@ describe("Actions - Manual review queue (US5)", () => {
       correctingEntryId: "11",
       resolutionNote: "Correction linked",
     });
+  });
+});
+
+describe("Actions - Accounts management", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("builds the paginated accounts query with every filter", () => {
+    const action = fetchAccounts(
+      { code: "1200", fullCode: "1200", type: "EQ", isBankAccount: true },
+      { first: 20, after: "cursor-1" },
+    );
+
+    expect(action.operation).toContain("query Accounts");
+    expect(action.operation).toContain("accounts(");
+    // The tree is rendered from `level`/`parent` and the delete guard needs the
+    // sub-account count.
+    expect(action.operation).toContain("parent { id uuid code name type }");
+    expect(action.operation).toContain("children { totalCount }");
+    expect(action.variables).toEqual({
+      first: 20,
+      after: "cursor-1",
+      before: null,
+      last: null,
+      code: "1200",
+      fullCode: "1200",
+      type: "EQ",
+      isBankAccount: true,
+    });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.ACCOUNTS}_REQ`,
+      `${ACTION_TYPE.ACCOUNTS}_RESP`,
+      `${ACTION_TYPE.ACCOUNTS}_ERR`,
+    ]);
+  });
+
+  it("queries the first page with no filter when nothing is applied", () => {
+    const action = fetchAccounts({}, {});
+
+    expect(action.variables).toEqual({
+      first: null,
+      after: null,
+      before: null,
+      last: null,
+      code: null,
+      fullCode: null,
+      type: null,
+      isBankAccount: null,
+    });
+  });
+
+  it("creates an account with its parent, without fullCode (derived server-side)", async () => {
+    const action = createAccount({
+      name: "Caisse",
+      code: "570",
+      parentId: "parent-uuid",
+      type: "AS",
+      isBankAccount: false,
+      currencies: ["XAF", "EUR"],
+      clientMutationLabel: "Create account",
+    });
+
+    expect(formatMutation).toHaveBeenCalledTimes(1);
+    const [mutationName, input, label] = formatMutation.mock.calls[0];
+    expect(mutationName).toBe("createAccount");
+    expect(input).toContain('name: "Caisse"');
+    expect(input).toContain('code: "570"');
+    // `fullCode` is derived by the backend (parent chain) and is no longer part
+    // of CreateAccountInputType.
+    expect(input).not.toContain("fullCode");
+    expect(input).toContain('parentId: "parent-uuid"');
+    expect(input).toContain('type: "AS"');
+    expect(input).toContain("isBankAccount: false");
+    expect(input).toContain('currencies: "[\\"XAF\\",\\"EUR\\"]"');
+    expect(label).toBe("Create account");
+
+    mockMutationLogSuccess();
+    const { dispatched, state } = await runMutation(action);
+    expect(dispatched[0]).toMatchObject({
+      actionTypes: [
+        `${ACTION_TYPE.CREATE_ACCOUNT}_REQ`,
+        `${ACTION_TYPE.CREATE_ACCOUNT}_RESP`,
+        `${ACTION_TYPE.CREATE_ACCOUNT}_ERR`,
+      ],
+      params: expect.objectContaining({ clientMutationId: "mock-client-mutation-id" }),
+    });
+    // The page only closes the dialog once the mutation log confirms the write
+    // (`_CONFIRMED`), not on the HTTP response.
+    expect(state.accountMutation.lastMutationAt).toEqual(expect.any(Number));
+    expect(state.accountMutation.error).toBe(null);
+  });
+
+  it("never reports a success it cannot prove: an unreadable mutation log is a failure", async () => {
+    mockMutationLog(null);
+
+    const { state } = await runMutation(deleteAccount({ accountUuid: "uuid-1", clientMutationLabel: "Delete" }));
+
+    expect(state.accountMutation.lastMutationAt).toBe(null);
+    expect(state.accountMutation.error).toBe(
+      "The mutation could not be verified, please check the list before retrying.",
+    );
+  });
+
+  it("flags the returned value when the confirmation failed", async () => {
+    mockMutationLog(null);
+
+    const { result } = await runMutation(deleteAccount({ accountUuid: "uuid-1", clientMutationLabel: "Delete" }));
+
+    expect(result.error).toBe(true);
+    expect(result.confirmation.ok).toBe(false);
+  });
+
+  it("reports a transport/GraphQL failure straight away, without polling a log row", async () => {
+    graphql.mockImplementationOnce(() => ({
+      type: "MOCK_GRAPHQL_RESPONSE",
+      error: true,
+      payload: { message: "Failed to fetch" },
+    }));
+
+    const { state } = await runMutation(deleteAccount({ accountUuid: "uuid-1", clientMutationLabel: "Delete" }));
+
+    expect(state.accountMutation.lastMutationAt).toBe(null);
+    expect(state.accountMutation.error).toBe("Failed to fetch");
+    // No log query: the mutation never reached the backend.
+    expect(graphqlWithVariables).not.toHaveBeenCalled();
+  });
+
+  it("updates an account with its uuid, its current parent and no fullCode", async () => {
+    const action = updateAccount({
+      accountUuid: "uuid-1",
+      name: "Caisse",
+      code: "570",
+      parentId: "parent-uuid",
+      type: "AS",
+      isBankAccount: true,
+      currencies: ["XAF"],
+      clientMutationLabel: "Update account 570",
+    });
+
+    const [mutationName, input, label] = formatMutation.mock.calls.at(-1);
+    expect(mutationName).toBe("updateAccount");
+    expect(input).toContain('accountUuid: "uuid-1"');
+    expect(input).toContain('name: "Caisse"');
+    expect(input).not.toContain("fullCode");
+    // The backend assigns `parent = parentId or None`: the current parent must
+    // always be sent back or a child account would silently become a root.
+    expect(input).toContain('parentId: "parent-uuid"');
+    expect(input).toContain("isBankAccount: true");
+    expect(input).toContain('currencies: "[\\"XAF\\"]"');
+    expect(label).toBe("Update account 570");
+
+    mockMutationLogSuccess();
+    const { dispatched } = await runMutation(action);
+    expect(dispatched[0].actionTypes).toEqual([
+      `${ACTION_TYPE.UPDATE_ACCOUNT}_REQ`,
+      `${ACTION_TYPE.UPDATE_ACCOUNT}_RESP`,
+      `${ACTION_TYPE.UPDATE_ACCOUNT}_ERR`,
+    ]);
+  });
+
+  it("deletes an account with the uuid only", async () => {
+    const action = deleteAccount({ accountUuid: "uuid-1", clientMutationLabel: "Delete account 570" });
+
+    const [mutationName, input, label] = formatMutation.mock.calls.at(-1);
+    expect(mutationName).toBe("deleteAccount");
+    expect(input.trim()).toBe('accountUuid: "uuid-1"');
+    expect(label).toBe("Delete account 570");
+
+    mockMutationLogSuccess();
+    const { dispatched } = await runMutation(action);
+    expect(dispatched[0].actionTypes).toEqual([
+      `${ACTION_TYPE.DELETE_ACCOUNT}_REQ`,
+      `${ACTION_TYPE.DELETE_ACCOUNT}_RESP`,
+      `${ACTION_TYPE.DELETE_ACCOUNT}_ERR`,
+    ]);
+  });
+
+  it("reports a mutation rejected by the backend as an error instead of a success", async () => {
+    graphqlWithVariables.mockImplementationOnce(() => ({
+      type: "MOCK_GRAPHQL_RESPONSE",
+      payload: {
+        data: {
+          mutationLogs: {
+            edges: [
+              {
+                node: {
+                  status: 1,
+                  error:
+                    '[{"message": "mutation.invalid", "detail": "The account you are trying to delete has childrens"}]',
+                },
+              },
+            ],
+          },
+        },
+      },
+    }));
+
+    const { state } = await runMutation(
+      deleteAccount({ accountUuid: "uuid-1", clientMutationLabel: "Delete account 570" }),
+    );
+
+    // No success stamp: the dialog stays open and shows the message.
+    expect(state.accountMutation.lastMutationAt).toBe(null);
+    expect(state.accountMutation.error).toBe("mutation.invalid");
+  });
+
+  it("ignores a plain-string mutation log error when reporting the rejection", async () => {
+    graphqlWithVariables.mockImplementationOnce(() => ({
+      type: "MOCK_GRAPHQL_RESPONSE",
+      payload: {
+        data: {
+          mutationLogs: {
+            edges: [{ node: { status: 1, error: "The mutation threw a ValidationError, check logs for details" } }],
+          },
+        },
+      },
+    }));
+
+    const { state } = await runMutation(
+      deleteAccount({ accountUuid: "uuid-1", clientMutationLabel: "Delete account 570" }),
+    );
+
+    expect(state.accountMutation.error).toBe("The mutation threw a ValidationError, check logs for details");
+    expect(state.accountMutation.lastMutationAt).toBe(null);
+  });
+});
+describe("Actions - Journals management", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("builds the paginated journals query with the type id filter", () => {
+    const action = fetchJournalsList(
+      { name: "Bank", code: "BANK", typeId: "uuid-2" },
+      { first: 10, after: "cursor-1" },
+    );
+
+    expect(action.operation).toContain("query JournalsList");
+    expect(action.operation).toContain("type_Id: $typeId");
+    expect(action.operation).toContain("isDeleted: false");
+    expect(action.operation).toContain("defaultDebitAccountId { id uuid code name }");
+    expect(action.operation).toContain("isDeleted");
+    expect(action.variables).toEqual({
+      first: 10,
+      after: "cursor-1",
+      before: null,
+      last: null,
+      name: "Bank",
+      code: "BANK",
+      typeId: "uuid-2",
+    });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.JOURNALS}_REQ`,
+      `${ACTION_TYPE.JOURNALS}_RESP`,
+      `${ACTION_TYPE.JOURNALS}_ERR`,
+    ]);
+  });
+
+  it("queries the first journals page without filters by default", () => {
+    const action = fetchJournalsList({}, {});
+
+    expect(action.variables).toEqual({
+      first: null,
+      after: null,
+      before: null,
+      last: null,
+      name: null,
+      code: null,
+      typeId: null,
+    });
+  });
+
+  it("builds the journal types query", () => {
+    const action = fetchJournalTypes();
+
+    expect(action.operation).toContain("query JournalTypes");
+    expect(action.operation).toContain("journalTypes(first: $first)");
+    expect(action.variables).toEqual({ first: 100 });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.JOURNAL_TYPES}_REQ`,
+      `${ACTION_TYPE.JOURNAL_TYPES}_RESP`,
+      `${ACTION_TYPE.JOURNAL_TYPES}_ERR`,
+    ]);
+  });
+
+  it("creates a journal with the journal type uuid and the account uuids", async () => {
+    const action = createJournal({
+      name: "Bank",
+      code: "BANK",
+      journalType: { id: "uuid-2", code: "bank" },
+      defaultDebitAccount: { uuid: "debit-uuid", code: "5120" },
+      defaultCreditAccount: { uuid: "credit-uuid", code: "7010" },
+      clientMutationLabel: "Create journal",
+    });
+
+    expect(formatMutation).toHaveBeenCalledTimes(1);
+    const [mutationName, input, label] = formatMutation.mock.calls[0];
+    expect(mutationName).toBe("createJournal");
+    expect(input).toContain('name: "Bank"');
+    expect(input).toContain('code: "BANK"');
+    expect(input).toContain('type: "uuid-2"');
+    expect(input).toContain('defaultDebitAccountId: "debit-uuid"');
+    expect(input).toContain('defaultCreditAccountId: "credit-uuid"');
+    expect(input).not.toContain("sequence");
+    expect(label).toBe("Create journal");
+
+    mockMutationLogSuccess();
+    const { dispatched, state } = await runMutation(action);
+    expect(dispatched[0].actionTypes).toEqual([
+      `${ACTION_TYPE.CREATE_JOURNAL}_REQ`,
+      `${ACTION_TYPE.CREATE_JOURNAL}_RESP`,
+      `${ACTION_TYPE.CREATE_JOURNAL}_ERR`,
+    ]);
+    expect(state.journalMutation.lastMutationAt).toEqual(expect.any(Number));
   });
 });

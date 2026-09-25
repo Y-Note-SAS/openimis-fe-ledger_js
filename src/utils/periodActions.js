@@ -1,10 +1,15 @@
-// ASSUMPTION (data-model.md leaves the exact algorithm unspecified beyond
-// "earliest-open/locked-period rule" + spec.md's "chronological-order
-// enforcement" goal): periods must be locked oldest-open-first, closed
-// oldest-locked-first, and reopened newest-closed-first (the mirror image of
-// closing) — so a period is only actionable if it is the chronologically
-// extreme member of its own status group. This is a client-side hint only;
-// the backend mutation response remains authoritative (FR-009).
+// Mirrors the backend rules (PeriodService):
+// - `lock`: only the earliest OPEN period (PeriodService._validate_earliest_open_period),
+// - `close`: the period must be LOCKED *and* be the earliest period that is not
+//   closed, whatever its status (PeriodService.close: "Only a locked accounting
+//   period can be closed" + _validate_earliest_non_closed_period). An OPEN
+//   period placed before it therefore blocks the closing, so the action must
+//   not be offered in that case,
+// - `reopen`: only a LOCKED period (PeriodService.reopen -> "Only a locked
+//   accounting period can be reopened"): a CLOSED period is final, so offering
+//   "reopen" on a closed row only produced a backend rejection.
+// This is a client-side hint only; the backend mutation remains authoritative
+// (FR-009).
 export function availableActionsForPeriod(period, allPeriods = []) {
   if (!period) return [];
 
@@ -16,14 +21,12 @@ export function availableActionsForPeriod(period, allPeriods = []) {
   }
 
   if (period.status === "locked") {
-    const earliestLocked = byStartDateAsc.find((p) => p.status === "locked");
-    return earliestLocked?.id === period.id ? ["close"] : [];
-  }
-
-  if (period.status === "closed") {
-    const closedPeriods = byStartDateAsc.filter((p) => p.status === "closed");
-    const latestClosed = closedPeriods[closedPeriods.length - 1];
-    return latestClosed?.id === period.id ? ["reopen"] : [];
+    const earliestNonClosed = byStartDateAsc.find((p) => p.status !== "closed");
+    const actions = ["reopen"];
+    if (earliestNonClosed?.id === period.id) {
+      actions.unshift("close");
+    }
+    return actions;
   }
 
   return [];

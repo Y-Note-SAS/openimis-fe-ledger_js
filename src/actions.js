@@ -1,5 +1,6 @@
-import { graphql, graphqlWithVariables, decodeId, formatMutation } from "@openimis/fe-core";
+import { graphql, graphqlWithVariables, decodeId, formatMutation, formatServerError } from "@openimis/fe-core";
 import { ACTION_TYPE } from "./reducer";
+import { formatCurrenciesGQLValue } from "./utils/currencies";
 import { DEFAULT_PAGE_SIZE, EXPORT_JOB_POLL_INTERVAL_MS, MOCK_EXPORT_POLL_INTERVAL_MS } from "./constants";
 
 // GraphQL operation strings target the REAL openimis-be-ledger_py schema:
@@ -89,7 +90,7 @@ const ANALYTIC_VALUES_QUERY = `
 
 const JOURNALS_QUERY = `
   query Journals($first: Int) {
-    ledgerJournal(first: $first) {
+    ledgerJournal(first: $first, isDeleted: false) {
       totalCount
       edges {
         node {
@@ -105,12 +106,68 @@ const JOURNALS_QUERY = `
 // e.g. "treasury"; `type` alone would expect the FK id.
 const JOURNALS_BY_TYPE_QUERY = `
   query JournalsByType($first: Int, $typeCode: String) {
-    ledgerJournal(first: $first, type_Code: $typeCode) {
+    ledgerJournal(first: $first, type_Code: $typeCode, isDeleted: false) {
       totalCount
       edges {
         node {
           id name code
           type { id code type altLanguage }
+        }
+      }
+    }
+  }
+`;
+
+const JOURNALS_LIST_QUERY = `
+  query JournalsList(
+    $first: Int, $after: String, $before: String, $last: Int,
+    $name: String, $code: String, $typeId: ID
+  ) {
+    ledgerJournal(
+      first: $first, after: $after, before: $before, last: $last,
+      name: $name, code: $code, type_Id: $typeId, isDeleted: false
+    ) {
+      totalCount
+      pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
+      edges {
+        node {
+          id name code isDeleted
+          type { id code type altLanguage }
+          defaultDebitAccountId { id uuid code name }
+          defaultCreditAccountId { id uuid code name }
+        }
+      }
+    }
+  }
+`;
+
+const JOURNAL_TYPES_QUERY = `
+  query JournalTypes($first: Int) {
+    journalTypes(first: $first) {
+      totalCount
+      edges {
+        node { id code type altLanguage }
+      }
+    }
+  }
+`;
+
+const ACCOUNTS_QUERY = `
+  query Accounts(
+    $first: Int, $after: String, $before: String, $last: Int,
+    $code: String, $fullCode: String, $type: AccountType, $isBankAccount: Boolean
+  ) {
+    accounts(
+      first: $first, after: $after, before: $before, last: $last,
+      code: $code, fullCode: $fullCode, type: $type, isBankAccount: $isBankAccount
+    ) {
+      totalCount
+      pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
+      edges {
+        node {
+          id uuid name code fullCode type isBankAccount currencies level
+          parent { id uuid code name type }
+          children { totalCount }
         }
       }
     }
@@ -269,7 +326,18 @@ const MOCK_PARTY_OPENING_BALANCES = {
 
 const partyTag = (id, displayName) => ({ analyticValueId: id, displayName });
 const funderTag = (id, displayName) => ({ analyticValueId: id, displayName });
-const mockEntry = (id, journal, periodId, status, sourceEventType, sourceEventReference, postedAt, amount, party, funder) => ({
+const mockEntry = (
+  id,
+  journal,
+  periodId,
+  status,
+  sourceEventType,
+  sourceEventReference,
+  postedAt,
+  amount,
+  party,
+  funder,
+) => ({
   id: mockId("LedgerEntry", id),
   journal: { code: journal, name: journal },
   accountingPeriod: { id: periodId, status },
@@ -297,19 +365,151 @@ const mockEntry = (id, journal, periodId, status, sourceEventType, sourceEventRe
 });
 
 const MOCK_LEDGER_ENTRIES = [
-  mockEntry(1, "BANK", OPEN_PERIOD_ID, "open", "claim_payment", "CLM-2026-0001", "2026-07-24", 12500, partyTag(analyticId("HF-1"), "District Hospital"), funderTag(analyticId("GIZ"), "GIZ")),
-  mockEntry(2, "SALES", OPEN_PERIOD_ID, "open", "invoice", "INV-2026-0007", "2026-07-23", 7800, partyTag(analyticId("FAM-1"), "Family Doe"), funderTag(analyticId("WB"), "World Bank")),
-  mockEntry(3, "BANK", OPEN_PERIOD_ID, "open", "payroll_disbursement", "PAY-2026-0003", "2026-07-22", 9200, partyTag(analyticId("PPM-1"), "Payment Point Manager A"), funderTag(analyticId("GIZ"), "GIZ")),
-  mockEntry(4, "MISC", OPEN_PERIOD_ID, "open", "payment_point_reconciliation", "PPR-2026-0004", "2026-07-21", 4300, partyTag(analyticId("PPM-2"), "Payment Point Manager B"), funderTag(analyticId("WB"), "World Bank")),
-  mockEntry(5, "PURCHASES", OPEN_PERIOD_ID, "open", "correction", "COR-2026-0005", "2026-07-20", 2100, partyTag(analyticId("HF-2"), "Urban Clinic"), funderTag(analyticId("GIZ"), "GIZ")),
+  mockEntry(
+    1,
+    "BANK",
+    OPEN_PERIOD_ID,
+    "open",
+    "claim_payment",
+    "CLM-2026-0001",
+    "2026-07-24",
+    12500,
+    partyTag(analyticId("HF-1"), "District Hospital"),
+    funderTag(analyticId("GIZ"), "GIZ"),
+  ),
+  mockEntry(
+    2,
+    "SALES",
+    OPEN_PERIOD_ID,
+    "open",
+    "invoice",
+    "INV-2026-0007",
+    "2026-07-23",
+    7800,
+    partyTag(analyticId("FAM-1"), "Family Doe"),
+    funderTag(analyticId("WB"), "World Bank"),
+  ),
+  mockEntry(
+    3,
+    "BANK",
+    OPEN_PERIOD_ID,
+    "open",
+    "payroll_disbursement",
+    "PAY-2026-0003",
+    "2026-07-22",
+    9200,
+    partyTag(analyticId("PPM-1"), "Payment Point Manager A"),
+    funderTag(analyticId("GIZ"), "GIZ"),
+  ),
+  mockEntry(
+    4,
+    "MISC",
+    OPEN_PERIOD_ID,
+    "open",
+    "payment_point_reconciliation",
+    "PPR-2026-0004",
+    "2026-07-21",
+    4300,
+    partyTag(analyticId("PPM-2"), "Payment Point Manager B"),
+    funderTag(analyticId("WB"), "World Bank"),
+  ),
+  mockEntry(
+    5,
+    "PURCHASES",
+    OPEN_PERIOD_ID,
+    "open",
+    "correction",
+    "COR-2026-0005",
+    "2026-07-20",
+    2100,
+    partyTag(analyticId("HF-2"), "Urban Clinic"),
+    funderTag(analyticId("GIZ"), "GIZ"),
+  ),
   mockEntry(6, "MISC", OPEN_PERIOD_ID, "open", "closing_entry", "CLS-2026-0006", "2026-07-19", 500, null, null),
-  mockEntry(7, "BANK", CLOSED_PERIOD_ID, "closed", "claim_payment", "CLM-2026-0101", "2026-06-28", 6100, partyTag(analyticId("HF-1"), "District Hospital"), funderTag(analyticId("GIZ"), "GIZ")),
-  mockEntry(8, "SALES", CLOSED_PERIOD_ID, "closed", "invoice", "INV-2026-0102", "2026-06-27", 3200, partyTag(analyticId("FAM-2"), "Family Smith"), funderTag(analyticId("WB"), "World Bank")),
-  mockEntry(9, "BANK", OPEN_PERIOD_ID, "open", "claim_payment", "CLM-2026-0009", "2026-07-18", 1600, partyTag(analyticId("HF-3"), "Rural Health Center"), funderTag(analyticId("UNICEF"), "UNICEF")),
-  mockEntry(10, "SALES", OPEN_PERIOD_ID, "open", "invoice", "INV-2026-0010", "2026-07-17", 2700, partyTag(analyticId("FAM-1"), "Family Doe"), funderTag(analyticId("GIZ"), "GIZ")),
-  mockEntry(11, "BANK", OPEN_PERIOD_ID, "open", "claim_payment", "CLM-2026-0011", "2026-07-16", 3400, partyTag(analyticId("HF-1"), "District Hospital"), funderTag(analyticId("WB"), "World Bank")),
-  mockEntry(12, "PURCHASES", OPEN_PERIOD_ID, "open", "payroll_disbursement", "PAY-2026-0012", "2026-07-15", 1900, partyTag(analyticId("PPM-1"), "Payment Point Manager A"), funderTag(analyticId("UNICEF"), "UNICEF")),
-  mockEntry(13, "MISC", OPEN_PERIOD_ID, "open", "payment_point_reconciliation", "PPR-2026-0013", "2026-07-14", 800, partyTag(analyticId("PPM-2"), "Payment Point Manager B"), funderTag(analyticId("GIZ"), "GIZ")),
+  mockEntry(
+    7,
+    "BANK",
+    CLOSED_PERIOD_ID,
+    "closed",
+    "claim_payment",
+    "CLM-2026-0101",
+    "2026-06-28",
+    6100,
+    partyTag(analyticId("HF-1"), "District Hospital"),
+    funderTag(analyticId("GIZ"), "GIZ"),
+  ),
+  mockEntry(
+    8,
+    "SALES",
+    CLOSED_PERIOD_ID,
+    "closed",
+    "invoice",
+    "INV-2026-0102",
+    "2026-06-27",
+    3200,
+    partyTag(analyticId("FAM-2"), "Family Smith"),
+    funderTag(analyticId("WB"), "World Bank"),
+  ),
+  mockEntry(
+    9,
+    "BANK",
+    OPEN_PERIOD_ID,
+    "open",
+    "claim_payment",
+    "CLM-2026-0009",
+    "2026-07-18",
+    1600,
+    partyTag(analyticId("HF-3"), "Rural Health Center"),
+    funderTag(analyticId("UNICEF"), "UNICEF"),
+  ),
+  mockEntry(
+    10,
+    "SALES",
+    OPEN_PERIOD_ID,
+    "open",
+    "invoice",
+    "INV-2026-0010",
+    "2026-07-17",
+    2700,
+    partyTag(analyticId("FAM-1"), "Family Doe"),
+    funderTag(analyticId("GIZ"), "GIZ"),
+  ),
+  mockEntry(
+    11,
+    "BANK",
+    OPEN_PERIOD_ID,
+    "open",
+    "claim_payment",
+    "CLM-2026-0011",
+    "2026-07-16",
+    3400,
+    partyTag(analyticId("HF-1"), "District Hospital"),
+    funderTag(analyticId("WB"), "World Bank"),
+  ),
+  mockEntry(
+    12,
+    "PURCHASES",
+    OPEN_PERIOD_ID,
+    "open",
+    "payroll_disbursement",
+    "PAY-2026-0012",
+    "2026-07-15",
+    1900,
+    partyTag(analyticId("PPM-1"), "Payment Point Manager A"),
+    funderTag(analyticId("UNICEF"), "UNICEF"),
+  ),
+  mockEntry(
+    13,
+    "MISC",
+    OPEN_PERIOD_ID,
+    "open",
+    "payment_point_reconciliation",
+    "PPR-2026-0013",
+    "2026-07-14",
+    800,
+    partyTag(analyticId("PPM-2"), "Payment Point Manager B"),
+    funderTag(analyticId("GIZ"), "GIZ"),
+  ),
 ];
 
 const MOCK_ACCOUNTING_PERIODS = [
@@ -497,10 +697,7 @@ export function fetchLedgerEntriesMock(params = []) {
       entry.lines.some((line) => {
         const tag = line[`${tagType}Tag`];
         const search = value.toLowerCase();
-        return (
-          tag?.analyticValueId?.toLowerCase() === search ||
-          tag?.displayName?.toLowerCase().includes(search)
-        );
+        return tag?.analyticValueId?.toLowerCase() === search || tag?.displayName?.toLowerCase().includes(search);
       });
 
     const periodFilterId = explicitPeriod ?? OPEN_PERIOD_ID;
@@ -508,12 +705,17 @@ export function fetchLedgerEntriesMock(params = []) {
       periodFilterId === ALL_PERIODS_FILTER_VALUE
         ? null
         : periodFilterId === OPEN_PERIOD_ID || periodFilterId === CLOSED_PERIOD_ID
-          ? periodFilterId
-          : mockId("AccountingPeriod", periodFilterId);
-    const filteredEntries = MOCK_LEDGER_ENTRIES
-      .filter((entry) => !scopedPeriodFilterId || entry.accountingPeriod.id === scopedPeriodFilterId)
+        ? periodFilterId
+        : mockId("AccountingPeriod", periodFilterId);
+    const filteredEntries = MOCK_LEDGER_ENTRIES.filter(
+      (entry) => !scopedPeriodFilterId || entry.accountingPeriod.id === scopedPeriodFilterId,
+    )
       .filter((entry) => !getParam("journal") || entry.journal.code === getParam("journal"))
-      .filter((entry) => !getParam("sourceEventType") || entry.sourceEventType === getParam("sourceEventType"))
+      .filter(
+        (entry) =>
+          !getParam("sourceEventType") ||
+          String(entry.sourceEventType).toUpperCase() === String(getParam("sourceEventType")).toUpperCase(),
+      )
       .filter((entry) => matchesTag(entry, "party", getParam("party")))
       .filter((entry) => matchesTag(entry, "funder", getParam("funder")))
       .sort((a, b) => b.postedAt.localeCompare(a.postedAt));
@@ -571,7 +773,9 @@ export function fetchManualReviewQueueMock(status = null) {
       type: `${ACTION_TYPE.MANUAL_REVIEW_QUEUE}_RESP`,
       payload: {
         data: {
-          manualReviewQueue: status ? mockManualReviewQueue.filter((item) => item.status === status) : mockManualReviewQueue,
+          manualReviewQueue: status
+            ? mockManualReviewQueue.filter((item) => item.status === status)
+            : mockManualReviewQueue,
         },
       },
     });
@@ -712,8 +916,7 @@ export function fetchFunderActivityReportMock(analyticValueId, periodRange = {})
     };
 
     const periodEntries = MOCK_LEDGER_ENTRIES.filter(
-      (entry) =>
-        inRange(entry) && entry.lines.some((line) => line.funderTag?.analyticValueId === analyticValueId),
+      (entry) => inRange(entry) && entry.lines.some((line) => line.funderTag?.analyticValueId === analyticValueId),
     );
 
     const totalsFor = (entries) => {
@@ -850,9 +1053,7 @@ export function openAccountingPeriodMock(startDate, endDate) {
     }
     // mockAccountingPeriods ids are already DECODED: re-decoding them here (decodeMockId)
     // would atob() plain numeric strings and yield NaN for any id >= 10, freezing the counter.
-    const nextId = String(
-      mockAccountingPeriods.reduce((max, period) => Math.max(max, Number(period.id) || 0), 0) + 1,
-    );
+    const nextId = String(mockAccountingPeriods.reduce((max, period) => Math.max(max, Number(period.id) || 0), 0) + 1);
     const created = { id: nextId, startDate, endDate, status: "open" };
     mockAccountingPeriods = [...mockAccountingPeriods, created];
     dispatch({
@@ -950,7 +1151,11 @@ const decodeUuid = (id) => {
 // the CONSTANT_CASE member name (e.g. "CLAIM_PAYMENT"), while the frontend
 // view-model uses the lowercase Django value ("claim_payment").
 const toGrapheneEnum = (value) =>
-  value ? String(value).toUpperCase().replace(/[^A-Z0-9]/g, "_") : null;
+  value
+    ? String(value)
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, "_")
+    : null;
 
 export function fetchLedgerEntries(filters = {}, pageInfo = {}) {
   return async (dispatch, getState) => {
@@ -973,7 +1178,7 @@ export function fetchLedgerEntries(filters = {}, pageInfo = {}) {
     }
 
     const accountingPeriodCode = accountingPeriodId
-      ? (periods.find((period) => period.id === accountingPeriodId)?.code ?? null)
+      ? periods.find((period) => period.id === accountingPeriodId)?.code ?? null
       : null;
 
     if (!explicitlyCleared && (accountingPeriodId === null || accountingPeriodCode === null)) {
@@ -998,7 +1203,11 @@ export function fetchLedgerEntries(filters = {}, pageInfo = {}) {
       graphqlWithVariables(
         LEDGER_ENTRIES_QUERY,
         variables,
-        [`${ACTION_TYPE.LEDGER_ENTRIES}_REQ`, `${ACTION_TYPE.LEDGER_ENTRIES}_RESP`, `${ACTION_TYPE.LEDGER_ENTRIES}_ERR`],
+        [
+          `${ACTION_TYPE.LEDGER_ENTRIES}_REQ`,
+          `${ACTION_TYPE.LEDGER_ENTRIES}_RESP`,
+          `${ACTION_TYPE.LEDGER_ENTRIES}_ERR`,
+        ],
         { filters: resolvedFilters, orderBy: pageInfo.orderBy ?? "-postedAt" },
       ),
     );
@@ -1038,11 +1247,12 @@ export function fetchJournals(journalType) {
   const variables = { first: 100 };
   const operation = journalType ? JOURNALS_BY_TYPE_QUERY : JOURNALS_QUERY;
   if (journalType) variables.typeCode = journalType;
-  return graphqlWithVariables(operation, variables, [
-    `${ACTION_TYPE.JOURNAL_SEARCH}_REQ`,
-    `${ACTION_TYPE.JOURNAL_SEARCH}_RESP`,
-    `${ACTION_TYPE.JOURNAL_SEARCH}_ERR`,
-  ], { journalType: journalType || null });
+  return graphqlWithVariables(
+    operation,
+    variables,
+    [`${ACTION_TYPE.JOURNAL_SEARCH}_REQ`, `${ACTION_TYPE.JOURNAL_SEARCH}_RESP`, `${ACTION_TYPE.JOURNAL_SEARCH}_ERR`],
+    { journalType: journalType || null },
+  );
 }
 
 /** User Story 2 — signed running balance + period statement for one party. */
@@ -1050,7 +1260,12 @@ export function resetPartyLedgerBalance() {
   return { type: `${ACTION_TYPE.PARTY_LEDGER_BALANCE_RESET}` };
 }
 
-export function fetchPartyLedgerBalance({ displayName = null, periodCode = null, first = DEFAULT_PAGE_SIZE, after = null } = {}) {
+export function fetchPartyLedgerBalance({
+  displayName = null,
+  periodCode = null,
+  first = DEFAULT_PAGE_SIZE,
+  after = null,
+} = {}) {
   const variables = { displayName, periodCode, first, after };
   return graphqlWithVariables(PARTY_LEDGER_BALANCE_QUERY, variables, [
     `${ACTION_TYPE.PARTY_LEDGER_BALANCE}_REQ`,
@@ -1090,6 +1305,146 @@ const periodMutationAction = (operationName, input, clientMutationLabel, actionT
     // label) and the JournalDrawer can display it.
     { clientMutationId: mutation.clientMutationId, clientMutationLabel, requestedDateTime: new Date() },
   );
+};
+
+/**
+ * openIMIS records every mutation in `core_Mutation_Log`, and this backend
+ * returns only the mutation ids in the GraphQL payload: a rejected write still
+ * answers with a "success" payload (the service errors are swallowed by
+ * OpenIMISMutation). The log is therefore the only reliable success signal, so
+ * every ledger mutation is confirmed against it *before* the page is told the
+ * write succeeded — otherwise the dialog closes on a silent failure.
+ */
+const MUTATION_LOG_QUERY = `
+  query LedgerMutationLog($clientMutationId: String) {
+    mutationLogs(clientMutationId: $clientMutationId) {
+      edges {
+        node { status error }
+      }
+    }
+  }
+`;
+
+/** `error` may hold a JSON list of {message, detail} or a plain string. */
+const mutationLogMessage = (raw) => {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    const first = Array.isArray(parsed) ? parsed[0] : parsed;
+    return first?.message || first?.detail || String(raw);
+  } catch {
+    return String(raw);
+  }
+};
+
+/** core.models.MutationLog.STATUS_FAILED */
+const MUTATION_LOG_FAILED = 1;
+/** Retries allowed when `mutationLogs` does not return the row yet. */
+const MUTATION_LOG_EMPTY_ATTEMPTS = 4;
+
+/** Transport error or GraphQL errors reported by a mutation response. */
+const graphqlFailureMessage = (response) => {
+  if (!response) return null;
+  if (response.error) {
+    // Network failures carry a JS Error in `payload` (message), HTTP failures a
+    // `statusText`: fall back to the shared helper for the remaining shapes.
+    const payload = response.payload || {};
+    return (
+      payload.message || payload.statusText || formatServerError(payload)?.message || "The mutation could not be sent."
+    );
+  }
+  const errors = response.payload?.errors || response.payload?.response?.errors;
+  return errors?.length ? errors.map((error) => error.message).join("; ") : null;
+};
+
+/** Surfaces a failure through the regular `_ERR` channel of the page slice. */
+const notifyMutationFailure = (dispatch, actionType, message) =>
+  dispatch({
+    type: `${actionType}_ERR`,
+    // Shaped like an HTTP failure so the existing `_ERR` reducer cases
+    // (formatServerError) surface the message exactly as a network error would:
+    // `statusText` for the real helper, `message` for the test double.
+    payload: { status: 400, statusText: message, message, response: { errors: [{ message }] } },
+  });
+
+/**
+ * Polls `mutationLogs(clientMutationId)` until the log leaves the RECEIVED
+ * status, then either stamps the success (`_CONFIRMED`, which is what closes the
+ * dialogs and refreshes the lists) or dispatches the failure through the
+ * regular `_ERR` channel so the message reaches the user.
+ */
+export function confirmLedgerMutation(clientMutationId, actionType) {
+  return async (dispatch) => {
+    let node = null;
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      if (attempt) await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
+      const response = await dispatch(
+        graphqlWithVariables(MUTATION_LOG_QUERY, { clientMutationId }, "LEDGER_MUTATION_LOG"),
+      );
+      const data = response?.payload?.data;
+      // A response without `data` cannot be polled any further (offline or
+      // mocked): give up instead of blocking the page for seconds.
+      if (!data) break;
+      node = data?.mutationLogs?.edges?.[0]?.node ?? null;
+      if (node && node.status !== 0) break;
+      // The log row is written before the mutation runs, so a missing row means
+      // a slow/partially committed write: retry a few times before giving up.
+      if (!node && attempt >= MUTATION_LOG_EMPTY_ATTEMPTS) break;
+    }
+    if (node?.status === MUTATION_LOG_FAILED) {
+      // Plain sentence: this message is rendered in the dialog, a translation
+      // key would be displayed verbatim.
+      const message = mutationLogMessage(node.error) || "The server rejected the mutation.";
+      notifyMutationFailure(dispatch, actionType, message);
+      return { ok: false, message };
+    }
+    if (!node || node.status === 0) {
+      // The write could not be verified: never report a success we cannot
+      // prove, otherwise a failed write would silently close the dialog.
+      const message = "The mutation could not be verified, please check the list before retrying.";
+      notifyMutationFailure(dispatch, actionType, message);
+      return { ok: false, message };
+    }
+    dispatch({ type: `${actionType}_CONFIRMED` });
+    return { ok: true };
+  };
+}
+
+/**
+ * Input line for an *optional* GraphQL field.
+ *
+ * The backend parses the document with graphql-core 2.3.2, whose parser rejects
+ * the `null` literal inside an input object ("Unexpected Name \"null\""), so an
+ * absent value must be **omitted** instead of being sent as `null`. Backend
+ * mutations read every field with `data.get(<field>, None)` and assign it
+ * unconditionally, which makes "omitted" equivalent to "null".
+ */
+const optionalField = (name, value) =>
+  value === null || value === undefined ? null : `${name}: ${JSON.stringify(value)}`;
+
+/** `graphql()` + mutation-log confirmation, shared by every ledger write. */
+const ledgerMutationAction = (operationName, input, clientMutationLabel, actionType) => {
+  const mutation = formatMutation(operationName, input, clientMutationLabel);
+  return async (dispatch) => {
+    const response = await dispatch(
+      graphql(mutation.payload, [`${actionType}_REQ`, `${actionType}_RESP`, `${actionType}_ERR`], {
+        clientMutationId: mutation.clientMutationId,
+        clientMutationLabel,
+        requestedDateTime: new Date(),
+      }),
+    );
+    // A rejected request never reaches the mutation log: report it straight away
+    // instead of polling a log row that does not exist.
+    const failure = graphqlFailureMessage(response);
+    if (failure) {
+      notifyMutationFailure(dispatch, actionType, failure);
+      return response;
+    }
+    const confirmation = await dispatch(confirmLedgerMutation(mutation.clientMutationId, actionType));
+    // The response alone never proves the write went through: expose the
+    // confirmation outcome so a caller cannot mistake a rejection for a success.
+    return confirmation.ok ? response : { ...(response || {}), error: true, confirmation };
+  };
 };
 
 /** User Story 4 — open a new accounting period (`openAccountingPeriod(input: {...})`). */
@@ -1195,7 +1550,11 @@ function fetchExportSequences(accountingPeriodId, journal = null) {
   return graphqlWithVariables(
     EXPORT_SEQUENCES_QUERY,
     { accountingPeriod: accountingPeriodId, journal },
-    [`${ACTION_TYPE.EXPORT_SEQUENCES}_REQ`, `${ACTION_TYPE.EXPORT_SEQUENCES}_RESP`, `${ACTION_TYPE.EXPORT_SEQUENCES}_ERR`],
+    [
+      `${ACTION_TYPE.EXPORT_SEQUENCES}_REQ`,
+      `${ACTION_TYPE.EXPORT_SEQUENCES}_RESP`,
+      `${ACTION_TYPE.EXPORT_SEQUENCES}_ERR`,
+    ],
     { accountingPeriodId },
   );
 }
@@ -1314,7 +1673,7 @@ export function createDeploymentConfiguration({
     `operatingMode: ${JSON.stringify(operatingMode)}`,
     externalSystem ? `externalSystem: ${JSON.stringify(externalSystem)}` : null,
     `currencyCode: ${JSON.stringify(currencyCode)}`,
-    `retainedEarningsAccountId: ${JSON.stringify(retainedEarningsAccount?.uuid ?? null)}`,
+    optionalField("retainedEarningsAccountId", retainedEarningsAccount?.uuid),
   ]
     .filter(Boolean)
     .join(",\n          ");
@@ -1337,5 +1696,184 @@ export function createDeploymentConfiguration({
         retainedEarningsAccount: retainedEarningsAccount ?? null,
       },
     },
+  );
+}
+
+/** Ticket 37990 — paginated journals list for the journals page. */
+export function fetchJournalsList(filters = {}, pageInfo = {}) {
+  const variables = {
+    first: pageInfo.first ?? null,
+    after: pageInfo.after ?? null,
+    before: pageInfo.before ?? null,
+    last: pageInfo.last ?? null,
+    name: filters.name ?? null,
+    code: filters.code ?? null,
+    typeId: filters.typeId ?? null,
+  };
+  return graphqlWithVariables(JOURNALS_LIST_QUERY, variables, [
+    `${ACTION_TYPE.JOURNALS}_REQ`,
+    `${ACTION_TYPE.JOURNALS}_RESP`,
+    `${ACTION_TYPE.JOURNALS}_ERR`,
+  ]);
+}
+
+/** Ticket 37990 — journal types (JournalTypes) used by the type picker. */
+export function fetchJournalTypes() {
+  return graphqlWithVariables(JOURNAL_TYPES_QUERY, { first: 100 }, [
+    `${ACTION_TYPE.JOURNAL_TYPES}_REQ`,
+    `${ACTION_TYPE.JOURNAL_TYPES}_RESP`,
+    `${ACTION_TYPE.JOURNAL_TYPES}_ERR`,
+  ]);
+}
+
+/**
+ * Ticket 37990 — create a journal. The backend `type` input is the JournalTypes
+ * uuid (not its code) and the default debit/credit accounts are account uuids;
+ * the response carries the mutation ids only, so callers refresh the list.
+ */
+export function createJournal({
+  name,
+  code,
+  journalType,
+  defaultDebitAccount,
+  defaultCreditAccount,
+  clientMutationLabel,
+}) {
+  const input = [
+    optionalField("name", name),
+    optionalField("code", code),
+    optionalField("type", journalType?.id),
+    optionalField("defaultDebitAccountId", defaultDebitAccount?.uuid),
+    optionalField("defaultCreditAccountId", defaultCreditAccount?.uuid),
+  ]
+    .filter(Boolean)
+    .join(",\n          ");
+  return ledgerMutationAction("createJournal", input, clientMutationLabel, ACTION_TYPE.CREATE_JOURNAL);
+}
+
+/**
+ * Ticket 37990 — update a journal. Same input as the creation plus the
+ * `journalUuid` of the journal to update (backend UpdateJournalInputType).
+ */
+export function updateJournal({
+  journalUuid,
+  name,
+  code,
+  journalType,
+  defaultDebitAccount,
+  defaultCreditAccount,
+  clientMutationLabel,
+}) {
+  const input = [
+    optionalField("journalUuid", journalUuid),
+    optionalField("name", name),
+    optionalField("code", code),
+    optionalField("type", journalType?.id),
+    optionalField("defaultDebitAccountId", defaultDebitAccount?.uuid),
+    optionalField("defaultCreditAccountId", defaultCreditAccount?.uuid),
+  ]
+    .filter(Boolean)
+    .join(",\n          ");
+  return ledgerMutationAction("updateJournal", input, clientMutationLabel, ACTION_TYPE.UPDATE_JOURNAL);
+}
+
+/**
+ * Ticket 37990 — delete a journal: the input is the journal uuid only (same
+ * naming pattern as updateJournal). Journals are soft-deleted server-side, so
+ * the mutations keep the ledger history intact.
+ */
+export function deleteJournal({ journalUuid, clientMutationLabel }) {
+  return ledgerMutationAction(
+    "deleteJournal",
+    [optionalField("journalUuid", journalUuid)].filter(Boolean).join(",\n          "),
+    clientMutationLabel,
+    ACTION_TYPE.DELETE_JOURNAL,
+  );
+}
+
+/** Ticket 37991 — paginated chart of accounts for the accounts page. */
+export function fetchAccounts(filters = {}, pageInfo = {}) {
+  const variables = {
+    first: pageInfo.first ?? null,
+    after: pageInfo.after ?? null,
+    before: pageInfo.before ?? null,
+    last: pageInfo.last ?? null,
+    code: filters.code ?? null,
+    fullCode: filters.fullCode ?? null,
+    type: filters.type ?? null,
+    isBankAccount: filters.isBankAccount ?? null,
+  };
+  return graphqlWithVariables(ACCOUNTS_QUERY, variables, [
+    `${ACTION_TYPE.ACCOUNTS}_REQ`,
+    `${ACTION_TYPE.ACCOUNTS}_RESP`,
+    `${ACTION_TYPE.ACCOUNTS}_ERR`,
+  ]);
+}
+
+/**
+ * Ticket 37991 — create a ledger account. `currencies` travels as a GraphQL
+ * `JSONString` (the backend parses it into the hordak JSON field), and the
+ * response carries the mutation ids only, so callers refresh the list
+ * afterwards.
+ */
+export function createAccount({ name, code, parentId = null, type, isBankAccount, currencies, clientMutationLabel }) {
+  const input = [
+    optionalField("name", name),
+    optionalField("code", code),
+    // `parentId` is optional: when there is no parent the field is omitted
+    // (the backend assigns `parent = parentId or None`).
+    optionalField("parentId", parentId),
+    optionalField("type", type),
+    `isBankAccount: ${isBankAccount ? "true" : "false"}`,
+    `currencies: ${formatCurrenciesGQLValue(currencies)}`,
+  ]
+    .filter(Boolean)
+    .join(",\n          ");
+  return ledgerMutationAction("createAccount", input, clientMutationLabel, ACTION_TYPE.CREATE_ACCOUNT);
+}
+
+/**
+ * Ticket 37991 — update a ledger account. Same input as the creation plus the
+ * `accountUuid` of the account to update (backend UpdateAccountInputType).
+ */
+export function updateAccount({
+  accountUuid,
+  name,
+  code,
+  parentId = null,
+  type,
+  isBankAccount,
+  currencies,
+  clientMutationLabel,
+}) {
+  const input = [
+    optionalField("accountUuid", accountUuid),
+    optionalField("name", name),
+    optionalField("code", code),
+    // The backend always assigns `parent = parentId or None`: omitting it on a
+    // child account would silently turn it into a root account, so the current
+    // parent is always sent back (the dialog keeps it read-only).
+    optionalField("parentId", parentId),
+    optionalField("type", type),
+    `isBankAccount: ${isBankAccount ? "true" : "false"}`,
+    `currencies: ${formatCurrenciesGQLValue(currencies)}`,
+  ]
+    .filter(Boolean)
+    .join(",\n          ");
+  return ledgerMutationAction("updateAccount", input, clientMutationLabel, ACTION_TYPE.UPDATE_ACCOUNT);
+}
+
+/**
+ * Ticket 37991 — delete a ledger account: the input is the account uuid only
+ * (same naming pattern as updateAccount). The backend owns the rules (an
+ * account still used by entries may be refused) and its message is surfaced
+ * verbatim.
+ */
+export function deleteAccount({ accountUuid, clientMutationLabel }) {
+  return ledgerMutationAction(
+    "deleteAccount",
+    [optionalField("accountUuid", accountUuid)].filter(Boolean).join(",\n          "),
+    clientMutationLabel,
+    ACTION_TYPE.DELETE_ACCOUNT,
   );
 }
