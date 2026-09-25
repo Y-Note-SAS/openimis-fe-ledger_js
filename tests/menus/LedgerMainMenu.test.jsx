@@ -6,8 +6,10 @@ const ROUTES = {
   ROUTE_PARTY_LEDGER: "/party-ledger",
   ROUTE_FUNDER_ACTIVITY: "/funder-activity",
   ROUTE_ACCOUNTING_PERIODS: "/accounting-periods",
+  ROUTE_JOURNALS: "/journals",
   ROUTE_MANUAL_REVIEW_QUEUE: "/manual-review-queue",
   ROUTE_PERIOD_EXPORT: "/period-export",
+  ROUTE_ACCOUNTS: "/accounts",
   ROUTE_DEPLOYMENT_CONFIGURATION: "/deployment-configuration",
 };
 
@@ -28,8 +30,10 @@ describe("LedgerMainMenu", () => {
         { text: "ledger.menu.partyLedger", route: "/party-ledger" },
         { text: "ledger.menu.funderActivity", route: "/funder-activity" },
         { text: "ledger.menu.accountingPeriods", route: "/accounting-periods" },
+        { text: "ledger.menu.journals", route: "/journals" },
         { text: "ledger.menu.manualReviewQueue", route: "/manual-review-queue" },
         { text: "ledger.menu.periodExport", route: "/period-export" },
+        { text: "ledger.menu.accounts", route: "/accounts" },
         { text: "ledger.menu.deploymentConfiguration", route: "/deployment-configuration" },
       ],
     });
@@ -41,8 +45,10 @@ describe("LedgerMainMenu", () => {
       ROUTE_PARTY_LEDGER: "/custom-party-ledger",
       ROUTE_FUNDER_ACTIVITY: "/custom-funder-activity",
       ROUTE_ACCOUNTING_PERIODS: "/custom-accounting-periods",
+      ROUTE_JOURNALS: "/custom-journals",
       ROUTE_MANUAL_REVIEW_QUEUE: "/custom-manual-review-queue",
       ROUTE_PERIOD_EXPORT: "/custom-period-export",
+      ROUTE_ACCOUNTS: "/custom-accounts",
       ROUTE_DEPLOYMENT_CONFIGURATION: "/custom-deployment-configuration",
     };
 
@@ -52,15 +58,17 @@ describe("LedgerMainMenu", () => {
     expect(entry.children[1].route).toBe("/custom-party-ledger");
     expect(entry.children[2].route).toBe("/custom-funder-activity");
     expect(entry.children[3].route).toBe("/custom-accounting-periods");
-    expect(entry.children[4].route).toBe("/custom-manual-review-queue");
-    expect(entry.children[5].route).toBe("/custom-period-export");
-    expect(entry.children[6].route).toBe("/custom-deployment-configuration");
+    expect(entry.children[4].route).toBe("/custom-journals");
+    expect(entry.children[5].route).toBe("/custom-manual-review-queue");
+    expect(entry.children[6].route).toBe("/custom-period-export");
+    expect(entry.children[7].route).toBe("/custom-accounts");
+    expect(entry.children[8].route).toBe("/custom-deployment-configuration");
   });
 
   it("each child has text and route properties", () => {
     const entry = buildLedgerSubMenuEntry(ROUTES);
 
-    expect(entry.children).toHaveLength(7);
+    expect(entry.children).toHaveLength(9);
     entry.children.forEach((child) => {
       expect(typeof child.text).toBe("string");
       expect(typeof child.route).toBe("string");

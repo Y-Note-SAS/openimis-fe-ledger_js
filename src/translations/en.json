@@ -8,7 +8,9 @@
       "accountingPeriods": "Accounting Periods",
       "manualReviewQueue": "Review Queue",
       "periodExport": "Period Export",
-      "deploymentConfiguration": "Deployment Configuration"
+      "deploymentConfiguration": "Deployment Configuration",
+      "journals": "Journals",
+      "accounts": "Accounts"
     },
     "any": "Any",
     "accessDenied": "Access denied. You are not authorized to view this page.",
@@ -28,7 +30,8 @@
       },
       "noOptions": "No results",
       "loading": "Loading...",
-      "account": "Account"
+      "account": "Account",
+      "journalType": "Journal type"
     },
     "entry": {
       "journal": "Journal",
@@ -115,7 +118,13 @@
       "openForm": {
         "title": "Open a New Period",
         "startDate": "Start Date",
-        "endDate": "End Date"
+        "endDate": "End Date",
+        "errors": {
+          "datesRequired": "Both dates are required.",
+          "endBeforeStart": "The period end date must be after its start date.",
+          "overlap": "This period overlaps {start} — {end}.",
+          "chronology": "A new period must start after the end of the latest period ({end})."
+        }
       },
       "rejectionTitle": "Action rejected",
       "actionUnavailable": "No action available for this period",
@@ -125,7 +134,13 @@
         "all": "All",
         "noResults": "No periods match the selected status."
       },
-      "tableTitle": "Accounting Periods ({count})"
+      "tableTitle": "Accounting Periods ({count})",
+      "mutationLabel": {
+        "open": "Open accounting period",
+        "lock": "Lock accounting period",
+        "close": "Close accounting period",
+        "reopen": "Reopen accounting period"
+      }
     },
     "reviewQueue": {
       "pageTitle": "Replication Review Queue",
@@ -138,7 +153,8 @@
         "pending": "Pending",
         "succeeded": "Succeeded",
         "rejected": "Rejected",
-        "unconfirmed": "Unconfirmed"
+        "unconfirmed": "Unconfirmed",
+        "resolved": "Resolved"
       },
       "table": {
         "status": "Status",
@@ -167,7 +183,10 @@
         "close": "Close",
         "resolve": "Resolve"
       },
-      "tableTitle": "Review queue ({count})"
+      "tableTitle": "Review queue ({count})",
+      "mutationLabel": {
+        "resolve": "Resolve manual review item"
+      }
     },
     "export": {
       "pageTitle": "Period Export",
@@ -219,6 +238,134 @@
       "next": "Next",
       "first": "First",
       "total": "{count} row(s)"
+    },
+    "journalType": {
+      "sales": "Sales",
+      "sales_credit_note": "Sales Credit Note / Sales Returns",
+      "purchase": "Purchases Journal",
+      "purchase_credit_note": "Purchase Credit Note / Purchase Returns",
+      "cash": "Cash Journal",
+      "bank": "Bank & Checks Journal",
+      "general": "General Journal",
+      "close": "Opening/Closing journal",
+      "treasury": "Treasury"
+    },
+    "journals": {
+      "pageTitle": "Journals",
+      "tableTitle": "Journals ({count})",
+      "empty": "No journal to display.",
+      "adminOnlyNotice": "Only ledger administrators can create journals.",
+      "rejectionTitle": "The journal could not be created",
+      "mutationLabel": "Create journal",
+      "create": {
+        "title": "New journal",
+        "submit": "Create journal",
+        "mutationLabel": "Create journal"
+      },
+      "form": {
+        "name": "Name",
+        "code": "Code",
+        "defaultDebitAccount": "Default debit account",
+        "defaultCreditAccount": "Default credit account",
+        "createTitle": "New journal",
+        "editTitle": "Edit journal",
+        "save": "Save",
+        "cancel": "Cancel",
+        "close": "Close"
+      },
+      "filter": {
+        "name": "Name",
+        "code": "Code"
+      },
+      "table": {
+        "code": "Code",
+        "name": "Name",
+        "type": "Type",
+        "defaultDebitAccount": "Default debit account",
+        "defaultCreditAccount": "Default credit account",
+        "actions": "Actions"
+      },
+      "actions": {
+        "edit": "Edit journal",
+        "delete": "Delete journal"
+      },
+      "edit": {
+        "mutationLabel": "Update journal {code}"
+      },
+      "delete": {
+        "mutationLabel": "Delete journal {code}",
+        "confirmTitle": "Delete journal {code}?",
+        "confirmMessage": "The journal will be hidden from the journals list. Posted entries keep referencing it."
+      }
+    },
+    "yes": "Yes",
+    "no": "No",
+    "accountType": "Account type",
+    "accountTypeValue": {
+      "AS": "Asset",
+      "LI": "Liability",
+      "IN": "Income",
+      "EX": "Expense",
+      "EQ": "Equity",
+      "TR": "Currency Trading"
+    },
+    "accounts": {
+      "pageTitle": "Chart of Accounts",
+      "tableTitle": "Accounts ({count})",
+      "empty": "No account to display.",
+      "adminOnlyNotice": "Only ledger administrators can create accounts.",
+      "rejectionTitle": "The account could not be created",
+      "mutationLabel": "Create account",
+      "create": {
+        "title": "New account",
+        "submit": "Create account",
+        "mutationLabel": "Create account"
+      },
+      "form": {
+        "name": "Name",
+        "code": "Code",
+        "parent": "Parent account",
+        "fullCode": "Full code",
+        "isBankAccount": "Bank account",
+        "currencies": "Currencies",
+        "createTitle": "New account",
+        "editTitle": "Edit account",
+        "save": "Save",
+        "cancel": "Cancel",
+        "close": "Close"
+      },
+      "filter": {
+        "code": "Code",
+        "isBankAccount": "Bank account"
+      },
+      "table": {
+        "code": "Code",
+        "fullCode": "Full code",
+        "parent": "Parent",
+        "name": "Name",
+        "type": "Type",
+        "isBankAccount": "Bank account",
+        "currencies": "Currencies",
+        "actions": "Actions"
+      },
+      "actions": {
+        "edit": "Edit account",
+        "delete": "Delete account",
+        "deleteBlocked": "This account has sub-accounts: delete them first."
+      },
+      "edit": {
+        "mutationLabel": "Update account {code}"
+      },
+      "delete": {
+        "mutationLabel": "Delete account {code}",
+        "confirmTitle": "Delete account {code}?",
+        "confirmMessage": "The account will be removed from the chart of accounts. This action cannot be undone."
+      }
+    },
+    "mutations": {
+      "rejected": "The mutation was rejected by the server.",
+      "unverified": "The mutation could not be verified (mutation log unavailable).",
+      "failed": "The mutation failed."
     }
   }
 }

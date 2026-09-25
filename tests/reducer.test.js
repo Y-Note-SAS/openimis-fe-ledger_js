@@ -163,6 +163,8 @@ describe("Reducer", () => {
     expect(entry.totals).toEqual({ debit: 100, credit: 0, balance: 100 });
   });
 
+  // Kept from develop: the entry-level party/funder is inherited by every
+  // leg that carries no analytic tag of its own.
   it("reports the entry-level party/funder on every leg of the expandable detail", () => {
     const action = {
       type: `${ACTION_TYPE.LEDGER_ENTRIES}_RESP`,
@@ -701,6 +703,239 @@ describe("Reducer", () => {
     expect(state.exportJobs.error).toBe("Network error");
   });
 
+  it("handles LEDGER_JOURNALS_REQ", () => {
+    const action = { type: `${ACTION_TYPE.JOURNALS}_REQ` };
+    const state = reducer(initialState, action);
+    expect(state.journals.isFetching).toBe(true);
+    expect(state.journals.isFetched).toBe(false);
+  });
+
+  it("handles LEDGER_JOURNALS_RESP with the page info and the journal nodes", () => {
+    const action = {
+      type: `${ACTION_TYPE.JOURNALS}_RESP`,
+      payload: {
+        data: {
+          ledgerJournal: {
+            totalCount: 3,
+            pageInfo: { hasNextPage: true, hasPreviousPage: false, startCursor: "c1", endCursor: "c2" },
+            edges: [
+              {
+                node: {
+                  id: "journal-1",
+                  name: "Bank",
+                  code: "BANK",
+                  type: { id: "uuid-2", code: "bank", type: "Bank & Checks Journal" },
+                  defaultDebitAccountId: { id: "acc-1", uuid: "acc-1", code: "5120", name: "Banque" },
+                  defaultCreditAccountId: { id: "acc-2", uuid: "acc-2", code: "7010", name: "Ventes" },
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+    const state = reducer(initialState, action);
+    expect(state.journals.isFetched).toBe(true);
+    expect(state.journals.items).toHaveLength(1);
+    expect(state.journals.items[0].type.code).toBe("bank");
+    expect(state.journals.pageInfo).toEqual({
+      totalCount: 3,
+      hasNextPage: true,
+      hasPreviousPage: false,
+      startCursor: "c1",
+      endCursor: "c2",
+    });
+  });
+
+  it("handles LEDGER_JOURNALS_ERR", () => {
+    const action = { type: `${ACTION_TYPE.JOURNALS}_ERR`, payload: { message: "Network error" } };
+    const state = reducer(initialState, action);
+    expect(state.journals.error).toBe("Network error");
+  });
+
+  it("tracks the pending journal mutation for the JournalDrawer", () => {
+    const requested = reducer(initialState, {
+      type: `${ACTION_TYPE.CREATE_JOURNAL}_REQ`,
+      meta: { clientMutationId: "cid-1", clientMutationLabel: "Pending", requestedDateTime: new Date() },
+    });
+    expect(requested.submittingMutation).toBe(true);
+    expect(requested.mutation).toMatchObject({
+      clientMutationId: "cid-1",
+      clientMutationLabel: "Pending",
+      id: "cid-1",
+    });
+
+    const succeeded = reducer(requested, {
+      type: `${ACTION_TYPE.CREATE_JOURNAL}_RESP`,
+      payload: { data: { createJournal: { internalId: "internal-1" } } },
+    });
+    expect(succeeded.submittingMutation).toBe(false);
+    expect(succeeded.mutation.id).toBe("internal-1");
+  });
+
+  it("handles LEDGER_UPDATE_JOURNAL_REQ/RESP", () => {
+    const requested = reducer(initialState, { type: `${ACTION_TYPE.UPDATE_JOURNAL}_REQ` });
+    expect(requested.journalMutation.submitting).toBe(true);
+
+    const state = reducer(initialState, {
+      type: `${ACTION_TYPE.UPDATE_JOURNAL}_RESP`,
+      payload: { data: { updateJournal: { internalId: "1", clientMutationId: "cid" } } },
+    });
+    expect(state.journalMutation.submitting).toBe(false);
+    expect(state.journalMutation.error).toBe(null);
+    // `_RESP` is not a success signal: the backend answers with a success
+    // payload even when the write was rejected, so the page only reacts to
+    // `_CONFIRMED` (dispatched once `mutationLogs` confirms the mutation).
+    expect(state.journalMutation.lastMutationAt).toBe(null);
+
+    const confirmed = reducer(state, { type: `${ACTION_TYPE.UPDATE_JOURNAL}_CONFIRMED` });
+    expect(confirmed.journalMutation.lastMutationAt).toEqual(expect.any(Number));
+  });
+
+  it("handles LEDGER_DELETE_JOURNAL_REQ/RESP/ERR", () => {
+    const requested = reducer(initialState, { type: `${ACTION_TYPE.DELETE_JOURNAL}_REQ` });
+    expect(requested.journalMutation.submitting).toBe(true);
+
+    const succeeded = reducer(
+      reducer(initialState, {
+        type: `${ACTION_TYPE.DELETE_JOURNAL}_RESP`,
+        payload: { data: { deleteJournal: { internalId: "1", clientMutationId: "cid" } } },
+      }),
+      { type: `${ACTION_TYPE.DELETE_JOURNAL}_CONFIRMED` },
+    );
+    expect(succeeded.journalMutation.error).toBe(null);
+    expect(succeeded.journalMutation.lastMutationAt).toEqual(expect.any(Number));
+
+    const failed = reducer(initialState, {
+      type: `${ACTION_TYPE.DELETE_JOURNAL}_RESP`,
+      payload: {
+        data: {
+          deleteJournal: {
+            internalId: null,
+            errors: [{ field: "journalUuid", message: "Journal is used by 12 entries" }],
+          },
+        },
+      },
+    });
+    expect(failed.journalMutation.error).toBe("Journal is used by 12 entries");
+    expect(failed.journalMutation.lastMutationAt).toBe(null);
+
+    const networkError = reducer(initialState, {
+      type: `${ACTION_TYPE.DELETE_JOURNAL}_ERR`,
+      payload: { message: "Network error" },
+    });
+    expect(networkError.journalMutation.error).toBe("Network error");
+  });
+
+  it("decodes the journal and journal type relay ids for the mutations", () => {
+    const action = {
+      type: `${ACTION_TYPE.JOURNALS}_RESP`,
+      payload: {
+        data: {
+          ledgerJournal: {
+            totalCount: 1,
+            edges: [
+              {
+                node: {
+                  id: btoa("LedgerJournalGQLType:01a0aa32-c518-756c-95f6-fd27165e353e"),
+                  name: "Bank",
+                  code: "BANK",
+                  isDeleted: false,
+                  type: {
+                    id: btoa("JournalTypeGQLType:20bdc1ce-2c79-4464-bc66-03b857125b7f"),
+                    code: "bank",
+                  },
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+    const state = reducer(initialState, action);
+    expect(state.journals.items[0].id).toBe("01a0aa32-c518-756c-95f6-fd27165e353e");
+    expect(state.journals.items[0].type.id).toBe("20bdc1ce-2c79-4464-bc66-03b857125b7f");
+  });
+
+  it("hides journals flagged as deleted until the backend filters them", () => {
+    const action = {
+      type: `${ACTION_TYPE.JOURNALS}_RESP`,
+      payload: {
+        data: {
+          ledgerJournal: {
+            totalCount: 2,
+            edges: [
+              { node: { id: "journal-1", code: "BANK", name: "Bank", isDeleted: false } },
+              { node: { id: "journal-2", code: "OLD", name: "Old", isDeleted: true } },
+            ],
+          },
+        },
+      },
+    };
+    const state = reducer(initialState, action);
+    expect(state.journals.items).toHaveLength(1);
+    expect(state.journals.items[0].id).toBe("journal-1");
+  });
+
+  it("handles LEDGER_JOURNAL_TYPES_RESP decoding the relay ids for the mutation", () => {
+    const action = {
+      type: `${ACTION_TYPE.JOURNAL_TYPES}_RESP`,
+      payload: {
+        data: {
+          journalTypes: {
+            totalCount: 1,
+            edges: [
+              { node: { id: btoa("JournalTypeGQLType:uuid-2"), code: "bank", type: "Bank", altLanguage: "Banque" } },
+            ],
+          },
+        },
+      },
+    };
+    const state = reducer(initialState, action);
+    expect(state.journalTypes.isFetched).toBe(true);
+    expect(state.journalTypes.items[0]).toMatchObject({ id: "uuid-2", code: "bank", altLanguage: "Banque" });
+  });
+
+  it("handles LEDGER_JOURNAL_TYPES_ERR", () => {
+    const action = { type: `${ACTION_TYPE.JOURNAL_TYPES}_ERR`, payload: { message: "Network error" } };
+    const state = reducer(initialState, action);
+    expect(state.journalTypes.error).toBe("Network error");
+  });
+
+  it("stamps the mutation time only once the mutation log confirms it", () => {
+    const responded = reducer(initialState, {
+      type: `${ACTION_TYPE.CREATE_JOURNAL}_RESP`,
+      payload: { data: { createJournal: {} } },
+    });
+    expect(responded.journalMutation.submitting).toBe(false);
+    expect(responded.journalMutation.error).toBe(null);
+    expect(responded.journalMutation.lastMutationAt).toBe(null);
+
+    const confirmed = reducer(responded, { type: `${ACTION_TYPE.CREATE_JOURNAL}_CONFIRMED` });
+    expect(confirmed.journalMutation.lastMutationAt).toEqual(expect.any(Number));
+  });
+
+  it("handles LEDGER_CREATE_JOURNAL_RESP backend errors", () => {
+    const action = {
+      type: `${ACTION_TYPE.CREATE_JOURNAL}_RESP`,
+      payload: {
+        data: {
+          createJournal: { errors: [{ field: "code", message: "The specified journal type was not found" }] },
+        },
+      },
+    };
+    const state = reducer(initialState, action);
+    expect(state.journalMutation.error).toBe("The specified journal type was not found");
+    expect(state.journalMutation.lastMutationAt).toBe(null);
+  });
+
+  it("handles LEDGER_CREATE_JOURNAL_ERR", () => {
+    const action = { type: `${ACTION_TYPE.CREATE_JOURNAL}_ERR`, payload: { message: "Network error" } };
+    const state = reducer(initialState, action);
+    expect(state.journalMutation.submitting).toBe(false);
+    expect(state.journalMutation.error).toBe("Network error");
+  });
+
   it("handles LEDGER_DEPLOYMENT_CONFIGURATION_REQ", () => {
     const action = { type: `${ACTION_TYPE.DEPLOYMENT_CONFIGURATION}_REQ` };
     const state = reducer(initialState, action);
@@ -860,6 +1095,202 @@ describe("Reducer", () => {
     const state = reducer(initialState, action);
     expect(state.deploymentConfiguration.submitting).toBe(false);
     expect(state.deploymentConfiguration.error).toBe("retained earnings account type should not be income / expense");
+  });
+
+  it("handles LEDGER_ACCOUNTS_REQ", () => {
+    const action = { type: `${ACTION_TYPE.ACCOUNTS}_REQ` };
+    const state = reducer(initialState, action);
+    expect(state.accounts.isFetching).toBe(true);
+    expect(state.accounts.isFetched).toBe(false);
+  });
+
+  it("handles LEDGER_ACCOUNTS_RESP with the page info and parsed currencies", () => {
+    const action = {
+      type: `${ACTION_TYPE.ACCOUNTS}_RESP`,
+      payload: {
+        data: {
+          accounts: {
+            totalCount: 12,
+            pageInfo: {
+              hasNextPage: true,
+              hasPreviousPage: false,
+              startCursor: "cursor-1",
+              endCursor: "cursor-2",
+            },
+            edges: [
+              {
+                node: {
+                  id: btoa("AccountType:uuid-1"),
+                  uuid: "uuid-1",
+                  name: "Reserves",
+                  code: "1200",
+                  fullCode: "1200",
+                  type: "EQ",
+                  isBankAccount: false,
+                  currencies: '["XAF","EUR"]',
+                  level: 1,
+                },
+              },
+            ],
+          },
+        },
+      },
+    };
+    const state = reducer(initialState, action);
+    expect(state.accounts.isFetching).toBe(false);
+    expect(state.accounts.isFetched).toBe(true);
+    expect(state.accounts.error).toBe(null);
+    expect(state.accounts.items).toHaveLength(1);
+    expect(state.accounts.items[0]).toMatchObject({
+      id: "uuid-1",
+      uuid: "uuid-1",
+      code: "1200",
+      type: "EQ",
+      currencies: ["XAF", "EUR"],
+    });
+    expect(state.accounts.pageInfo).toEqual({
+      totalCount: 12,
+      hasNextPage: true,
+      hasPreviousPage: false,
+      startCursor: "cursor-1",
+      endCursor: "cursor-2",
+    });
+  });
+
+  it("handles LEDGER_ACCOUNTS_ERR", () => {
+    const action = { type: `${ACTION_TYPE.ACCOUNTS}_ERR`, payload: { message: "Network error" } };
+    const state = reducer(initialState, action);
+    expect(state.accounts.isFetching).toBe(false);
+    expect(state.accounts.error).toBe("Network error");
+  });
+
+  it("handles LEDGER_CREATE_ACCOUNT_REQ", () => {
+    const action = { type: `${ACTION_TYPE.CREATE_ACCOUNT}_REQ` };
+    const state = reducer(initialState, action);
+    expect(state.accountMutation.submitting).toBe(true);
+    expect(state.accountMutation.error).toBe(null);
+  });
+
+  it("stamps the account mutation time only on _CONFIRMED", () => {
+    const action = {
+      type: `${ACTION_TYPE.CREATE_ACCOUNT}_RESP`,
+      payload: { data: { createAccount: { internalId: "1", clientMutationId: "cid" } } },
+    };
+    const state = reducer(initialState, action);
+    expect(state.accountMutation.submitting).toBe(false);
+    expect(state.accountMutation.error).toBe(null);
+    expect(state.accountMutation.lastMutationAt).toBe(null);
+
+    const confirmed = reducer(state, { type: `${ACTION_TYPE.CREATE_ACCOUNT}_CONFIRMED` });
+    expect(confirmed.accountMutation.lastMutationAt).toEqual(expect.any(Number));
+  });
+
+  it("handles LEDGER_CREATE_ACCOUNT_RESP backend errors", () => {
+    const action = {
+      type: `${ACTION_TYPE.CREATE_ACCOUNT}_RESP`,
+      payload: {
+        data: {
+          createAccount: { internalId: null, errors: [{ field: "code", message: "The code is already used" }] },
+        },
+      },
+    };
+    const state = reducer(initialState, action);
+    expect(state.accountMutation.submitting).toBe(false);
+    expect(state.accountMutation.error).toBe("The code is already used");
+    expect(state.accountMutation.lastMutationAt).toBe(null);
+  });
+
+  it("handles LEDGER_CREATE_ACCOUNT_ERR", () => {
+    const action = { type: `${ACTION_TYPE.CREATE_ACCOUNT}_ERR`, payload: { message: "Network error" } };
+    const state = reducer(initialState, action);
+    expect(state.accountMutation.submitting).toBe(false);
+    expect(state.accountMutation.error).toBe("Network error");
+  });
+
+  it("tracks the submitted account mutation until its response", () => {
+    const requested = reducer(initialState, {
+      type: `${ACTION_TYPE.CREATE_ACCOUNT}_REQ`,
+      meta: { clientMutationId: "cid-1", clientMutationLabel: "Pending", requestedDateTime: new Date() },
+    });
+    expect(requested.submittingMutation).toBe(true);
+    expect(requested.mutation).toMatchObject({
+      clientMutationId: "cid-1",
+      clientMutationLabel: "Pending",
+      id: "cid-1",
+    });
+
+    const succeeded = reducer(requested, {
+      type: `${ACTION_TYPE.CREATE_ACCOUNT}_RESP`,
+      payload: { data: { createAccount: { internalId: "internal-1" } } },
+    });
+    expect(succeeded.submittingMutation).toBe(false);
+    expect(succeeded.mutation.id).toBe("internal-1");
+  });
+
+  it("handles LEDGER_UPDATE_ACCOUNT_REQ/RESP", () => {
+    const requested = reducer(initialState, { type: `${ACTION_TYPE.UPDATE_ACCOUNT}_REQ` });
+    expect(requested.accountMutation.submitting).toBe(true);
+
+    const state = reducer(initialState, {
+      type: `${ACTION_TYPE.UPDATE_ACCOUNT}_RESP`,
+      payload: { data: { updateAccount: { internalId: "1", clientMutationId: "cid" } } },
+    });
+    expect(state.accountMutation.submitting).toBe(false);
+    expect(state.accountMutation.error).toBe(null);
+    expect(state.accountMutation.lastMutationAt).toBe(null);
+
+    expect(reducer(state, { type: `${ACTION_TYPE.UPDATE_ACCOUNT}_CONFIRMED` }).accountMutation.lastMutationAt).toEqual(
+      expect.any(Number),
+    );
+  });
+
+  it("handles LEDGER_UPDATE_ACCOUNT_RESP backend errors", () => {
+    const state = reducer(initialState, {
+      type: `${ACTION_TYPE.UPDATE_ACCOUNT}_RESP`,
+      payload: {
+        data: {
+          updateAccount: { internalId: null, errors: [{ field: "code", message: "The code is already used" }] },
+        },
+      },
+    });
+    expect(state.accountMutation.submitting).toBe(false);
+    expect(state.accountMutation.error).toBe("The code is already used");
+    expect(state.accountMutation.lastMutationAt).toBe(null);
+  });
+
+  it("handles LEDGER_DELETE_ACCOUNT_REQ/RESP/ERR", () => {
+    const requested = reducer(initialState, { type: `${ACTION_TYPE.DELETE_ACCOUNT}_REQ` });
+    expect(requested.accountMutation.submitting).toBe(true);
+
+    const succeeded = reducer(
+      reducer(initialState, {
+        type: `${ACTION_TYPE.DELETE_ACCOUNT}_RESP`,
+        payload: { data: { deleteAccount: { internalId: "1", clientMutationId: "cid" } } },
+      }),
+      { type: `${ACTION_TYPE.DELETE_ACCOUNT}_CONFIRMED` },
+    );
+    expect(succeeded.accountMutation.error).toBe(null);
+    expect(succeeded.accountMutation.lastMutationAt).toEqual(expect.any(Number));
+
+    const failed = reducer(initialState, {
+      type: `${ACTION_TYPE.DELETE_ACCOUNT}_RESP`,
+      payload: {
+        data: {
+          deleteAccount: {
+            internalId: null,
+            errors: [{ field: "accountUuid", message: "Account is used by 12 legs" }],
+          },
+        },
+      },
+    });
+    expect(failed.accountMutation.error).toBe("Account is used by 12 legs");
+    expect(failed.accountMutation.lastMutationAt).toBe(null);
+
+    const networkError = reducer(initialState, {
+      type: `${ACTION_TYPE.DELETE_ACCOUNT}_ERR`,
+      payload: { message: "Network error" },
+    });
+    expect(networkError.accountMutation.error).toBe("Network error");
   });
 
   it("handles LEDGER_CREATE_DEPLOYMENT_CONFIGURATION_ERR", () => {
