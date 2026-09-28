@@ -22,6 +22,7 @@ const AccountPicker = ({
   options,
   isFetching,
   fetchedOptions,
+  error = null,
   fetchAccountOptions: loadOptions,
   excludeTypes = [],
   readOnly = false,
@@ -39,8 +40,10 @@ const AccountPicker = ({
   }, [resolvedValue]);
 
   useEffect(() => {
-    if (!fetchedOptions && !isFetching) loadOptions();
-  }, [fetchedOptions, isFetching, loadOptions]);
+    // `error` matters: without it a failed request would flip `isFetching` back
+    // to false and re-trigger this effect forever.
+    if (!fetchedOptions && !isFetching && !error) loadOptions();
+  }, [fetchedOptions, isFetching, error, loadOptions]);
 
   const selectableOptions = useMemo(
     () => (options || []).filter((account) => !excludeTypes.includes(account?.type)),
@@ -92,6 +95,7 @@ const mapStateToProps = (state) => ({
   options: state.ledger?.accountOptions?.items,
   isFetching: state.ledger?.accountOptions?.isFetching,
   fetchedOptions: state.ledger?.accountOptions?.isFetched,
+  error: state.ledger?.accountOptions?.error,
 });
 
 const mapDispatchToProps = (dispatch) => bindActionCreators({ fetchAccountOptions }, dispatch);

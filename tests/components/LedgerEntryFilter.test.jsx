@@ -25,10 +25,31 @@ vi.mock("../../src/pickers/FunderPicker", () => ({
 }));
 
 vi.mock("../../src/pickers/SourceEventTypePicker", () => ({
-  default: () => <div>source-event-type-picker</div>,
+  default: ({ onChange }) => (
+    <button type="button" onClick={() => onChange("claim_payment")}>
+      source-event-type-claim-payment
+    </button>
+  ),
 }));
 
 describe("LedgerEntryFilter", () => {
+  it("sends the source event type as a bare, upper-cased GraphQL enum name", () => {
+    const onChangeFilters = vi.fn();
+
+    render(
+      <IntlProvider locale="en" messages={{}}>
+        <LedgerEntryFilter filters={{}} onChangeFilters={onChangeFilters} />
+      </IntlProvider>,
+    );
+
+    fireEvent.click(screen.getByText("source-event-type-claim-payment"));
+
+    // GraphQL only accepts the enum NAME, and it must not be quoted.
+    expect(onChangeFilters).toHaveBeenCalledWith([
+      { id: "sourceEventType", value: "claim_payment", filter: "sourceEventType: CLAIM_PAYMENT" },
+    ]);
+  });
+
   it("emits the explicit all-periods marker when the period filter is cleared", () => {
     const onChangeFilters = vi.fn();
 

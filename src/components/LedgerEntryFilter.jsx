@@ -2,11 +2,10 @@ import React from "react";
 import { injectIntl } from "react-intl";
 import { Grid } from "@mui/material";
 import { styled } from "@mui/material/styles";
-import {
-  ControlledField,
-  GRID_RESPONSIVE_STANDARD,
-} from "@openimis/fe-core";
+import { ControlledField, GRID_RESPONSIVE_STANDARD } from "@openimis/fe-core";
 import AccountingPeriodPicker from "../pickers/AccountingPeriodPicker";
+import { graphqlString } from "../utils/graphqlLiteral";
+import { sourceEventTypeEnumName } from "../utils/sourceEventType";
 import LedgerJournalPicker from "../pickers/LedgerJournalPicker";
 import PartyPicker from "../pickers/PartyPicker";
 import FunderPicker from "../pickers/FunderPicker";
@@ -24,7 +23,7 @@ const StyledLedgerEntryFilter = styled("section")(({ theme }) => ({
 const LedgerEntryFilter = ({ intl, filters, onChangeFilters }) => {
   const filterValue = (key) => {
     const value = filters?.[key]?.value;
-    return value === ALL_PERIODS_FILTER_VALUE ? null : (value ?? null);
+    return value === ALL_PERIODS_FILTER_VALUE ? null : value ?? null;
   };
   const textFilterValue = (key) => filters?.[key]?.value ?? "";
 
@@ -43,7 +42,7 @@ const LedgerEntryFilter = ({ intl, filters, onChangeFilters }) => {
                     {
                       id: "journal",
                       value: value?.code ?? null,
-                      filter: value?.code ? `journal: "${value.code}"` : null,
+                      filter: value?.code ? `journal: ${graphqlString(value.code)}` : null,
                     },
                   ])
                 }
@@ -64,7 +63,7 @@ const LedgerEntryFilter = ({ intl, filters, onChangeFilters }) => {
                     {
                       id: "accountingPeriodId",
                       value: value ?? ALL_PERIODS_FILTER_VALUE,
-                      filter: `accountingPeriod: "${value ?? ALL_PERIODS_FILTER_VALUE}"`,
+                      filter: `accountingPeriod: ${graphqlString(value ?? ALL_PERIODS_FILTER_VALUE)}`,
                     },
                   ])
                 }
@@ -82,7 +81,12 @@ const LedgerEntryFilter = ({ intl, filters, onChangeFilters }) => {
                 value={filterValue("sourceEventType")}
                 onChange={(value) =>
                   onChangeFilters([
-                    { id: "sourceEventType", value, filter: value ? `sourceEventType: "${value}"` : null },
+                    // GraphQL enum: the name must be bare and upper-cased.
+                    {
+                      id: "sourceEventType",
+                      value,
+                      filter: value ? `sourceEventType: ${sourceEventTypeEnumName(value)}` : null,
+                    },
                   ])
                 }
               />
@@ -103,7 +107,7 @@ const LedgerEntryFilter = ({ intl, filters, onChangeFilters }) => {
                     {
                       id: "partyAnalyticValueId",
                       value,
-                      filter: value?.analyticValueId ? `party: "${value.analyticValueId}"` : null,
+                      filter: value?.analyticValueId ? `party: ${graphqlString(value.analyticValueId)}` : null,
                     },
                   ])
                 }
@@ -123,7 +127,7 @@ const LedgerEntryFilter = ({ intl, filters, onChangeFilters }) => {
                     {
                       id: "funderAnalyticValueId",
                       value,
-                      filter: value?.analyticValueId ? `funder: "${value.analyticValueId}"` : null,
+                      filter: value?.analyticValueId ? `funder: ${graphqlString(value.analyticValueId)}` : null,
                     },
                   ])
                 }

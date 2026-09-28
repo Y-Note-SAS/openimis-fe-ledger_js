@@ -31,12 +31,20 @@ export const buildLedgerSubMenuEntry = (routes) => ({
       route: routes.ROUTE_ACCOUNTING_PERIODS,
     },
     {
+      text: "ledger.menu.journals",
+      route: routes.ROUTE_JOURNALS,
+    },
+    {
       text: "ledger.menu.manualReviewQueue",
       route: routes.ROUTE_MANUAL_REVIEW_QUEUE,
     },
     {
       text: "ledger.menu.periodExport",
       route: routes.ROUTE_PERIOD_EXPORT,
+    },
+    {
+      text: "ledger.menu.accounts",
+      route: routes.ROUTE_ACCOUNTS,
     },
     {
       text: "ledger.menu.deploymentConfiguration",

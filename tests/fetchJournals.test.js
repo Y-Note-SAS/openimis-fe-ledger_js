@@ -22,6 +22,9 @@ describe("fetchJournals", () => {
     expect(operation).toContain("query Journals");
     expect(operation).toContain("ledgerJournal");
     expect(operation).toContain("type { id code type altLanguage }");
+    // Soft-deleted journals must never reach the pickers (the backend exposes
+    // the `isDeleted` filter on `ledgerJournal`).
+    expect(operation).toContain("isDeleted: false");
     expect(operation).not.toContain("type_Code");
     expect(operation).not.toContain("orderBy");
     expect(variables).toEqual({ first: 100 });
@@ -35,6 +38,7 @@ describe("fetchJournals", () => {
     expect(operation).toContain("query JournalsByType");
     expect(operation).toContain("ledgerJournal");
     expect(operation).toContain("type_Code: $typeCode");
+    expect(operation).toContain("isDeleted: false");
     expect(operation).not.toContain("orderBy");
     expect(variables).toEqual({ first: 100, typeCode: "treasury" });
     expect(meta).toEqual({ journalType: "treasury" });

@@ -7,6 +7,8 @@ import {
   dispatchMutationResp,
 } from "@openimis/fe-core";
 import { computeLedgerEntryTotals } from "./utils/ledgerEntryTotals";
+import { firstErrorMessage, graphqlErrorMessage } from "./utils/graphqlErrors";
+import { parseCurrencies } from "./utils/currencies";
 
 // Flux Standard Action triplet suffixes, consistent with every other
 // openimis-fe-* module in this environment (research.md §1).
@@ -22,6 +24,15 @@ export const ACTION_TYPE = {
   MANUAL_REVIEW_QUEUE: "LEDGER_MANUAL_REVIEW_QUEUE",
   DEPLOYMENT_CONFIGURATION: "LEDGER_DEPLOYMENT_CONFIGURATION",
   ACCOUNT_OPTIONS: "LEDGER_ACCOUNT_OPTIONS",
+  ACCOUNTS: "LEDGER_ACCOUNTS",
+  CREATE_ACCOUNT: "LEDGER_CREATE_ACCOUNT",
+  UPDATE_ACCOUNT: "LEDGER_UPDATE_ACCOUNT",
+  DELETE_ACCOUNT: "LEDGER_DELETE_ACCOUNT",
+  JOURNALS: "LEDGER_JOURNALS",
+  JOURNAL_TYPES: "LEDGER_JOURNAL_TYPES",
+  CREATE_JOURNAL: "LEDGER_CREATE_JOURNAL",
+  UPDATE_JOURNAL: "LEDGER_UPDATE_JOURNAL",
+  DELETE_JOURNAL: "LEDGER_DELETE_JOURNAL",
   OPEN_ACCOUNTING_PERIOD: "LEDGER_OPEN_ACCOUNTING_PERIOD",
   LOCK_ACCOUNTING_PERIOD: "LEDGER_LOCK_ACCOUNTING_PERIOD",
   CLOSE_ACCOUNTING_PERIOD: "LEDGER_CLOSE_ACCOUNTING_PERIOD",
@@ -33,6 +44,22 @@ export const ACTION_TYPE = {
 };
 
 const req = (name) => `${name}_REQ`;
+const serviceFor = (services, actionType) => services[actionType.replace(/_RESP$/, "")];
+
+// Mutation payloads carry ids only: `dispatchMutationResp` needs the payload
+// field name to pick up `internalId` for the JournalDrawer.
+const ACCOUNT_MUTATION_SERVICES = {
+  [ACTION_TYPE.CREATE_ACCOUNT]: "createAccount",
+  [ACTION_TYPE.UPDATE_ACCOUNT]: "updateAccount",
+  [ACTION_TYPE.DELETE_ACCOUNT]: "deleteAccount",
+};
+
+const JOURNAL_MUTATION_SERVICES = {
+  [ACTION_TYPE.CREATE_JOURNAL]: "createJournal",
+  [ACTION_TYPE.UPDATE_JOURNAL]: "updateJournal",
+  [ACTION_TYPE.DELETE_JOURNAL]: "deleteJournal",
+};
+
 const resp = (name) => `${name}_RESP`;
 const err = (name) => `${name}_ERR`;
 
@@ -90,6 +117,28 @@ const initialState = {
   deploymentConfiguration: { isFetching: false, isFetched: false, error: null, data: null, submitting: false },
 
   accountOptions: { isFetching: false, isFetched: false, error: null, items: [] },
+
+  accounts: {
+    isFetching: false,
+    isFetched: false,
+    error: null,
+    items: [],
+    pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },
+  },
+
+  accountMutation: { submitting: false, error: null, lastMutationAt: null },
+
+  journals: {
+    isFetching: false,
+    isFetched: false,
+    error: null,
+    items: [],
+    pageInfo: { totalCount: 0, hasNextPage: false, hasPreviousPage: false, startCursor: null, endCursor: null },
+  },
+
+  journalTypes: { isFetching: false, isFetched: false, error: null, items: [] },
+
+  journalMutation: { submitting: false, error: null, lastMutationAt: null },
 };
 
 const decodeLedgerReferenceId = (id) => {
@@ -185,8 +234,6 @@ const mapLedgerEntryNode = (node) => {
   };
 };
 
-const firstErrorMessage = (errors) => (errors && errors.length ? errors[0].message : null);
-
 // The backend reports a rejected mutation as a GraphQL error (HTTP 200 with an
 // `errors` array), while mock payloads/legacy backends return the messages in
 // the mutation payload itself: accept both so the page can display the
@@ -230,6 +277,22 @@ const mapDeploymentConfiguration = (configuration) => {
 };
 
 const mapAccountOption = (node) => ({ ...node, id: decodeLedgerReferenceId(node?.id) });
+
+// hordak stores `currencies` in a JSON field exposed as a GraphQL JSONString:
+// normalize it to an array so the views can render it directly.
+const mapAccountNode = (node) => ({
+  ...mapAccountOption(node),
+  currencies: parseCurrencies(node?.currencies),
+});
+
+// GraphQL answers with openIMIS base64 relay ids while mocks use readable ones
+// (e.g. "uuid-1"): normalize both to the raw uuid, which is what the mutations
+// expect (`journalUuid`/`accountUuid`, and `type` for the journal type).
+const mapJournalNode = (journal) => ({
+  ...journal,
+  id: decodeLedgerReferenceId(journal?.id),
+  type: journal?.type ? { ...journal.type, id: decodeLedgerReferenceId(journal.type.id) } : journal?.type,
+});
 
 // Mock review items use readable ids (e.g. "review-1"), while GraphQL
 // responses use openIMIS base64 ids. Keep both forms valid in the reducer.
@@ -329,7 +392,10 @@ function reducer(state = initialState, action) {
     case resp(ACTION_TYPE.LEDGER_ENTRIES): {
       const connection = action.payload?.data?.ledgerEntries;
       const items = sortLedgerEntries(
-        (connection?.edges || []).map((edge) => mapLedgerEntryNode(edge.node)),
+        (connection?.edges || [])
+          .map((edge) => edge?.node)
+          .filter(Boolean)
+          .map(mapLedgerEntryNode),
         action.meta?.orderBy,
       );
       return {
@@ -369,7 +435,7 @@ function reducer(state = initialState, action) {
       };
     case resp(ACTION_TYPE.ACCOUNTING_PERIODS): {
       const items = (action.payload?.data?.accountingPeriods?.edges || []).map((edge) =>
-        mapAccountingPeriod(edge.node),
+        mapAccountingPeriod(edge?.node),
       );
       return {
         ...state,
@@ -397,15 +463,15 @@ function reducer(state = initialState, action) {
           isFetching: false,
           isFetched: true,
           error: formatGraphQLError(action.payload),
-          results: (action.payload?.data?.analyticValue?.edges || []).map((edge) => {
-            const node = edge.node;
-            return {
+          results: (action.payload?.data?.analyticValue?.edges || [])
+            .map((edge) => edge?.node)
+            .filter(Boolean)
+            .map((node) => ({
               ...node,
               analyticValueId: node.id,
               id: decodeId(node.id),
               partyType: node.partyType?.toLowerCase(),
-            };
-          }),
+            })),
         },
       };
     case err(ACTION_TYPE.PARTY_SEARCH):
@@ -439,7 +505,7 @@ function reducer(state = initialState, action) {
           isFetching: false,
           isFetched: true,
           error: formatGraphQLError(action.payload),
-          items: (connection?.edges || []).map((edge) => edge.node),
+          items: (connection?.edges || []).map((edge) => edge?.node).filter(Boolean),
           pageInfo: mapConnectionPageInfo(connection),
         },
       };
@@ -464,15 +530,15 @@ function reducer(state = initialState, action) {
           isFetching: false,
           isFetched: true,
           error: formatGraphQLError(action.payload),
-          results: (action.payload?.data?.analyticValue?.edges || []).map((edge) => {
-            const node = edge.node;
-            return {
+          results: (action.payload?.data?.analyticValue?.edges || [])
+            .map((edge) => edge?.node)
+            .filter(Boolean)
+            .map((node) => ({
               ...node,
               analyticValueId: node.id,
               id: decodeId(node.id),
               partyType: node.partyType?.toLowerCase(),
-            };
-          }),
+            })),
         },
       };
     case err(ACTION_TYPE.FUNDER_SEARCH):
@@ -617,7 +683,10 @@ function reducer(state = initialState, action) {
           isFetching: false,
           isFetched: true,
           error: formatGraphQLError(action.payload),
-          items: (connection?.edges || []).map((edge) => mapManualReviewItem(edge.node)),
+          items: (connection?.edges || [])
+            .map((edge) => edge?.node)
+            .filter(Boolean)
+            .map(mapManualReviewItem),
           pageInfo: mapConnectionPageInfo(connection),
         },
       };
@@ -704,6 +773,218 @@ function reducer(state = initialState, action) {
         exportJobs: { ...state.exportJobs, error: formatServerError(action.payload)?.message ?? null },
       };
 
+    // --- Ticket 37991: Accounts management --------------------------------
+    case req(ACTION_TYPE.ACCOUNTS):
+      return {
+        ...state,
+        accounts: { ...state.accounts, isFetching: true, isFetched: false, error: null },
+      };
+    case resp(ACTION_TYPE.ACCOUNTS): {
+      const connection = action.payload?.data?.accounts;
+      return {
+        ...state,
+        accounts: {
+          isFetching: false,
+          isFetched: true,
+          error: graphqlErrorMessage(action.payload),
+          items: (connection?.edges || [])
+            .map((edge) => edge?.node)
+            .filter(Boolean)
+            .map(mapAccountNode),
+          pageInfo: {
+            totalCount: connection?.totalCount ?? 0,
+            hasNextPage: connection?.pageInfo?.hasNextPage ?? false,
+            hasPreviousPage: connection?.pageInfo?.hasPreviousPage ?? false,
+            startCursor: connection?.pageInfo?.startCursor ?? null,
+            endCursor: connection?.pageInfo?.endCursor ?? null,
+          },
+        },
+      };
+    }
+    case err(ACTION_TYPE.ACCOUNTS):
+      return {
+        ...state,
+        accounts: { ...state.accounts, isFetching: false, error: formatServerError(action.payload)?.message ?? null },
+      };
+
+    case req(ACTION_TYPE.CREATE_ACCOUNT):
+    case req(ACTION_TYPE.UPDATE_ACCOUNT):
+    case req(ACTION_TYPE.DELETE_ACCOUNT):
+      return {
+        ...dispatchMutationReq(state, action),
+        accountMutation: { ...state.accountMutation, submitting: true, error: null },
+      };
+    case resp(ACTION_TYPE.CREATE_ACCOUNT):
+    case resp(ACTION_TYPE.UPDATE_ACCOUNT):
+    case resp(ACTION_TYPE.DELETE_ACCOUNT): {
+      const result =
+        action.payload?.data?.createAccount ??
+        action.payload?.data?.updateAccount ??
+        action.payload?.data?.deleteAccount;
+      // A GraphQL error leaves the payload field null/absent: without a result
+      // the mutation cannot be considered answered, let alone successful.
+      const message = mutationErrorMessage(result, action.payload);
+      if (!result || message) {
+        return {
+          ...state,
+          accountMutation: {
+            ...state.accountMutation,
+            submitting: false,
+            error: message ?? "The mutation could not be verified, please check the list before retrying.",
+          },
+        };
+      }
+      return {
+        ...dispatchMutationResp(state, serviceFor(ACCOUNT_MUTATION_SERVICES, action.type), action),
+        accountMutation: { ...state.accountMutation, submitting: false, error: null },
+      };
+    }
+    case `${ACTION_TYPE.CREATE_ACCOUNT}_CONFIRMED`:
+    case `${ACTION_TYPE.UPDATE_ACCOUNT}_CONFIRMED`:
+    case `${ACTION_TYPE.DELETE_ACCOUNT}_CONFIRMED`:
+      return {
+        ...state,
+        accountMutation: { submitting: false, error: null, lastMutationAt: Date.now() },
+      };
+    case err(ACTION_TYPE.CREATE_ACCOUNT):
+    case err(ACTION_TYPE.UPDATE_ACCOUNT):
+    case err(ACTION_TYPE.DELETE_ACCOUNT):
+      return {
+        ...dispatchMutationErr(state, action),
+        accountMutation: {
+          ...state.accountMutation,
+          submitting: false,
+          error: formatServerError(action.payload)?.message ?? null,
+        },
+      };
+
+    // --- Ticket 37990: Journals management --------------------------------
+    case req(ACTION_TYPE.JOURNALS):
+      return {
+        ...state,
+        journals: { ...state.journals, isFetching: true, isFetched: false, error: null },
+      };
+    case resp(ACTION_TYPE.JOURNALS): {
+      const connection = action.payload?.data?.ledgerJournal;
+      return {
+        ...state,
+        journals: {
+          isFetching: false,
+          isFetched: true,
+          error: graphqlErrorMessage(action.payload),
+          // `isDeleted` is filtered client-side as a safety net: the backend
+          // soft-deletes journals and its query does not filter them yet.
+          items: (connection?.edges || [])
+            .map((edge) => edge?.node)
+            .filter((journal) => journal && journal.isDeleted !== true)
+            .map(mapJournalNode),
+          pageInfo: {
+            totalCount: connection?.totalCount ?? 0,
+            hasNextPage: connection?.pageInfo?.hasNextPage ?? false,
+            hasPreviousPage: connection?.pageInfo?.hasPreviousPage ?? false,
+            startCursor: connection?.pageInfo?.startCursor ?? null,
+            endCursor: connection?.pageInfo?.endCursor ?? null,
+          },
+        },
+      };
+    }
+    case err(ACTION_TYPE.JOURNALS):
+      return {
+        ...state,
+        journals: { ...state.journals, isFetching: false, error: formatServerError(action.payload)?.message ?? null },
+      };
+
+    case req(ACTION_TYPE.JOURNAL_TYPES):
+      return {
+        ...state,
+        journalTypes: { ...state.journalTypes, isFetching: true, isFetched: false, error: null },
+      };
+    case resp(ACTION_TYPE.JOURNAL_TYPES): {
+      const connection = action.payload?.data?.journalTypes;
+      return {
+        ...state,
+        journalTypes: {
+          isFetching: false,
+          isFetched: true,
+          error: graphqlErrorMessage(action.payload),
+          // The mutation input expects the JournalTypes uuid: decode the relay
+          // id once, here, so pickers can submit `id` directly.
+          items: (connection?.edges || [])
+            .map((edge) => edge?.node)
+            .filter(Boolean)
+            .map((node) => ({
+              ...node,
+              id: decodeLedgerReferenceId(node?.id),
+            })),
+        },
+      };
+    }
+    case err(ACTION_TYPE.JOURNAL_TYPES):
+      return {
+        ...state,
+        journalTypes: {
+          ...state.journalTypes,
+          isFetching: false,
+          error: formatServerError(action.payload)?.message ?? null,
+        },
+      };
+
+    // Creation, edition and deletion share the same lifecycle. `_RESP` only
+    // means "the HTTP round-trip is over": the backend answers with a success
+    // payload even when the write was rejected, so the success stamp
+    // (`lastMutationAt`, which closes the form and refreshes the list) is set by
+    // `_CONFIRMED`, dispatched once `mutationLogs` confirms the mutation.
+    case req(ACTION_TYPE.CREATE_JOURNAL):
+    case req(ACTION_TYPE.UPDATE_JOURNAL):
+    case req(ACTION_TYPE.DELETE_JOURNAL):
+      return {
+        ...dispatchMutationReq(state, action),
+        journalMutation: { ...state.journalMutation, submitting: true, error: null },
+      };
+    case resp(ACTION_TYPE.CREATE_JOURNAL):
+    case resp(ACTION_TYPE.UPDATE_JOURNAL):
+    case resp(ACTION_TYPE.DELETE_JOURNAL): {
+      const result =
+        action.payload?.data?.createJournal ??
+        action.payload?.data?.updateJournal ??
+        action.payload?.data?.deleteJournal;
+      // A GraphQL error leaves the payload field null/absent: without a result
+      // the mutation cannot be considered answered, let alone successful.
+      const message = mutationErrorMessage(result, action.payload);
+      if (!result || message) {
+        return {
+          ...state,
+          journalMutation: {
+            ...state.journalMutation,
+            submitting: false,
+            error: message ?? "The mutation could not be verified, please check the list before retrying.",
+          },
+        };
+      }
+      return {
+        ...dispatchMutationResp(state, serviceFor(JOURNAL_MUTATION_SERVICES, action.type), action),
+        journalMutation: { ...state.journalMutation, submitting: false, error: null },
+      };
+    }
+    case `${ACTION_TYPE.CREATE_JOURNAL}_CONFIRMED`:
+    case `${ACTION_TYPE.UPDATE_JOURNAL}_CONFIRMED`:
+    case `${ACTION_TYPE.DELETE_JOURNAL}_CONFIRMED`:
+      return {
+        ...state,
+        journalMutation: { submitting: false, error: null, lastMutationAt: Date.now() },
+      };
+    case err(ACTION_TYPE.CREATE_JOURNAL):
+    case err(ACTION_TYPE.UPDATE_JOURNAL):
+    case err(ACTION_TYPE.DELETE_JOURNAL):
+      return {
+        ...dispatchMutationErr(state, action),
+        journalMutation: {
+          ...state.journalMutation,
+          submitting: false,
+          error: formatServerError(action.payload)?.message ?? null,
+        },
+      };
+
     // --- User Story 7: Deployment Configuration ----------------------------
     case req(ACTION_TYPE.DEPLOYMENT_CONFIGURATION):
       return {
@@ -712,7 +993,7 @@ function reducer(state = initialState, action) {
       };
     case resp(ACTION_TYPE.DEPLOYMENT_CONFIGURATION): {
       const connection = action.payload?.data?.deploymentConfiguration;
-      const gqlError = formatGraphQLError(action.payload)?.message ?? null;
+      const gqlError = graphqlErrorMessage(action.payload);
       const node = connection?.edges?.[0]?.node ?? null;
       return {
         ...state,
@@ -744,8 +1025,11 @@ function reducer(state = initialState, action) {
         accountOptions: {
           isFetching: false,
           isFetched: true,
-          error: formatGraphQLError(action.payload)?.message ?? null,
-          items: (action.payload?.data?.accounts?.edges || []).map((edge) => mapAccountOption(edge.node)),
+          error: graphqlErrorMessage(action.payload),
+          items: (action.payload?.data?.accounts?.edges || [])
+            .map((edge) => edge?.node)
+            .filter(Boolean)
+            .map(mapAccountOption),
         },
       };
     case err(ACTION_TYPE.ACCOUNT_OPTIONS):

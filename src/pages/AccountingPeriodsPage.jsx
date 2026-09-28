@@ -29,6 +29,7 @@ import {
 } from "@openimis/fe-core";
 import AccountingPeriodStatusBadge from "../components/AccountingPeriodStatusBadge";
 import { availableActionsForPeriod } from "../utils/periodActions";
+import { validateNewAccountingPeriod } from "../utils/periodValidation";
 import { hasLedgerReportingRight, hasLedgerAdminRight } from "../utils/permissions";
 import { ACCOUNTING_PERIOD_STATUS, PERIOD_ACTION } from "../constants";
 import {
@@ -100,13 +101,14 @@ const AccountingPeriodsPage = ({
   }, [fetchAccountingPeriods]);
 
   // Once a lifecycle mutation completes, hand it to the JournalDrawer (right
-  // panel) — standard openIMIS mutation journaling.
-  const prevSubmittingMutationRef = useRef();
+  // panel) — standard openIMIS mutation journaling. The previous value must be
+  // compared *before* being stored, otherwise the true -> false transition is
+  // missed and nothing is ever journalized.
+  const prevSubmittingMutationRef = useRef(false);
   useEffect(() => {
+    const wasSubmitting = prevSubmittingMutationRef.current;
     prevSubmittingMutationRef.current = submittingMutation;
-  });
-  useEffect(() => {
-    if (prevSubmittingMutationRef.current && !submittingMutation) {
+    if (wasSubmitting && !submittingMutation) {
       journalize(mutation);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -114,7 +116,7 @@ const AccountingPeriodsPage = ({
 
   if (!hasLedgerReportingRight(rights)) {
     return <Alert severity="error">{formatMessage(intl, "ledger", "ledger.accessDenied")}</Alert>;
-  } 
+  }
 
   const isAdmin = hasLedgerAdminRight(rights);
   const periods = accountingPeriods?.items || [];
@@ -128,15 +130,27 @@ const AccountingPeriodsPage = ({
   // mutation settles (a failed transition simply refetches the same list).
   const refreshAfter = (mutation) => Promise.resolve(mutation).then(() => fetchAccountingPeriods());
 
+  // The mutation label is what the JournalDrawer displays: it goes through the
+  // module translations rather than the action's English default.
+  const mutationLabel = (action) => formatMessage(intl, "ledger", `ledger.periods.mutationLabel.${action}`);
+
   const runAction = (period, action) => {
-    if (action === PERIOD_ACTION.LOCK) refreshAfter(lockAccountingPeriod(period.id));
-    if (action === PERIOD_ACTION.CLOSE) refreshAfter(closeAccountingPeriod(period.id));
-    if (action === PERIOD_ACTION.REOPEN) refreshAfter(reopenAccountingPeriod(period.id));
+    if (action === PERIOD_ACTION.LOCK) refreshAfter(lockAccountingPeriod(period.id, mutationLabel(PERIOD_ACTION.LOCK)));
+    if (action === PERIOD_ACTION.CLOSE)
+      refreshAfter(closeAccountingPeriod(period.id, mutationLabel(PERIOD_ACTION.CLOSE)));
+    if (action === PERIOD_ACTION.REOPEN)
+      refreshAfter(reopenAccountingPeriod(period.id, mutationLabel(PERIOD_ACTION.REOPEN)));
   };
 
+  // Mirror of the backend rules (`PeriodService.open`): an overlapping period or
+  // one that does not start after the latest existing period is refused by the
+  // server, so it must not be submittable here either (the backend answer is
+  // still displayed if it slips through).
+  const openPeriodValidation = validateNewAccountingPeriod(newStartDate, newEndDate, periods);
+
   const openPeriod = () => {
-    if (newStartDate && newEndDate) {
-      refreshAfter(openAccountingPeriod(newStartDate, newEndDate));
+    if (newStartDate && newEndDate && !openPeriodValidation) {
+      refreshAfter(openAccountingPeriod(newStartDate, newEndDate, mutationLabel(PERIOD_ACTION.OPEN)));
     }
   };
 
@@ -207,19 +221,28 @@ const AccountingPeriodsPage = ({
                     />
                   </Grid>
                   <Grid size={GRID_RESPONSIVE_STANDARD} className="item">
-                    <Button variant="contained" disabled={!newStartDate || !newEndDate || submitting} onClick={openPeriod}>
+                    <Button
+                      variant="contained"
+                      disabled={!newStartDate || !newEndDate || !!openPeriodValidation || submitting}
+                      onClick={openPeriod}
+                    >
                       {formatMessage(intl, "ledger", "ledger.periods.action.open")}
                     </Button>
                   </Grid>
+                  {openPeriodValidation ? (
+                    <Grid size={12} className="item">
+                      <Alert severity="warning">
+                        {formatMessageWithValues(intl, "ledger", openPeriodValidation.key, openPeriodValidation.values)}
+                      </Alert>
+                    </Grid>
+                  ) : null}
                 </Grid>
               </StyledPaper>
             </Grid>
           ) : (
             <Grid size={12}>
               <Box className="paperBody">
-                <Alert severity="info">
-                  {formatMessage(intl, "ledger", "ledger.periods.adminOnlyNotice")}
-                </Alert>
+                <Alert severity="info">{formatMessage(intl, "ledger", "ledger.periods.adminOnlyNotice")}</Alert>
               </Box>
             </Grid>
           )}
@@ -302,7 +325,7 @@ const AccountingPeriodsPage = ({
       </div>
     </StyledPage>
   );
-}
+};
 
 const mapStateToProps = (state) => ({
   rights: state.core?.user?.i_user?.rights || [],
