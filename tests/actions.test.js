@@ -256,6 +256,34 @@ describe("Actions - Period export (ticket 38018)", () => {
     expect(dispatched.at(-1).type).toBe(`${ACTION_TYPE.EXPORT_PERIOD_REGISTER}_RESP`);
   });
 
+  it("keeps a file name that is not URI encoded instead of losing the download", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(okResponse({ "Content-Disposition": 'attachment; filename="rapport_100%.csv"' }))),
+    );
+
+    const dispatched = [];
+    const result = await downloadPeriodRegister("period-uuid", EXPORT_FORMAT.STANDARD)((action) => {
+      dispatched.push(action);
+      return Promise.resolve(action);
+    });
+
+    expect(result).toEqual({ ok: true, filename: "rapport_100%.csv" });
+    expect(openBlob).toHaveBeenCalledWith(expect.anything(), "rapport_100%.csv", "csv");
+    expect(dispatched.at(-1).type).toBe(`${ACTION_TYPE.EXPORT_PERIOD_REGISTER}_RESP`);
+  });
+
+  it("decodes a URI encoded file name (RFC 5987)", async () => {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn(() => Promise.resolve(okResponse({ "Content-Disposition": "attachment; filename*=UTF-8''grand%20livre.csv" }))),
+    );
+
+    const result = await downloadPeriodRegister("period-uuid", EXPORT_FORMAT.STANDARD)(() => Promise.resolve());
+
+    expect(result).toEqual({ ok: true, filename: "grand livre.csv" });
+  });
+
   it("falls back to a readable file name when the backend sends no Content-Disposition", async () => {
     vi.stubGlobal("fetch", vi.fn(() => Promise.resolve(okResponse())));
 

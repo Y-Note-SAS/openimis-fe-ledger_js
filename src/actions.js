@@ -1541,7 +1541,15 @@ const periodExportErrorKey = (status) => {
 /** `attachment; filename="FEC_2026-05.csv"` -> `FEC_2026-05.csv` */
 const filenameFromDisposition = (disposition, fallback) => {
   const match = /filename\*?=(?:UTF-8'')?"?([^";]+)"?/i.exec(disposition || "");
-  return match ? decodeURIComponent(match[1]) : fallback;
+  if (!match) return fallback;
+  try {
+    return decodeURIComponent(match[1]);
+  } catch {
+    // A raw `%` in the header (e.g. "rapport_100%.csv") makes
+    // `decodeURIComponent` throw after the blob was already fetched, which
+    // would lose the download: keep the value as sent.
+    return match[1];
+  }
 };
 
 const defaultRegisterFilename = (periodId, exportType) =>
