@@ -222,6 +222,62 @@ describe("Actions - Mocks", () => {
   });
 });
 
+describe("Actions - GraphQL inputs", () => {
+  // The backend parses the document with graphql-core 2.3.2, whose parser
+  // rejects the `null` literal inside an input object ("Unexpected Name
+  // \"null\""): an absent optional value must be omitted, not sent as null.
+  // `formatMutation` receives the generated input, which is what we inspect.
+  const generatedInputs = () => formatMutation.mock.calls.map(([, input]) => String(input));
+
+  it("never emits an inline null literal, even with every optional value empty", () => {
+    formatMutation.mockClear();
+
+    createJournal({ clientMutationLabel: "Create journal" });
+    updateJournal({ clientMutationLabel: "Update journal" });
+    createAccount({ clientMutationLabel: "Create account" });
+    updateAccount({ clientMutationLabel: "Update account" });
+    // The uuid of a deletion is mandatory (the row action always provides it).
+    deleteJournal({ journalUuid: "journal-uuid", clientMutationLabel: "Delete journal" });
+    deleteAccount({ accountUuid: "account-uuid", clientMutationLabel: "Delete account" });
+    createDeploymentConfiguration({ operatingMode: "local_only", currencyCode: "XAF", clientMutationLabel: "cfg" });
+
+    const inputs = generatedInputs();
+    expect(inputs).toHaveLength(7);
+    inputs.forEach((input) => {
+      expect(input).not.toMatch(/:\s*null\b/);
+      expect(input).not.toContain("undefined");
+    });
+  });
+
+  it("still sends the populated optional fields", () => {
+    formatMutation.mockClear();
+
+    createAccount({
+      name: "Caisse",
+      code: "5711",
+      parentId: "parent-uuid",
+      type: "AS",
+      isBankAccount: true,
+      currencies: ["XAF"],
+      clientMutationLabel: "Create account",
+    });
+    createJournal({
+      name: "Caisse",
+      code: "CAISSE",
+      journalType: { id: "type-uuid" },
+      defaultDebitAccount: { uuid: "debit-uuid" },
+      defaultCreditAccount: { uuid: "credit-uuid" },
+      clientMutationLabel: "Create journal",
+    });
+
+    const [accountInput, journalInput] = generatedInputs();
+    expect(accountInput).toContain('parentId: "parent-uuid"');
+    expect(journalInput).toContain('type: "type-uuid"');
+    expect(journalInput).toContain('defaultDebitAccountId: "debit-uuid"');
+    expect(journalInput).toContain('defaultCreditAccountId: "credit-uuid"');
+  });
+});
+
 describe("Actions - Period export (ticket 38018)", () => {
   afterEach(() => {
     vi.unstubAllGlobals();
