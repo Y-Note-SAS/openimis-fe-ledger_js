@@ -46,10 +46,10 @@ describe("GeneralLedgerPage", () => {
     expect(screen.getByText("LedgerEntrySearcher")).toBeInTheDocument();
   });
 
-  it("hides the page when the user has no ledger rights", () => {
+  it("shows an access denied message when the user has no ledger rights", () => {
     const { container } = renderPage({ rights: [] });
 
-    expect(container).toBeEmptyDOMElement();
+    expect(container).toHaveTextContent("ledger.accessDenied");
   });
 
   it("clears saved pagination when opening the page from another module", () => {

@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useEffect, useRef } from "react";
 import { vi } from "vitest";
 
 export const decodeId = (id) => (typeof id === "string" && id.startsWith("enc:") ? id.slice(4) : id);
@@ -31,15 +31,16 @@ export const formatMutation = vi.fn((name, gqlArgs, label) => ({
   clientMutationId: "mock-client-mutation-id",
 }));
 
-export const withModulesManager = (Component) => (props) => (
-  <Component {...props} modulesManager={{ getConf: () => null }} />
-);
+export const withModulesManager = (Component) => (props) =>
+  <Component {...props} modulesManager={{ getConf: () => null }} />;
 
 export const withHistory = (Component) => (props) => <Component {...props} history={{ push: vi.fn() }} />;
 
 export const historyPush = vi.fn();
 
 export const GetIconComponent = (name) => (props) => <span data-icon={name} {...props} />;
+
+export const withTooltip = (component, title) => <span data-tooltip={title}>{component}</span>;
 
 export const Helmet = () => null;
 
@@ -59,12 +60,109 @@ export const SelectInput = ({ label, value, options, onChange }) => (
   </select>
 );
 
-export const PublishedComponent = () => null;
+export const PublishedComponent = ({ pubRef, ...props }) => {
+  if (pubRef === "core.DatePicker") {
+    // Minimal stand-in for CoreModule's DatePicker: a text input that emits
+    // ISO date strings through onChange (the real picker does the same).
+    return (
+      <input
+        aria-label={props.label}
+        value={props.value ?? ""}
+        onChange={(event) => props.onChange?.(event.target.value)}
+      />
+    );
+  }
+  return null;
+};
 
-export const Searcher = () => null;
+// Minimal stand-in for the CoreModule Searcher: like the real component it
+// calls `fetch` once on mount with the params built by `filtersToQueryParams`,
+// and it renders the table title, the headers and the rows produced by
+// `itemFormatters` so page tests keep exercising the real formatters.
+export const Searcher = ({
+  filtersToQueryParams,
+  fetch,
+  items,
+  headers,
+  itemFormatters,
+  rowIdentifier,
+  tableTitle,
+  defaultPageSize = 10,
+  defaultOrderBy = null,
+}) => {
+  const fetchedRef = useRef(false);
+  useEffect(() => {
+    if (fetchedRef.current) return;
+    fetchedRef.current = true;
+    const state = {
+      filters: {},
+      page: 0,
+      pageSize: defaultPageSize,
+      afterCursor: null,
+      beforeCursor: null,
+      orderBy: defaultOrderBy,
+    };
+    fetch?.(filtersToQueryParams ? filtersToQueryParams(state) : []);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const headerList = typeof headers === "function" ? headers() : headers || [];
+  const formatters = typeof itemFormatters === "function" ? itemFormatters() : itemFormatters || [];
+  return (
+    <div className="mock-searcher">
+      {tableTitle ? <div>{tableTitle}</div> : null}
+      <table>
+        <thead>
+          <tr>
+            {headerList.map((header, index) => (
+              <th key={index}>{header}</th>
+            ))}
+          </tr>
+        </thead>
+        <tbody>
+          {(items || []).map((item, index) => {
+            const key = rowIdentifier ? rowIdentifier(item) : index;
+            return (
+              <tr key={key ?? index}>
+                {formatters.map((formatter, formatterIndex) => (
+                  <td key={formatterIndex}>{formatter(item, index)}</td>
+                ))}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+    </div>
+  );
+};
 export const ControlledField = ({ field }) => field ?? null;
 
 export const GRID_RESPONSIVE_STANDARD = { xs: 12, sm: 6, md: 4, lg: 3 };
+
+export const dispatchMutationReq = (state, action) => {
+  const meta = action.meta || {};
+  const requestedDateTime =
+    meta.requestedDateTime instanceof Date ? meta.requestedDateTime.toISOString() : meta.requestedDateTime;
+  return {
+    ...state,
+    submittingMutation: true,
+    mutation: { ...meta, requestedDateTime, id: meta.id || meta.clientMutationId || null },
+  };
+};
+
+export const dispatchMutationResp = (state, service, action) => {
+  const prevMutation = state.mutation || {};
+  return {
+    ...state,
+    submittingMutation: false,
+    mutation: {
+      ...state.mutation,
+      id: action.payload?.data?.[service]?.internalId ?? prevMutation.id ?? null,
+    },
+  };
+};
+
+export const dispatchMutationErr = (state, action) => ({ ...state, alert: JSON.stringify(action.payload) });
 
 export const coreConfirm = vi.fn();
 export const journalize = vi.fn();

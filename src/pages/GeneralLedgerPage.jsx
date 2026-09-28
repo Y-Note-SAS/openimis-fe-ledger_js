@@ -1,7 +1,7 @@
-import React, { Component } from "react";
+import React, { useEffect } from "react";
 import { injectIntl } from "react-intl";
 import { connect } from "react-redux";
-import { bindActionCreators } from "redux";
+import { Alert } from "@mui/material";
 import { styled } from "@mui/material/styles";
 import { Helmet, withModulesManager, formatMessage, clearCurrentPaginationPage } from "@openimis/fe-core";
 import { hasLedgerReportingRight } from "../utils/permissions";
@@ -12,36 +12,39 @@ const StyledGeneralLedgerPage = styled("div")(({ theme }) => ({
   "& .page": theme.page ?? {},
 }));
 
-class GeneralLedgerPage extends Component {
-  componentDidMount = () => {
-    if (this.props.module !== MODULE_NAME) {
-      this.props.clearCurrentPaginationPage();
+const GeneralLedgerPage = ({ 
+  intl, 
+  rights, 
+  module, 
+  clearCurrentPaginationPage 
+}) => {
+  useEffect(() => {
+    if (module !== MODULE_NAME) {
+      clearCurrentPaginationPage();
     }
-  };
+  }, [module, clearCurrentPaginationPage]);
 
-  render() {
-    const { intl, rights } = this.props;
-    if (!hasLedgerReportingRight(rights)) {
-      return null;
-    }
-
-    return (
-      <StyledGeneralLedgerPage>
-        <div className="page">
-          <Helmet title={formatMessage(intl, "ledger", "ledger.entries.pageTitle")} />
-          <LedgerEntrySearcher />
-        </div>
-      </StyledGeneralLedgerPage>
-    );
+  if (!hasLedgerReportingRight(rights)) {
+    return <Alert severity="error">{formatMessage(intl, "ledger", "ledger.accessDenied")}</Alert>;
   }
-}
+
+  return (
+    <StyledGeneralLedgerPage>
+      <div className="page">
+        <Helmet title={formatMessage(intl, "ledger", "ledger.entries.pageTitle")} />
+        <LedgerEntrySearcher />
+      </div>
+    </StyledGeneralLedgerPage>
+  );
+};
 
 const mapStateToProps = (state) => ({
   rights: state.core?.user?.i_user?.rights || [],
   module: state.core?.savedPagination?.module,
 });
 
-const mapDispatchToProps = (dispatch) =>
-  bindActionCreators({ clearCurrentPaginationPage }, dispatch);
+const mapDispatchToProps = {
+  clearCurrentPaginationPage,
+};
 
 export default withModulesManager(injectIntl(connect(mapStateToProps, mapDispatchToProps)(GeneralLedgerPage)));

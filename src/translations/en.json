@@ -8,7 +8,9 @@
       "accountingPeriods": "Accounting Periods",
       "manualReviewQueue": "Review Queue",
       "periodExport": "Period Export",
-      "deploymentConfiguration": "Deployment Configuration"
+      "deploymentConfiguration": "Deployment Configuration",
+      "journals": "Journals",
+      "accounts": "Accounts"
     },
     "any": "Any",
     "accessDenied": "Access denied. You are not authorized to view this page.",
@@ -27,7 +29,9 @@
         "payment_point_manager": "Payment Point Manager"
       },
       "noOptions": "No results",
-      "loading": "Loading..."
+      "loading": "Loading...",
+      "account": "Account",
+      "journalType": "Journal type"
     },
     "entry": {
       "journal": "Journal",
@@ -67,12 +71,13 @@
       "pageTitle": "Party Sub-Ledger",
       "balanceTitle": "Signed balance",
       "selectFiltersPrompt": "Select a party and an accounting period to view the period statement.",
-      "statementTitle": "Period statement",
-      "emptyState": "No activity for the selected period. Carried-forward balance: {carriedForwardBalance}.",
+      "statementTitle": "Period statement ({count})",
+      "emptyState": "No balance rows for the selected party and period.",
       "selectedParty": "Selected party: {party}",
       "selectedPeriod": "Selected period: {period}",
       "noPartySelected": "No party selected",
-      "noPeriodSelected": "No period selected"
+      "noPeriodSelected": "No period selected",
+      "periodColumn": "Accounting period"
     },
     "balance": {
       "owedByParty": "Positive balance: owed by the party",
@@ -92,16 +97,275 @@
       "allPeriods": "All periods"
     },
     "periods": {
-      "pageTitle": "Accounting Periods"
+      "pageTitle": "Accounting Periods",
+      "empty": "No accounting periods yet.",
+      "status": {
+        "open": "Open",
+        "locked": "Locked",
+        "closed": "Closed"
+      },
+      "action": {
+        "open": "Open",
+        "lock": "Lock",
+        "close": "Close",
+        "reopen": "Reopen"
+      },
+      "table": {
+        "period": "Period",
+        "status": "Status",
+        "actions": "Actions"
+      },
+      "openForm": {
+        "title": "Open a New Period",
+        "startDate": "Start Date",
+        "endDate": "End Date",
+        "errors": {
+          "datesRequired": "Both dates are required.",
+          "endBeforeStart": "The period end date must be after its start date.",
+          "overlap": "This period overlaps {start} — {end}.",
+          "chronology": "A new period must start after the end of the latest period ({end})."
+        }
+      },
+      "rejectionTitle": "Action rejected",
+      "actionUnavailable": "No action available for this period",
+      "adminOnlyNotice": "Period lifecycle actions require finance-administrator rights.",
+      "filter": {
+        "status": "Status",
+        "all": "All",
+        "noResults": "No periods match the selected status."
+      },
+      "tableTitle": "Accounting Periods ({count})",
+      "mutationLabel": {
+        "open": "Open accounting period",
+        "lock": "Lock accounting period",
+        "close": "Close accounting period",
+        "reopen": "Reopen accounting period"
+      }
     },
     "reviewQueue": {
-      "pageTitle": "Replication Review Queue"
+      "pageTitle": "Replication Review Queue",
+      "empty": "No manual review items found.",
+      "filter": {
+        "status": "Status",
+        "all": "All"
+      },
+      "status": {
+        "pending": "Pending",
+        "succeeded": "Succeeded",
+        "rejected": "Rejected",
+        "unconfirmed": "Unconfirmed",
+        "resolved": "Resolved"
+      },
+      "table": {
+        "status": "Status",
+        "originalEntry": "Original entry",
+        "reason": "Reason",
+        "targetSystem": "Target system",
+        "actions": "Actions"
+      },
+      "action": {
+        "resolve": "Resolve",
+        "view": "View"
+      },
+      "dialog": {
+        "title": "Resolve manual review item",
+        "originalEntry": "Original flagged entry (read-only)",
+        "entry": "Entry",
+        "period": "Period",
+        "party": "Party",
+        "journal": "Journal",
+        "postedAt": "Posted date",
+        "noReason": "No rejection reason provided.",
+        "correctingEntry": "Correcting entry",
+        "noCandidates": "No correcting entries match this party and period.",
+        "resolvedEntry": "Correcting entry",
+        "resolutionNote": "Resolution note",
+        "close": "Close",
+        "resolve": "Resolve"
+      },
+      "tableTitle": "Review queue ({count})",
+      "mutationLabel": {
+        "resolve": "Resolve manual review item"
+      }
     },
     "export": {
-      "pageTitle": "Period Export"
+      "pageTitle": "Period Export",
+      "resultTitle": "Export result",
+      "period": "Accounting Period",
+      "format": "Export format",
+      "formats": {
+        "generic": "Generic CSV",
+        "ohadaFec": "OHADA / FEC CSV"
+      },
+      "trigger": "Start export",
+      "statusLabel": "Export status",
+      "status": {
+        "in_progress": "In progress",
+        "complete": "Complete",
+        "failed": "Failed"
+      },
+      "numbering": {
+        "provisional": "Provisional numbering",
+        "final": "Final numbering"
+      },
+      "download": "Download export",
+      "failure": "The export failed. Please try again."
     },
     "deployment": {
-      "pageTitle": "Deployment Configuration"
+      "pageTitle": "Deployment Configuration",
+      "operatingMode": "Operating mode",
+      "operatingModes": {
+        "localOnly": "Local only",
+        "replicated": "Replicated"
+      },
+      "externalSystem": "External system",
+      "currencyCode": "Currency",
+      "retainedEarningsAccount": "Retained earnings account",
+      "save": "Save configuration",
+      "saveError": "The deployment configuration could not be saved.",
+      "forwardOnly": {
+        "title": "Confirm operating mode change",
+        "message": "This change applies only going forward. Existing ledger entries will not be replicated retroactively. Confirm to continue.",
+        "cancel": "Cancel",
+        "confirm": "Confirm and save"
+      },
+      "externalSystems": {
+        "odoo": "Odoo",
+        "sage": "Sage"
+      }
+    },
+    "pagination": {
+      "next": "Next",
+      "first": "First",
+      "total": "{count} row(s)"
+    },
+    "journalType": {
+      "sales": "Sales",
+      "sales_credit_note": "Sales Credit Note / Sales Returns",
+      "purchase": "Purchases Journal",
+      "purchase_credit_note": "Purchase Credit Note / Purchase Returns",
+      "cash": "Cash Journal",
+      "bank": "Bank & Checks Journal",
+      "general": "General Journal",
+      "close": "Opening/Closing journal",
+      "treasury": "Treasury"
+    },
+    "journals": {
+      "pageTitle": "Journals",
+      "tableTitle": "Journals ({count})",
+      "empty": "No journal to display.",
+      "adminOnlyNotice": "Only ledger administrators can create journals.",
+      "rejectionTitle": "The journal could not be created",
+      "mutationLabel": "Create journal",
+      "create": {
+        "title": "New journal",
+        "submit": "Create journal",
+        "mutationLabel": "Create journal"
+      },
+      "form": {
+        "name": "Name",
+        "code": "Code",
+        "defaultDebitAccount": "Default debit account",
+        "defaultCreditAccount": "Default credit account",
+        "createTitle": "New journal",
+        "editTitle": "Edit journal",
+        "save": "Save",
+        "cancel": "Cancel",
+        "close": "Close"
+      },
+      "filter": {
+        "name": "Name",
+        "code": "Code"
+      },
+      "table": {
+        "code": "Code",
+        "name": "Name",
+        "type": "Type",
+        "defaultDebitAccount": "Default debit account",
+        "defaultCreditAccount": "Default credit account",
+        "actions": "Actions"
+      },
+      "actions": {
+        "edit": "Edit journal",
+        "delete": "Delete journal"
+      },
+      "edit": {
+        "mutationLabel": "Update journal {code}"
+      },
+      "delete": {
+        "mutationLabel": "Delete journal {code}",
+        "confirmTitle": "Delete journal {code}?",
+        "confirmMessage": "The journal will be hidden from the journals list. Posted entries keep referencing it."
+      }
+    },
+    "yes": "Yes",
+    "no": "No",
+    "accountType": "Account type",
+    "accountTypeValue": {
+      "AS": "Asset",
+      "LI": "Liability",
+      "IN": "Income",
+      "EX": "Expense",
+      "EQ": "Equity",
+      "TR": "Currency Trading"
+    },
+    "accounts": {
+      "pageTitle": "Chart of Accounts",
+      "tableTitle": "Accounts ({count})",
+      "empty": "No account to display.",
+      "adminOnlyNotice": "Only ledger administrators can create accounts.",
+      "rejectionTitle": "The account could not be created",
+      "mutationLabel": "Create account",
+      "create": {
+        "title": "New account",
+        "submit": "Create account",
+        "mutationLabel": "Create account"
+      },
+      "form": {
+        "name": "Name",
+        "code": "Code",
+        "parent": "Parent account",
+        "fullCode": "Full code",
+        "isBankAccount": "Bank account",
+        "currencies": "Currencies",
+        "createTitle": "New account",
+        "editTitle": "Edit account",
+        "save": "Save",
+        "cancel": "Cancel",
+        "close": "Close"
+      },
+      "filter": {
+        "code": "Code",
+        "isBankAccount": "Bank account"
+      },
+      "table": {
+        "code": "Code",
+        "fullCode": "Full code",
+        "parent": "Parent",
+        "name": "Name",
+        "type": "Type",
+        "isBankAccount": "Bank account",
+        "currencies": "Currencies",
+        "actions": "Actions"
+      },
+      "actions": {
+        "edit": "Edit account",
+        "delete": "Delete account",
+        "deleteBlocked": "This account has sub-accounts: delete them first."
+      },
+      "edit": {
+        "mutationLabel": "Update account {code}"
+      },
+      "delete": {
+        "mutationLabel": "Delete account {code}",
+        "confirmTitle": "Delete account {code}?",
+        "confirmMessage": "The account will be removed from the chart of accounts. This action cannot be undone."
+      }
+    },
+    "mutations": {
+      "rejected": "The mutation was rejected by the server.",
+      "unverified": "The mutation could not be verified (mutation log unavailable).",
+      "failed": "The mutation failed."
     }
   }
 }

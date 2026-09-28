@@ -4,7 +4,7 @@ import { connect } from "react-redux";
 import { bindActionCreators } from "redux";
 import { Autocomplete, TextField } from "@mui/material";
 import { formatMessage } from "@openimis/fe-core";
-import { fetchAccountingPeriodsMock } from "../actions";
+import { fetchAccountingPeriods } from "../actions";
 
 const ANY_OPTION = "__any__";
 
@@ -19,13 +19,13 @@ const AccountingPeriodPicker = ({
   accountingPeriods,
   fetchingAccountingPeriods,
   fetchedAccountingPeriods,
-  fetchAccountingPeriodsMock,
+  fetchAccountingPeriods,
 }) => {
   const [inputValue, setInputValue] = useState("");
 
   useEffect(() => {
     if (!fetchedAccountingPeriods && !fetchingAccountingPeriods) {
-      fetchAccountingPeriodsMock();
+      fetchAccountingPeriods();
     }
   }, []);
 
@@ -70,7 +70,7 @@ const mapStateToProps = (state) => ({
   fetchedAccountingPeriods: state.ledger.accountingPeriods.isFetched,
 });
 
-const mapDispatchToProps = (dispatch) => bindActionCreators({ fetchAccountingPeriodsMock }, dispatch);
+const mapDispatchToProps = (dispatch) => bindActionCreators({ fetchAccountingPeriods }, dispatch);
 
 export { AccountingPeriodPicker };
 export default injectIntl(connect(mapStateToProps, mapDispatchToProps)(AccountingPeriodPicker));

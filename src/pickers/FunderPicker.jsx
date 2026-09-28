@@ -5,30 +5,33 @@ import { bindActionCreators } from "redux";
 import _debounce from "lodash/debounce";
 import { Autocomplete, TextField } from "@mui/material";
 import { formatMessage } from "@openimis/fe-core";
-import { searchFunderMock } from "../actions";
+import { searchFunder } from "../actions";
 import { DEFUALT_DEBOUNCE_TIME } from "../constants";
 
-const FunderPicker = ({ intl, value, onChange, results, fetchingResults, searchFunderMock }) => {
+const FunderPicker = ({ intl, value, onChange, results, fetchingResults, searchFunder }) => {
   const [inputValue, setInputValue] = useState("");
 
   const debouncedSearch = useMemo(
     () =>
       _debounce((term) => {
-        searchFunderMock(term);
+        searchFunder(term);
       }, DEFUALT_DEBOUNCE_TIME),
-    [searchFunderMock],
+    [searchFunder],
   );
+
+  // Keep only funder-axis rows (funderCode is set; see PartyPicker).
+  const funderResults = useMemo(() => (results || []).filter((result) => !!result.funderCode), [results]);
 
   useEffect(() => () => debouncedSearch.cancel(), [debouncedSearch]);
 
   return (
     <Autocomplete
-      options={results || []}
+      options={funderResults || []}
       loading={fetchingResults}
       openOnFocus
       value={value || null}
       inputValue={inputValue}
-      onOpen={() => searchFunderMock("")}
+      onOpen={() => searchFunder("")}
       onInputChange={(_, newInputValue) => {
         setInputValue(newInputValue);
         debouncedSearch(newInputValue);
@@ -51,7 +54,7 @@ const mapStateToProps = (state) => ({
   fetchingResults: state.ledger.funderSearch.isFetching,
 });
 
-const mapDispatchToProps = (dispatch) => bindActionCreators({ searchFunderMock }, dispatch);
+const mapDispatchToProps = (dispatch) => bindActionCreators({ searchFunder }, dispatch);
 
 export { FunderPicker };
 export default injectIntl(connect(mapStateToProps, mapDispatchToProps)(FunderPicker));

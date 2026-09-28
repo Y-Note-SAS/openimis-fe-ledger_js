@@ -1,19 +1,78 @@
-import { describe, it, expect, vi, beforeEach } from "vitest";
+import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { createStore, combineReducers, applyMiddleware } from "redux";
+import { thunk } from "redux-thunk";
 import {
   fetchLedgerEntriesMock,
   fetchAccountingPeriodsMock,
   fetchPartyLedgerBalanceMock,
-  searchPartyMock,
-  searchFunderMock,
   fetchFunderActivityReportMock,
+  fetchManualReviewQueueMock,
+  resolveManualReviewItemMock,
+  resetManualReviewQueueMock,
+  resetAccountingPeriodsMock,
+  openAccountingPeriodMock,
+  lockAccountingPeriodMock,
+  closeAccountingPeriodMock,
+  reopenAccountingPeriodMock,
   fetchLedgerEntries,
   fetchAccountingPeriods,
   searchParty,
   searchFunder,
   fetchPartyLedgerBalance,
+  resetPartyLedgerBalance,
   fetchFunderActivityReport,
+  fetchManualReviewQueue,
+  resolveManualReviewItem,
+  openAccountingPeriod,
+  lockAccountingPeriod,
+  closeAccountingPeriod,
+  reopenAccountingPeriod,
+  exportAccountingPeriod,
+  pollExportJob,
+  fetchLedgerDeploymentConfiguration,
+  fetchJournalsList,
+  fetchJournalTypes,
+  createJournal,
+  updateJournal,
+  deleteJournal,
+  fetchAccounts,
+  createAccount,
+  updateAccount,
+  deleteAccount,
+  fetchAccountOptions,
+  createDeploymentConfiguration,
 } from "../src/actions";
-import { ACTION_TYPE } from "../src/reducer";
+import { graphql, graphqlWithVariables, formatMutation } from "@openimis/fe-core";
+import reducer, { ACTION_TYPE } from "../src/reducer";
+import { EXPORT_FORMAT } from "../src/constants";
+
+/**
+ * The ledger mutations poll `mutationLogs(clientMutationId)` after the write:
+ * stub the log response for the next `graphqlWithVariables` call.
+ */
+const mockMutationLog = (node) =>
+  graphqlWithVariables.mockImplementationOnce(() => ({
+    type: "MOCK_GRAPHQL_RESPONSE",
+    payload: { data: { mutationLogs: { edges: node ? [{ node }] : [] } } },
+  }));
+
+const mockMutationLogSuccess = () => mockMutationLog({ status: 2, error: null });
+
+/**
+ * Runs a mutation thunk against a real store so the nested thunks (the ledger
+ * mutations chain the mutation-log confirmation) actually execute. The
+ * dispatched actions and the resolved value are returned alongside the state.
+ */
+const runMutation = async (action) => {
+  const store = createStore(reducer, applyMiddleware(thunk));
+  const dispatched = [];
+  const spy = (a) => {
+    dispatched.push(a);
+    return store.dispatch(a);
+  };
+  const result = await action(spy);
+  return { dispatched, state: store.getState(), result };
+};
 
 describe("Actions - Mocks", () => {
   let dispatch;
@@ -69,45 +128,14 @@ describe("Actions - Mocks", () => {
       type: `${ACTION_TYPE.ACCOUNTING_PERIODS}_RESP`,
       payload: expect.objectContaining({
         data: expect.objectContaining({
-          accountingPeriods: expect.arrayContaining([expect.objectContaining({ status: expect.any(String) })]),
+          accountingPeriods: expect.objectContaining({
+            edges: expect.arrayContaining([
+              expect.objectContaining({ node: expect.objectContaining({ status: expect.any(String) }) }),
+            ]),
+          }),
         }),
       }),
     });
-  });
-
-  it("searchPartyMock returns parties matching search term", () => {
-    const thunk = searchPartyMock("Hospital");
-    thunk(dispatch);
-
-    expect(dispatch).toHaveBeenCalledTimes(2);
-    const respCall = dispatch.mock.calls.find((call) => call[0].type === `${ACTION_TYPE.PARTY_SEARCH}_RESP`);
-    expect(respCall).toBeDefined();
-    const results = respCall[0].payload.data.analyticValues;
-    expect(results.length).toBeGreaterThan(0);
-    results.forEach((party) => {
-      expect(party.displayName.toLowerCase()).toContain("hospital");
-    });
-  });
-
-  it("searchPartyMock returns all parties when search term is empty", () => {
-    const thunk = searchPartyMock("");
-    thunk(dispatch);
-
-    const respCall = dispatch.mock.calls.find((call) => call[0].type === `${ACTION_TYPE.PARTY_SEARCH}_RESP`);
-    expect(respCall).toBeDefined();
-    const results = respCall[0].payload.data.analyticValues;
-    expect(results.length).toBe(7);
-  });
-
-  it("searchFunderMock returns funders matching search term", () => {
-    const thunk = searchFunderMock("GIZ");
-    thunk(dispatch);
-
-    const respCall = dispatch.mock.calls.find((call) => call[0].type === `${ACTION_TYPE.FUNDER_SEARCH}_RESP`);
-    expect(respCall).toBeDefined();
-    const results = respCall[0].payload.data.analyticValues;
-    expect(results.length).toBe(1);
-    expect(results[0].displayName).toBe("GIZ");
   });
 
   // Test pour fetchPartyLedgerBalanceMock (version "Updated upstream")
@@ -195,11 +223,210 @@ describe("Actions - Mocks", () => {
   });
 });
 
+describe("Actions - GraphQL inputs", () => {
+  // The backend parses the document with graphql-core 2.3.2, whose parser
+  // rejects the `null` literal inside an input object ("Unexpected Name
+  // \"null\""): an absent optional value must be omitted, not sent as null.
+  // `formatMutation` receives the generated input, which is what we inspect.
+  const generatedInputs = () => formatMutation.mock.calls.map(([, input]) => String(input));
+
+  it("never emits an inline null literal, even with every optional value empty", () => {
+    formatMutation.mockClear();
+
+    createJournal({ clientMutationLabel: "Create journal" });
+    updateJournal({ clientMutationLabel: "Update journal" });
+    createAccount({ clientMutationLabel: "Create account" });
+    updateAccount({ clientMutationLabel: "Update account" });
+    // The uuid of a deletion is mandatory (the row action always provides it).
+    deleteJournal({ journalUuid: "journal-uuid", clientMutationLabel: "Delete journal" });
+    deleteAccount({ accountUuid: "account-uuid", clientMutationLabel: "Delete account" });
+    createDeploymentConfiguration({ operatingMode: "local_only", currencyCode: "XAF", clientMutationLabel: "cfg" });
+
+    const inputs = generatedInputs();
+    expect(inputs).toHaveLength(7);
+    inputs.forEach((input) => {
+      expect(input).not.toMatch(/:\s*null\b/);
+      expect(input).not.toContain("undefined");
+    });
+  });
+
+  it("still sends the populated optional fields", () => {
+    formatMutation.mockClear();
+
+    createAccount({
+      name: "Caisse",
+      code: "5711",
+      parentId: "parent-uuid",
+      type: "AS",
+      isBankAccount: true,
+      currencies: ["XAF"],
+      clientMutationLabel: "Create account",
+    });
+    createJournal({
+      name: "Caisse",
+      code: "CAISSE",
+      journalType: { id: "type-uuid" },
+      defaultDebitAccount: { uuid: "debit-uuid" },
+      defaultCreditAccount: { uuid: "credit-uuid" },
+      clientMutationLabel: "Create journal",
+    });
+
+    const [accountInput, journalInput] = generatedInputs();
+    expect(accountInput).toContain('parentId: "parent-uuid"');
+    expect(journalInput).toContain('type: "type-uuid"');
+    expect(journalInput).toContain('defaultDebitAccountId: "debit-uuid"');
+    expect(journalInput).toContain('defaultCreditAccountId: "credit-uuid"');
+  });
+});
+
+describe("Actions - Period export", () => {
+  beforeEach(() => {
+    vi.useRealTimers();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
+  });
+
+  it("creates an export mutation action with the selected period and format", () => {
+    const action = exportAccountingPeriod("period-1", EXPORT_FORMAT.OHADA_FEC);
+
+    expect(action.variables).toEqual({
+      accountingPeriodId: "period-1",
+      format: EXPORT_FORMAT.OHADA_FEC,
+    });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_REQ`,
+      `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_RESP`,
+      `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_ERR`,
+    ]);
+  });
+
+  it("stops polling when the export reaches a terminal status", async () => {
+    vi.useFakeTimers();
+    const dispatch = vi.fn(() => Promise.resolve());
+    const getState = vi.fn(() => ({
+      ledger: { exportJobs: { byPeriodId: { "period-1": { status: "complete" } } } },
+    }));
+
+    const stop = pollExportJob("period-1", 1000)(dispatch, getState);
+    await Promise.resolve();
+    const callsAfterFirstTick = dispatch.mock.calls.length;
+
+    vi.advanceTimersByTime(1000);
+    await Promise.resolve();
+
+    expect(dispatch).toHaveBeenCalled();
+    expect(dispatch.mock.calls.length).toBe(callsAfterFirstTick);
+    stop();
+  });
+
+  it("clears the polling interval when stop is called", async () => {
+    vi.useFakeTimers();
+    const dispatch = vi.fn(() => Promise.resolve());
+    const getState = vi.fn(() => ({
+      ledger: { exportJobs: { byPeriodId: { "period-1": { status: "in_progress" } } } },
+    }));
+
+    const stop = pollExportJob("period-1", 1000)(dispatch, getState);
+    await Promise.resolve();
+    const callsBeforeStop = dispatch.mock.calls.length;
+    stop();
+
+    vi.advanceTimersByTime(3000);
+    await Promise.resolve();
+
+    expect(dispatch.mock.calls.length).toBe(callsBeforeStop);
+  });
+});
+
+describe("Actions - Deployment configuration", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("builds the deployment configuration query action (connection, latest row first)", () => {
+    const action = fetchLedgerDeploymentConfiguration();
+
+    expect(action.operation).toContain("LedgerDeploymentConfiguration");
+    expect(action.operation).toContain("deploymentConfiguration(first: 1, orderBy:");
+    expect(action.operation).toContain("retainedEarningsAccount");
+    expect(action.variables).toEqual({});
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.DEPLOYMENT_CONFIGURATION}_REQ`,
+      `${ACTION_TYPE.DEPLOYMENT_CONFIGURATION}_RESP`,
+      `${ACTION_TYPE.DEPLOYMENT_CONFIGURATION}_ERR`,
+    ]);
+  });
+
+  it("builds the chart-of-accounts query action used by the account pickers", () => {
+    const action = fetchAccountOptions();
+
+    expect(action.operation).toContain("AccountOptions");
+    expect(action.operation).toContain("accounts(first: $first)");
+    expect(action.variables).toEqual({ first: 100 });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.ACCOUNT_OPTIONS}_REQ`,
+      `${ACTION_TYPE.ACCOUNT_OPTIONS}_RESP`,
+      `${ACTION_TYPE.ACCOUNT_OPTIONS}_ERR`,
+    ]);
+  });
+
+  it("submits the deployment configuration with raw values and the retained earnings account uuid", () => {
+    const retainedEarningsAccount = { id: "AccountType:uuid-1", uuid: "uuid-1", code: "1200", name: "Reserves" };
+
+    const action = createDeploymentConfiguration({
+      operatingMode: "replicated",
+      externalSystem: "odoo",
+      currencyCode: "XAF",
+      retainedEarningsAccount,
+      clientMutationLabel: "Save configuration",
+    });
+
+    expect(formatMutation).toHaveBeenCalledTimes(1);
+    const [mutationName, input, label] = formatMutation.mock.calls[0];
+    expect(mutationName).toBe("createDeploymentConfiguration");
+    expect(input).toContain('operatingMode: "replicated"');
+    expect(input).toContain('externalSystem: "odoo"');
+    expect(input).toContain('currencyCode: "XAF"');
+    expect(input).toContain('retainedEarningsAccountId: "uuid-1"');
+    expect(label).toBe("Save configuration");
+
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.CREATE_DEPLOYMENT_CONFIGURATION}_REQ`,
+      `${ACTION_TYPE.CREATE_DEPLOYMENT_CONFIGURATION}_RESP`,
+      `${ACTION_TYPE.CREATE_DEPLOYMENT_CONFIGURATION}_ERR`,
+    ]);
+    expect(action.params.deploymentConfiguration).toEqual({
+      operatingMode: "replicated",
+      externalSystem: "odoo",
+      currencyCode: "XAF",
+      retainedEarningsAccount,
+    });
+  });
+
+  it("omits externalSystem when the operating mode is local_only", () => {
+    createDeploymentConfiguration({
+      operatingMode: "local_only",
+      externalSystem: null,
+      currencyCode: "XAF",
+      retainedEarningsAccount: { uuid: "uuid-1" },
+      clientMutationLabel: "Save configuration",
+    });
+
+    const [, input] = formatMutation.mock.calls[0];
+    expect(input).not.toContain("externalSystem");
+    expect(graphql).toHaveBeenCalledTimes(1);
+  });
+});
+
 describe("Actions - Real API calls", () => {
-  it("searchParty delegates to the analyticValues query", () => {
+  it("searchParty delegates to the real analyticValue query", () => {
     const action = searchParty("Family");
     expect(action.operation).toContain("AnalyticValues");
-    expect(action.variables).toEqual({ search: "Family", tagType: "party" });
+    expect(action.operation).toContain("analyticValue");
+    expect(action.operation).toContain("displayName");
+    expect(action.variables).toEqual({ search: "Family", first: 25 });
     expect(action.actionTypes).toEqual([
       `${ACTION_TYPE.PARTY_SEARCH}_REQ`,
       `${ACTION_TYPE.PARTY_SEARCH}_RESP`,
@@ -208,9 +435,19 @@ describe("Actions - Real API calls", () => {
   });
 
   it("fetchPartyLedgerBalance delegates to the PartyLedgerBalance query", () => {
-    const action = fetchPartyLedgerBalance("analytic-1", "period-1");
+    const action = fetchPartyLedgerBalance({
+      displayName: "District Hospital",
+      periodCode: "2026-07",
+      first: 10,
+      after: null,
+    });
     expect(action.operation).toContain("PartyLedgerBalance");
-    expect(action.variables).toEqual({ analyticValueId: "analytic-1", accountingPeriod: "period-1" });
+    expect(action.variables).toEqual({
+      displayName: "District Hospital",
+      periodCode: "2026-07",
+      first: 10,
+      after: null,
+    });
     expect(action.actionTypes).toEqual([
       `${ACTION_TYPE.PARTY_LEDGER_BALANCE}_REQ`,
       `${ACTION_TYPE.PARTY_LEDGER_BALANCE}_RESP`,
@@ -218,19 +455,110 @@ describe("Actions - Real API calls", () => {
     ]);
   });
 
-  it("fetchLedgerEntries is defined", () => {
-    expect(fetchLedgerEntries).toBeDefined();
+  it("fetchLedgerEntries builds the real ledgerEntries query with resolved period code", async () => {
+    const dispatch = vi.fn(() => Promise.resolve());
+    const getState = vi.fn(() => ({
+      ledger: {
+        accountingPeriods: {
+          items: [
+            { id: "1", code: "2026-07", status: "open" },
+            { id: "2", code: "2026-06", status: "closed" },
+          ],
+        },
+      },
+    }));
+    const action = fetchLedgerEntries(
+      { accountingPeriodId: "1", journal: "BANK", sourceEventType: "claim_payment" },
+      { first: 10, after: "abc", orderBy: "-postedAt" },
+    );
+    await action(dispatch, getState);
+
+    const thunkAction = dispatch.mock.calls[0][0];
+    expect(thunkAction.operation).toContain("ledgerEntries");
+    expect(thunkAction.operation).toContain("journal_Code");
+    expect(thunkAction.operation).toContain("accountingPeriod_Code");
+    expect(thunkAction.operation).toContain("LedgerEntryMetaSourceEventType");
+    // The legs feed both the debit/credit/balance columns and the expanded row.
+    expect(thunkAction.operation).toContain("transaction");
+    expect(thunkAction.operation).toContain("legs");
+    expect(thunkAction.operation).toContain("debit");
+    expect(thunkAction.operation).toContain("credit");
+    expect(thunkAction.operation).toContain("account { id name code }");
+    // Entry-level party/funder feed the expandable details.
+    expect(thunkAction.operation).toContain("party { id displayName }");
+    expect(thunkAction.operation).toContain("funder { id displayName }");
+    expect(thunkAction.operation).toContain("accountingPeriod { id code name status }");
+    expect(thunkAction.variables).toEqual({
+      journal: "BANK",
+      accountingPeriodCode: "2026-07",
+      party: null,
+      funder: null,
+      sourceEventType: "CLAIM_PAYMENT",
+      first: 10,
+      after: "abc",
+      before: null,
+      last: null,
+    });
   });
 
-  it("fetchAccountingPeriods is defined", () => {
-    expect(fetchAccountingPeriods).toBeDefined();
+  it("fetchLedgerEntries defaults to the open period when none is set", async () => {
+    const dispatch = vi.fn(() => Promise.resolve());
+    const getState = vi.fn(() => ({
+      ledger: {
+        accountingPeriods: {
+          items: [{ id: "open-1", code: "2026-07", status: "open" }],
+        },
+      },
+    }));
+    const action = fetchLedgerEntries({}, {});
+    await action(dispatch, getState);
+
+    const thunkAction = dispatch.mock.calls[0][0];
+    expect(thunkAction.variables.accountingPeriodCode).toBe("2026-07");
   });
 
-  it("searchFunder builds the analyticValues query with tagType funder", () => {
+  it("fetchLedgerEntries falls back to the open period when the requested id is not in state", async () => {
+    const dispatch = vi.fn(() => Promise.resolve());
+    const getState = vi.fn(() => ({
+      ledger: {
+        accountingPeriods: {
+          items: [
+            { id: "open-1", code: "2026-07", status: "open" },
+            { id: "closed-1", code: "2026-06", status: "closed" },
+          ],
+        },
+      },
+    }));
+    const action = fetchLedgerEntries({ accountingPeriodId: "999" }, {});
+    await action(dispatch, getState);
+
+    const thunkAction = dispatch.mock.calls[0][0];
+    expect(thunkAction.variables.accountingPeriodCode).toBe("2026-07");
+  });
+
+  it("fetchLedgerEntries does not dispatch an unscoped query when no period can be resolved", async () => {
+    const dispatch = vi.fn(() => Promise.resolve());
+    const getState = vi.fn(() => ({ ledger: { accountingPeriods: { items: [] } } }));
+    const action = fetchLedgerEntries({}, {});
+    await action(dispatch, getState);
+
+    expect(dispatch).not.toHaveBeenCalled();
+  });
+
+  it("fetchAccountingPeriods builds the real accountingPeriods query (no status filter)", () => {
+    const action = fetchAccountingPeriods();
+    expect(action.operation).toContain("accountingPeriods");
+    expect(action.operation).toContain("edges");
+    expect(action.operation).not.toContain("$status");
+    expect(action.operation).not.toContain("accountingPeriods(status");
+    expect(action.variables).toEqual({});
+  });
+
+  it("searchFunder builds the real analyticValue query", () => {
     const action = searchFunder("GIZ");
-    expect(action.operation).toContain("analyticValues");
-    expect(action.operation).toContain("tagType");
-    expect(action.variables).toEqual({ search: "GIZ", tagType: "funder" });
+    expect(action.operation).toContain("analyticValue");
+    expect(action.operation).toContain("displayName");
+    expect(action.variables).toEqual({ search: "GIZ", first: 25 });
     expect(action.actionTypes).toEqual([
       `${ACTION_TYPE.FUNDER_SEARCH}_REQ`,
       `${ACTION_TYPE.FUNDER_SEARCH}_RESP`,
@@ -239,13 +567,9 @@ describe("Actions - Real API calls", () => {
   });
 
   it("fetchFunderActivityReport builds the FunderActivityReport query with period range", () => {
-    const action = fetchFunderActivityReport("analytic-1", { start: "period-1", end: "period-2" });
+    const action = fetchFunderActivityReport("analytic-1", "period-1");
     expect(action.operation).toContain("funderActivityReport");
-    expect(action.variables).toEqual({
-      analyticValueId: "analytic-1",
-      accountingPeriodStart: "period-1",
-      accountingPeriodEnd: "period-2",
-    });
+    expect(action.variables).toEqual({ analyticValueId: "analytic-1", accountingPeriodId: "period-1" });
     expect(action.actionTypes).toEqual([
       `${ACTION_TYPE.FUNDER_ACTIVITY_REPORT}_REQ`,
       `${ACTION_TYPE.FUNDER_ACTIVITY_REPORT}_RESP`,
@@ -253,12 +577,558 @@ describe("Actions - Real API calls", () => {
     ]);
   });
 
-  it("fetchFunderActivityReport defaults the period range to null", () => {
+  it("resetPartyLedgerBalance returns the reset action", () => {
+    expect(resetPartyLedgerBalance()).toEqual({ type: `${ACTION_TYPE.PARTY_LEDGER_BALANCE_RESET}` });
+  });
+
+  it("fetchFunderActivityReport defaults the accounting period to undefined", () => {
     const action = fetchFunderActivityReport("analytic-1");
-    expect(action.variables).toEqual({
-      analyticValueId: "analytic-1",
-      accountingPeriodStart: null,
-      accountingPeriodEnd: null,
+    expect(action.variables).toEqual({ analyticValueId: "analytic-1", accountingPeriodId: undefined });
+  });
+});
+
+describe("Actions - Mocks (US4 period lifecycle)", () => {
+  const buildStore = () =>
+    createStore(
+      combineReducers({
+        core: () => ({ user: { i_user: { rights: [] } } }),
+        ledger: reducer,
+      }),
+      applyMiddleware(thunk),
+    );
+
+  beforeEach(() => {
+    resetAccountingPeriodsMock();
+  });
+
+  it("openAccountingPeriodMock appends a new open period once no unclosed period blocks it", async () => {
+    const store = buildStore();
+    await store.dispatch(fetchAccountingPeriodsMock());
+    // July ("1") is open: close it first, then August can be opened.
+    await store.dispatch(lockAccountingPeriodMock("1"));
+    await store.dispatch(closeAccountingPeriodMock("1"));
+
+    await store.dispatch(openAccountingPeriodMock("2026-08-01", "2026-08-31"));
+
+    const state = store.getState().ledger;
+    expect(state.periodMutation.lastRejectionReason).toBe(null);
+    expect(state.accountingPeriods.items).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ startDate: "2026-08-01", endDate: "2026-08-31", status: "open" }),
+      ]),
+    );
+  });
+
+  it("openAccountingPeriodMock rejects while an unclosed period still exists", async () => {
+    const store = buildStore();
+    await store.dispatch(fetchAccountingPeriodsMock());
+
+    await store.dispatch(openAccountingPeriodMock("2026-08-01", "2026-08-31"));
+
+    const state = store.getState().ledger;
+    expect(state.periodMutation.lastRejectionReason).toContain("is still open");
+    expect(state.accountingPeriods.items).toHaveLength(2);
+  });
+
+  it("lockAccountingPeriodMock locks the earliest open period", async () => {
+    const store = buildStore();
+    await store.dispatch(fetchAccountingPeriodsMock());
+
+    await store.dispatch(lockAccountingPeriodMock("1"));
+
+    const state = store.getState().ledger;
+    expect(state.periodMutation.lastRejectionReason).toBe(null);
+    expect(state.accountingPeriods.items.find((p) => p.id === "1").status).toBe("locked");
+  });
+
+  it("lockAccountingPeriodMock rejects locking a later open period while an earlier one is still open", async () => {
+    const store = buildStore();
+    await store.dispatch(fetchAccountingPeriodsMock());
+    // Reopen June ("2"): now both June and July are open, June being the earliest.
+    await store.dispatch(reopenAccountingPeriodMock("2"));
+
+    await store.dispatch(lockAccountingPeriodMock("1"));
+
+    const state = store.getState().ledger;
+    expect(state.periodMutation.lastRejectionReason).toContain("while period");
+    expect(state.accountingPeriods.items.find((p) => p.id === "1").status).toBe("open");
+  });
+
+  it("closeAccountingPeriodMock rejects closing a later locked period while an earlier one is still locked", async () => {
+    const store = buildStore();
+    await store.dispatch(fetchAccountingPeriodsMock());
+    await store.dispatch(lockAccountingPeriodMock("1"));
+    // Reopen June and lock it too: now both are locked, June being the earliest.
+    await store.dispatch(reopenAccountingPeriodMock("2"));
+    await store.dispatch(lockAccountingPeriodMock("2"));
+
+    await store.dispatch(closeAccountingPeriodMock("1"));
+
+    const state = store.getState().ledger;
+    expect(state.periodMutation.lastRejectionReason).toContain("while period");
+    expect(state.accountingPeriods.items.find((p) => p.id === "1").status).toBe("locked");
+  });
+
+  it("reopenAccountingPeriodMock rejects reopening a closed period when a later one is already closed", async () => {
+    const store = buildStore();
+    await store.dispatch(fetchAccountingPeriodsMock());
+    await store.dispatch(lockAccountingPeriodMock("1"));
+    await store.dispatch(closeAccountingPeriodMock("1"));
+
+    // June ("2") is no longer the most recent closed period (July is).
+    await store.dispatch(reopenAccountingPeriodMock("2"));
+
+    const state = store.getState().ledger;
+    expect(state.periodMutation.lastRejectionReason).toContain("while period");
+    expect(state.accountingPeriods.items.find((p) => p.id === "2").status).toBe("closed");
+  });
+
+  it("reopenAccountingPeriodMock reopens the most recent closed period", async () => {
+    const store = buildStore();
+    await store.dispatch(fetchAccountingPeriodsMock());
+    await store.dispatch(lockAccountingPeriodMock("1"));
+    await store.dispatch(closeAccountingPeriodMock("1"));
+
+    await store.dispatch(reopenAccountingPeriodMock("1"));
+
+    const state = store.getState().ledger;
+    expect(state.periodMutation.lastRejectionReason).toBe(null);
+    expect(state.accountingPeriods.items.find((p) => p.id === "1").status).toBe("open");
+  });
+
+  it("openAccountingPeriodMock keeps generated ids unique beyond a single digit", async () => {
+    const store = buildStore();
+    await store.dispatch(fetchAccountingPeriodsMock());
+    for (let month = 8; month <= 19; month += 1) {
+      const open = store.getState().ledger.accountingPeriods.items.find((period) => period.status === "open");
+      await store.dispatch(lockAccountingPeriodMock(open.id));
+      await store.dispatch(closeAccountingPeriodMock(open.id));
+      const start = `2026-${String(month).padStart(2, "0")}-01`;
+      const end = `2026-${String(month).padStart(2, "0")}-28`;
+      await store.dispatch(openAccountingPeriodMock(start, end));
+    }
+    const ids = store.getState().ledger.accountingPeriods.items.map((period) => period.id);
+    expect(new Set(ids).size).toBe(ids.length);
+  });
+});
+
+describe("Actions - Real API calls (US4)", () => {
+  it("openAccountingPeriod builds the OpenAccountingPeriod mutation", () => {
+    const action = openAccountingPeriod("2026-08-01", "2026-08-31");
+    expect(action.payload).toContain("openAccountingPeriod");
+    expect(action.payload).toContain('startDate: "2026-08-01"');
+    expect(action.payload).toContain('endDate: "2026-08-31"');
+    expect(action.payload).toContain('name: "2026-08"');
+    expect(action.payload).toContain('code: "2026-08"');
+    expect(action.params.clientMutationId).toBe("mock-client-mutation-id");
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.OPEN_ACCOUNTING_PERIOD}_REQ`,
+      `${ACTION_TYPE.OPEN_ACCOUNTING_PERIOD}_RESP`,
+      `${ACTION_TYPE.OPEN_ACCOUNTING_PERIOD}_ERR`,
+    ]);
+  });
+
+  it("lockAccountingPeriod builds the LockAccountingPeriod mutation", () => {
+    const action = lockAccountingPeriod("1");
+    expect(action.payload).toContain("lockAccountingPeriod");
+    expect(action.payload).toContain('id: "1"');
+    expect(action.params.clientMutationId).toBe("mock-client-mutation-id");
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.LOCK_ACCOUNTING_PERIOD}_REQ`,
+      `${ACTION_TYPE.LOCK_ACCOUNTING_PERIOD}_RESP`,
+      `${ACTION_TYPE.LOCK_ACCOUNTING_PERIOD}_ERR`,
+    ]);
+  });
+
+  it("closeAccountingPeriod builds the CloseAccountingPeriod mutation", () => {
+    const action = closeAccountingPeriod("1");
+    expect(action.payload).toContain("closeAccountingPeriod");
+    expect(action.payload).toContain('id: "1"');
+    expect(action.params.clientMutationId).toBe("mock-client-mutation-id");
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD}_REQ`,
+      `${ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD}_RESP`,
+      `${ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD}_ERR`,
+    ]);
+  });
+
+  it("reopenAccountingPeriod builds the ReopenAccountingPeriod mutation", () => {
+    const action = reopenAccountingPeriod("1");
+    expect(action.payload).toContain("reopenAccountingPeriod");
+    expect(action.payload).toContain('id: "1"');
+    expect(action.params.clientMutationId).toBe("mock-client-mutation-id");
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD}_REQ`,
+      `${ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD}_RESP`,
+      `${ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD}_ERR`,
+    ]);
+  });
+});
+
+describe("Actions - Manual review queue (US5)", () => {
+  let dispatch;
+
+  beforeEach(() => {
+    dispatch = vi.fn();
+    resetManualReviewQueueMock();
+  });
+
+  it("fetchManualReviewQueue builds the queue query with an optional status", () => {
+    const action = fetchManualReviewQueue({ first: 10, after: null, status: "PENDING" });
+
+    expect(action.operation).toContain("ManualReviewQueue");
+    expect(action.variables).toEqual({ first: 10, after: null, status: "PENDING" });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.MANUAL_REVIEW_QUEUE}_REQ`,
+      `${ACTION_TYPE.MANUAL_REVIEW_QUEUE}_RESP`,
+      `${ACTION_TYPE.MANUAL_REVIEW_QUEUE}_ERR`,
+    ]);
+  });
+
+  it("resolveManualReviewItem builds the resolution mutation", () => {
+    const action = resolveManualReviewItem("review-1", "entry-2", "Corrected manually");
+
+    expect(action.payload).toContain("resolveManualReview");
+    expect(action.payload).toContain('replicationRecordId: "review-1"');
+    expect(action.payload).toContain('resolvedByTransactionId: "entry-2"');
+    expect(action.payload).toContain('resolutionNote: "Corrected manually"');
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_REQ`,
+      `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_RESP`,
+      `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_ERR`,
+    ]);
+  });
+
+  it("mock queue and resolution update the item from pending to resolved", () => {
+    fetchManualReviewQueueMock("pending")(dispatch);
+    const queueResponse = dispatch.mock.calls[1][0].payload.data.manualReviewQueue;
+    expect(queueResponse).toHaveLength(4);
+    expect(queueResponse[0]).toMatchObject({ id: "review-1", status: "pending" });
+
+    dispatch.mockClear();
+    resolveManualReviewItemMock("review-1", "11", "Correction linked")(dispatch);
+    const resolutionResponse = dispatch.mock.calls[1][0].payload.data.resolveManualReviewItem;
+    expect(resolutionResponse.errors).toEqual([]);
+    expect(resolutionResponse.manualReviewQueueItem).toMatchObject({
+      id: "review-1",
+      status: "resolved",
+      correctingEntryId: "11",
+      resolutionNote: "Correction linked",
     });
+  });
+});
+
+describe("Actions - Accounts management", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("builds the paginated accounts query with every filter", () => {
+    const action = fetchAccounts(
+      { code: "1200", fullCode: "1200", type: "EQ", isBankAccount: true },
+      { first: 20, after: "cursor-1" },
+    );
+
+    expect(action.operation).toContain("query Accounts");
+    expect(action.operation).toContain("accounts(");
+    // The tree is rendered from `level`/`parent` and the delete guard needs the
+    // sub-account count.
+    expect(action.operation).toContain("parent { id uuid code name type }");
+    expect(action.operation).toContain("children { totalCount }");
+    expect(action.variables).toEqual({
+      first: 20,
+      after: "cursor-1",
+      before: null,
+      last: null,
+      code: "1200",
+      fullCode: "1200",
+      type: "EQ",
+      isBankAccount: true,
+    });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.ACCOUNTS}_REQ`,
+      `${ACTION_TYPE.ACCOUNTS}_RESP`,
+      `${ACTION_TYPE.ACCOUNTS}_ERR`,
+    ]);
+  });
+
+  it("queries the first page with no filter when nothing is applied", () => {
+    const action = fetchAccounts({}, {});
+
+    expect(action.variables).toEqual({
+      first: null,
+      after: null,
+      before: null,
+      last: null,
+      code: null,
+      fullCode: null,
+      type: null,
+      isBankAccount: null,
+    });
+  });
+
+  it("creates an account with its parent, without fullCode (derived server-side)", async () => {
+    const action = createAccount({
+      name: "Caisse",
+      code: "570",
+      parentId: "parent-uuid",
+      type: "AS",
+      isBankAccount: false,
+      currencies: ["XAF", "EUR"],
+      clientMutationLabel: "Create account",
+    });
+
+    expect(formatMutation).toHaveBeenCalledTimes(1);
+    const [mutationName, input, label] = formatMutation.mock.calls[0];
+    expect(mutationName).toBe("createAccount");
+    expect(input).toContain('name: "Caisse"');
+    expect(input).toContain('code: "570"');
+    // `fullCode` is derived by the backend (parent chain) and is no longer part
+    // of CreateAccountInputType.
+    expect(input).not.toContain("fullCode");
+    expect(input).toContain('parentId: "parent-uuid"');
+    expect(input).toContain('type: "AS"');
+    expect(input).toContain("isBankAccount: false");
+    expect(input).toContain('currencies: "[\\"XAF\\",\\"EUR\\"]"');
+    expect(label).toBe("Create account");
+
+    mockMutationLogSuccess();
+    const { dispatched, state } = await runMutation(action);
+    expect(dispatched[0]).toMatchObject({
+      actionTypes: [
+        `${ACTION_TYPE.CREATE_ACCOUNT}_REQ`,
+        `${ACTION_TYPE.CREATE_ACCOUNT}_RESP`,
+        `${ACTION_TYPE.CREATE_ACCOUNT}_ERR`,
+      ],
+      params: expect.objectContaining({ clientMutationId: "mock-client-mutation-id" }),
+    });
+    // The page only closes the dialog once the mutation log confirms the write
+    // (`_CONFIRMED`), not on the HTTP response.
+    expect(state.accountMutation.lastMutationAt).toEqual(expect.any(Number));
+    expect(state.accountMutation.error).toBe(null);
+  });
+
+  it("never reports a success it cannot prove: an unreadable mutation log is a failure", async () => {
+    mockMutationLog(null);
+
+    const { state } = await runMutation(deleteAccount({ accountUuid: "uuid-1", clientMutationLabel: "Delete" }));
+
+    expect(state.accountMutation.lastMutationAt).toBe(null);
+    expect(state.accountMutation.error).toBe(
+      "The mutation could not be verified, please check the list before retrying.",
+    );
+  });
+
+  it("flags the returned value when the confirmation failed", async () => {
+    mockMutationLog(null);
+
+    const { result } = await runMutation(deleteAccount({ accountUuid: "uuid-1", clientMutationLabel: "Delete" }));
+
+    expect(result.error).toBe(true);
+    expect(result.confirmation.ok).toBe(false);
+  });
+
+  it("reports a transport/GraphQL failure straight away, without polling a log row", async () => {
+    graphql.mockImplementationOnce(() => ({
+      type: "MOCK_GRAPHQL_RESPONSE",
+      error: true,
+      payload: { message: "Failed to fetch" },
+    }));
+
+    const { state } = await runMutation(deleteAccount({ accountUuid: "uuid-1", clientMutationLabel: "Delete" }));
+
+    expect(state.accountMutation.lastMutationAt).toBe(null);
+    expect(state.accountMutation.error).toBe("Failed to fetch");
+    // No log query: the mutation never reached the backend.
+    expect(graphqlWithVariables).not.toHaveBeenCalled();
+  });
+
+  it("updates an account with its uuid, its current parent and no fullCode", async () => {
+    const action = updateAccount({
+      accountUuid: "uuid-1",
+      name: "Caisse",
+      code: "570",
+      parentId: "parent-uuid",
+      type: "AS",
+      isBankAccount: true,
+      currencies: ["XAF"],
+      clientMutationLabel: "Update account 570",
+    });
+
+    const [mutationName, input, label] = formatMutation.mock.calls.at(-1);
+    expect(mutationName).toBe("updateAccount");
+    expect(input).toContain('accountUuid: "uuid-1"');
+    expect(input).toContain('name: "Caisse"');
+    expect(input).not.toContain("fullCode");
+    // The backend assigns `parent = parentId or None`: the current parent must
+    // always be sent back or a child account would silently become a root.
+    expect(input).toContain('parentId: "parent-uuid"');
+    expect(input).toContain("isBankAccount: true");
+    expect(input).toContain('currencies: "[\\"XAF\\"]"');
+    expect(label).toBe("Update account 570");
+
+    mockMutationLogSuccess();
+    const { dispatched } = await runMutation(action);
+    expect(dispatched[0].actionTypes).toEqual([
+      `${ACTION_TYPE.UPDATE_ACCOUNT}_REQ`,
+      `${ACTION_TYPE.UPDATE_ACCOUNT}_RESP`,
+      `${ACTION_TYPE.UPDATE_ACCOUNT}_ERR`,
+    ]);
+  });
+
+  it("deletes an account with the uuid only", async () => {
+    const action = deleteAccount({ accountUuid: "uuid-1", clientMutationLabel: "Delete account 570" });
+
+    const [mutationName, input, label] = formatMutation.mock.calls.at(-1);
+    expect(mutationName).toBe("deleteAccount");
+    expect(input.trim()).toBe('accountUuid: "uuid-1"');
+    expect(label).toBe("Delete account 570");
+
+    mockMutationLogSuccess();
+    const { dispatched } = await runMutation(action);
+    expect(dispatched[0].actionTypes).toEqual([
+      `${ACTION_TYPE.DELETE_ACCOUNT}_REQ`,
+      `${ACTION_TYPE.DELETE_ACCOUNT}_RESP`,
+      `${ACTION_TYPE.DELETE_ACCOUNT}_ERR`,
+    ]);
+  });
+
+  it("reports a mutation rejected by the backend as an error instead of a success", async () => {
+    graphqlWithVariables.mockImplementationOnce(() => ({
+      type: "MOCK_GRAPHQL_RESPONSE",
+      payload: {
+        data: {
+          mutationLogs: {
+            edges: [
+              {
+                node: {
+                  status: 1,
+                  error:
+                    '[{"message": "mutation.invalid", "detail": "The account you are trying to delete has childrens"}]',
+                },
+              },
+            ],
+          },
+        },
+      },
+    }));
+
+    const { state } = await runMutation(
+      deleteAccount({ accountUuid: "uuid-1", clientMutationLabel: "Delete account 570" }),
+    );
+
+    // No success stamp: the dialog stays open and shows the message.
+    expect(state.accountMutation.lastMutationAt).toBe(null);
+    expect(state.accountMutation.error).toBe("mutation.invalid");
+  });
+
+  it("ignores a plain-string mutation log error when reporting the rejection", async () => {
+    graphqlWithVariables.mockImplementationOnce(() => ({
+      type: "MOCK_GRAPHQL_RESPONSE",
+      payload: {
+        data: {
+          mutationLogs: {
+            edges: [{ node: { status: 1, error: "The mutation threw a ValidationError, check logs for details" } }],
+          },
+        },
+      },
+    }));
+
+    const { state } = await runMutation(
+      deleteAccount({ accountUuid: "uuid-1", clientMutationLabel: "Delete account 570" }),
+    );
+
+    expect(state.accountMutation.error).toBe("The mutation threw a ValidationError, check logs for details");
+    expect(state.accountMutation.lastMutationAt).toBe(null);
+  });
+});
+describe("Actions - Journals management", () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+  });
+
+  it("builds the paginated journals query with the type id filter", () => {
+    const action = fetchJournalsList(
+      { name: "Bank", code: "BANK", typeId: "uuid-2" },
+      { first: 10, after: "cursor-1" },
+    );
+
+    expect(action.operation).toContain("query JournalsList");
+    expect(action.operation).toContain("type_Id: $typeId");
+    expect(action.operation).toContain("isDeleted: false");
+    expect(action.operation).toContain("defaultDebitAccountId { id uuid code name }");
+    expect(action.operation).toContain("isDeleted");
+    expect(action.variables).toEqual({
+      first: 10,
+      after: "cursor-1",
+      before: null,
+      last: null,
+      name: "Bank",
+      code: "BANK",
+      typeId: "uuid-2",
+    });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.JOURNALS}_REQ`,
+      `${ACTION_TYPE.JOURNALS}_RESP`,
+      `${ACTION_TYPE.JOURNALS}_ERR`,
+    ]);
+  });
+
+  it("queries the first journals page without filters by default", () => {
+    const action = fetchJournalsList({}, {});
+
+    expect(action.variables).toEqual({
+      first: null,
+      after: null,
+      before: null,
+      last: null,
+      name: null,
+      code: null,
+      typeId: null,
+    });
+  });
+
+  it("builds the journal types query", () => {
+    const action = fetchJournalTypes();
+
+    expect(action.operation).toContain("query JournalTypes");
+    expect(action.operation).toContain("journalTypes(first: $first)");
+    expect(action.variables).toEqual({ first: 100 });
+    expect(action.actionTypes).toEqual([
+      `${ACTION_TYPE.JOURNAL_TYPES}_REQ`,
+      `${ACTION_TYPE.JOURNAL_TYPES}_RESP`,
+      `${ACTION_TYPE.JOURNAL_TYPES}_ERR`,
+    ]);
+  });
+
+  it("creates a journal with the journal type uuid and the account uuids", async () => {
+    const action = createJournal({
+      name: "Bank",
+      code: "BANK",
+      journalType: { id: "uuid-2", code: "bank" },
+      defaultDebitAccount: { uuid: "debit-uuid", code: "5120" },
+      defaultCreditAccount: { uuid: "credit-uuid", code: "7010" },
+      clientMutationLabel: "Create journal",
+    });
+
+    expect(formatMutation).toHaveBeenCalledTimes(1);
+    const [mutationName, input, label] = formatMutation.mock.calls[0];
+    expect(mutationName).toBe("createJournal");
+    expect(input).toContain('name: "Bank"');
+    expect(input).toContain('code: "BANK"');
+    expect(input).toContain('type: "uuid-2"');
+    expect(input).toContain('defaultDebitAccountId: "debit-uuid"');
+    expect(input).toContain('defaultCreditAccountId: "credit-uuid"');
+    expect(input).not.toContain("sequence");
+    expect(label).toBe("Create journal");
+
+    mockMutationLogSuccess();
+    const { dispatched, state } = await runMutation(action);
+    expect(dispatched[0].actionTypes).toEqual([
+      `${ACTION_TYPE.CREATE_JOURNAL}_REQ`,
+      `${ACTION_TYPE.CREATE_JOURNAL}_RESP`,
+      `${ACTION_TYPE.CREATE_JOURNAL}_ERR`,
+    ]);
+    expect(state.journalMutation.lastMutationAt).toEqual(expect.any(Number));
   });
 });

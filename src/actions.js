@@ -1,32 +1,52 @@
-import { graphqlWithVariables } from "@openimis/fe-core";
+import { graphql, graphqlWithVariables, decodeId, formatMutation, formatServerError } from "@openimis/fe-core";
 import { ACTION_TYPE } from "./reducer";
-import { EXPORT_JOB_POLL_INTERVAL_MS } from "./constants";
+import { formatCurrenciesGQLValue } from "./utils/currencies";
+import { DEFAULT_PAGE_SIZE, EXPORT_JOB_POLL_INTERVAL_MS, MOCK_EXPORT_POLL_INTERVAL_MS } from "./constants";
 
-// GraphQL operation strings mirror contracts/graphql-operations.md verbatim
-// (variable names, field aliases, and nesting) since that document is the
-// authoritative source until openimis-be-ledger_py ships its real schema
-// (research.md §2).
+// GraphQL operation strings target the REAL openimis-be-ledger_py schema:
+// snake_case root fields, Relay connections, graphene-django camelCased root
+// fields/filters (auto-camelCased Python snake_case field names) and UUID
+// resolver args (party/funder). LedgerEntryGQLType exposes the whole
+// transaction, so the entry legs (debit/credit/account) are fetched with the
+// list: they feed both the debit/credit/balance columns and the expanded row
+// detail (there is no separate detail query). The entry-level `party`/`funder`
+// analytic values it exposes feed those expanded rows. The legacy design
+// contract in contracts/graphql-operations.md described the pre-stub schema and
+// is no longer the source of truth for these operations.
 
 const LEDGER_ENTRIES_QUERY = `
   query LedgerEntries(
-    $journal: String, $accountingPeriod: ID, $party: ID, $funder: ID,
-    $sourceEventType: String, $first: Int, $after: String
+    $journal: String, $accountingPeriodCode: String, $party: UUID, $funder: UUID,
+    $sourceEventType: LedgerEntryMetaSourceEventType, $first: Int, $after: String, $before: String, $last: Int
   ) {
     ledgerEntries(
-      journal: $journal, accountingPeriod: $accountingPeriod, party: $party,
-      funder: $funder, sourceEventType: $sourceEventType, first: $first, after: $after
+      journal_Code: $journal, accountingPeriod_Code: $accountingPeriodCode,
+      party: $party, funder: $funder, sourceEventType: $sourceEventType,
+      first: $first, after: $after, before: $before, last: $last
     ) {
       totalCount
       pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
       edges {
         node {
-          id journal { code name } accountingPeriod { id status }
-          sourceEventType sourceEventReference postedAt
-          lines: legs {
-            id account { code name } debit credit
-            partyTag { analyticValueId displayName }
-            funderTag { analyticValueId displayName }
+          id
+          party { id displayName }
+          funder { id displayName }
+          transaction {
+            balance
+            legs {
+              edges {
+                node {
+                  id
+                  debit
+                  credit
+                  account { id name code }
+                }
+              }
+            }
           }
+          journal { code name }
+          accountingPeriod { id code name status }
+          sourceEventType sourceEventReference postedAt
         }
       }
     }
@@ -34,9 +54,14 @@ const LEDGER_ENTRIES_QUERY = `
 `;
 
 const ACCOUNTING_PERIODS_QUERY = `
-  query AccountingPeriods($status: String) {
-    accountingPeriods(status: $status) {
-      id startDate endDate status closingTransactionId lockedAt closedAt closedBy
+  query AccountingPeriods {
+    accountingPeriods {
+      totalCount
+      edges {
+        node {
+          id startDate endDate name code status lockedAt closedAt
+        }
+      }
     }
   }
 `;
@@ -51,98 +76,166 @@ const ACCOUNTING_PERIODS_QUERY = `
 // `FunderResultViewModel` fields from data-model.md. Adjust once the backend
 // contract names this explicitly.
 const ANALYTIC_VALUES_QUERY = `
-  query AnalyticValues($search: String!, $tagType: String!) {
-    analyticValues(search: $search, tagType: $tagType) {
-      analyticValueId partyType funderCode displayName externalReference
-    }
-  }
-`;
-
-const PARTY_LEDGER_BALANCE_QUERY = `
-  query PartyLedgerBalance($analyticValueId: ID!, $accountingPeriod: ID!) {
-    partyLedgerBalance(analyticValueId: $analyticValueId, accountingPeriod: $accountingPeriod) {
-      analyticValueId accountingPeriodId debitTotal creditTotal balance carriedForwardBalance
-      transactions {
-        id journal { code name } postedAt sourceEventType sourceEventReference
-        lines: legs { id account { code name } debit credit }
+  query AnalyticValues($search: String, $first: Int) {
+    analyticValue(displayName: $search, first: $first) {
+      totalCount
+      edges {
+        node {
+          id displayName partyType funderCode externalReference
+        }
       }
     }
   }
 `;
 
+const JOURNALS_QUERY = `
+  query Journals($first: Int) {
+    ledgerJournal(first: $first, isDeleted: false) {
+      totalCount
+      edges {
+        node {
+          id name code
+          type { id code type altLanguage }
+        }
+      }
+    }
+  }
+`;
+
+// The backend filters journals by their JournalTypes *code* (`type_Code`),
+// e.g. "treasury"; `type` alone would expect the FK id.
+const JOURNALS_BY_TYPE_QUERY = `
+  query JournalsByType($first: Int, $typeCode: String) {
+    ledgerJournal(first: $first, type_Code: $typeCode, isDeleted: false) {
+      totalCount
+      edges {
+        node {
+          id name code
+          type { id code type altLanguage }
+        }
+      }
+    }
+  }
+`;
+
+const JOURNALS_LIST_QUERY = `
+  query JournalsList(
+    $first: Int, $after: String, $before: String, $last: Int,
+    $name: String, $code: String, $typeId: ID
+  ) {
+    ledgerJournal(
+      first: $first, after: $after, before: $before, last: $last,
+      name: $name, code: $code, type_Id: $typeId, isDeleted: false
+    ) {
+      totalCount
+      pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
+      edges {
+        node {
+          id name code isDeleted
+          type { id code type altLanguage }
+          defaultDebitAccountId { id uuid code name }
+          defaultCreditAccountId { id uuid code name }
+        }
+      }
+    }
+  }
+`;
+
+const JOURNAL_TYPES_QUERY = `
+  query JournalTypes($first: Int) {
+    journalTypes(first: $first) {
+      totalCount
+      edges {
+        node { id code type altLanguage }
+      }
+    }
+  }
+`;
+
+const ACCOUNTS_QUERY = `
+  query Accounts(
+    $first: Int, $after: String, $before: String, $last: Int,
+    $code: String, $fullCode: String, $type: AccountType, $isBankAccount: Boolean
+  ) {
+    accounts(
+      first: $first, after: $after, before: $before, last: $last,
+      code: $code, fullCode: $fullCode, type: $type, isBankAccount: $isBankAccount
+    ) {
+      totalCount
+      pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
+      edges {
+        node {
+          id uuid name code fullCode type isBankAccount currencies level
+          parent { id uuid code name type }
+          children { totalCount }
+        }
+      }
+    }
+  }
+`;
+
+// User Story 2 — party sub-ledger. The backend exposes a PAGINATED connection
+// of balance rows (one per accounting period for a given analytic value).
+// Only exact filters exist: `analyticValue_DisplayName` (there is no id filter)
+// and `accountingPeriod_Code`.
+const PARTY_LEDGER_BALANCE_QUERY = `
+  query PartyLedgerBalance($displayName: String, $periodCode: String, $first: Int, $after: String) {
+    partyLedgerBalance(
+      analyticValue_DisplayName: $displayName
+      accountingPeriod_Code: $periodCode
+      first: $first
+      after: $after
+    ) {
+      totalCount
+      pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
+      edges {
+        node {
+          id
+          accountingPeriod { id code name startDate endDate status }
+          analyticValue { id displayName }
+          debitAmount creditAmount balanceAmount
+        }
+      }
+    }
+  }
+`;
+
+// User Story 3 — funder activity. NOT a connection: a single aggregate for one
+// analytic value over one accounting period (both arguments are required UUIDs).
 const FUNDER_ACTIVITY_REPORT_QUERY = `
-  query FunderActivityReport($analyticValueId: ID!, $accountingPeriodStart: ID, $accountingPeriodEnd: ID) {
-    funderActivityReport(
-      analyticValueId: $analyticValueId
-      accountingPeriodStart: $accountingPeriodStart
-      accountingPeriodEnd: $accountingPeriodEnd
-    ) {
-      analyticValueId debitTotal creditTotal balance
-      byCategory { category debit credit balance }
+  query FunderActivityReport($analyticValueId: UUID!, $accountingPeriodId: UUID!) {
+    funderActivityReport(analyticValueId: $analyticValueId, accountingPeriodId: $accountingPeriodId) {
+      debitAmount creditAmount balanceAmount
     }
   }
 `;
 
-const OPEN_ACCOUNTING_PERIOD_MUTATION = `
-  mutation OpenAccountingPeriod($startDate: Date!, $endDate: Date!) {
-    openAccountingPeriod(startDate: $startDate, endDate: $endDate) {
-      clientMutationId
-      accountingPeriod { id startDate endDate status }
-      errors { field message }
-    }
-  }
-`;
+// Accounting-period lifecycle mutations use the standard openIMIS
+// `input: {...}` shape + `formatMutation` (payload exposes only
+// `clientMutationId`/`internalId`, so callers refetch the list).
 
-const LOCK_ACCOUNTING_PERIOD_MUTATION = `
-  mutation LockAccountingPeriod($accountingPeriodId: ID!) {
-    lockAccountingPeriod(accountingPeriodId: $accountingPeriodId) {
-      clientMutationId
-      accountingPeriod { id status lockedAt }
-      errors { field message }
-    }
-  }
-`;
-
-const CLOSE_ACCOUNTING_PERIOD_MUTATION = `
-  mutation CloseAccountingPeriod($accountingPeriodId: ID!) {
-    closeAccountingPeriod(accountingPeriodId: $accountingPeriodId) {
-      clientMutationId
-      accountingPeriod { id status closedAt }
-      errors { field message }
-    }
-  }
-`;
-
-const REOPEN_ACCOUNTING_PERIOD_MUTATION = `
-  mutation ReopenAccountingPeriod($accountingPeriodId: ID!) {
-    reopenAccountingPeriod(accountingPeriodId: $accountingPeriodId) {
-      clientMutationId
-      accountingPeriod { id status }
-      errors { field message }
-    }
-  }
-`;
-
+// User Story 5 — manual review queue (paginated connection).
 const MANUAL_REVIEW_QUEUE_QUERY = `
-  query ManualReviewQueue($status: String) {
-    manualReviewQueue(status: $status) {
-      id status createdAt rejectionReason targetSystem
-      originalEntry { id partyAnalyticValueId accountingPeriodId }
-      resolvedAt resolutionNote correctingEntryId
-    }
-  }
-`;
-
-const RESOLVE_MANUAL_REVIEW_ITEM_MUTATION = `
-  mutation ResolveManualReviewItem($reviewItemId: ID!, $correctingTransactionId: ID!, $resolutionNote: String!) {
-    resolveManualReviewItem(
-      reviewItemId: $reviewItemId
-      correctingTransactionId: $correctingTransactionId
-      resolutionNote: $resolutionNote
-    ) {
-      clientMutationId
-      manualReviewQueueItem { id status resolvedAt resolutionNote correctingEntryId }
-      errors { field message }
+  query ManualReviewQueue($first: Int, $after: String, $status: ExternalReplicationRecordStatus) {
+    manualReviewQueue(first: $first, after: $after, replicationRecord_Status: $status) {
+      totalCount
+      pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
+      edges {
+        node {
+          id createdAt resolvedAt resolutionNote
+          resolvedByTransaction { id }
+          replicationRecord {
+            id status targetSystem rejectionReason externalReference
+            ledgerEntry {
+              id postedAt sourceEventType sourceEventReference
+              journal { id code name }
+              accountingPeriod { id code name }
+              party { id displayName }
+              funder { id displayName }
+            }
+          }
+        }
+      }
     }
   }
 `;
@@ -165,26 +258,33 @@ const EXPORT_SEQUENCES_QUERY = `
   }
 `;
 
-const LEDGER_DEPLOYMENT_REFERENCE_DATA_QUERY = `
-  query LedgerDeploymentReferenceData {
-    externalSystems { code label }
-    currencyCodes { code label }
-    chartOfAccounts { id code name }
-    deploymentConfiguration { operatingMode externalSystem currencyCode retainedEarningsAccount { id code name } }
+// Deployment configuration lives in a Relay connection: several rows may exist
+// (the backend mutation always creates a new one), so the current configuration
+// is the most recently created row.
+const LEDGER_DEPLOYMENT_CONFIGURATION_QUERY = `
+  query LedgerDeploymentConfiguration {
+    deploymentConfiguration(first: 1, orderBy: ["-dateCreated"]) {
+      totalCount
+      edges {
+        node {
+          id operatingMode externalSystem currencyCode
+          retainedEarningsAccount { id uuid code name }
+        }
+      }
+    }
   }
 `;
 
-const CONFIGURE_DEPLOYMENT_MUTATION = `
-  mutation ConfigureDeployment(
-    $operatingMode: String!, $externalSystem: String, $currencyCode: String!, $retainedEarningsAccountId: ID!
-  ) {
-    configureDeployment(
-      operatingMode: $operatingMode, externalSystem: $externalSystem,
-      currencyCode: $currencyCode, retainedEarningsAccountId: $retainedEarningsAccountId
-    ) {
-      clientMutationId
-      deploymentConfiguration { operatingMode externalSystem currencyCode retainedEarningsAccount { id code name } }
-      errors { field message }
+// Reference accounts shared by the deployment configuration form (retained
+// earnings account) and the journal creation form (default debit/credit
+// accounts). Not paginated: pickers need the whole (small) chart of accounts.
+const ACCOUNT_OPTIONS_QUERY = `
+  query AccountOptions($first: Int) {
+    accounts(first: $first) {
+      totalCount
+      edges {
+        node { id uuid name code fullCode type isBankAccount currencies }
+      }
     }
   }
 `;
@@ -192,8 +292,8 @@ const CONFIGURE_DEPLOYMENT_MUTATION = `
 const mockId = (type, id) => btoa(`${type}:${id}`);
 const OPEN_PERIOD_ID = mockId("AccountingPeriod", 1);
 const CLOSED_PERIOD_ID = mockId("AccountingPeriod", 2);
-const analyticId = (id) => mockId("AnalyticValue", id);
 const ALL_PERIODS_FILTER_VALUE = "__all__";
+const analyticId = (id) => mockId("AnalyticValue", id);
 
 const decodeMockId = (encoded) => {
   try {
@@ -226,7 +326,18 @@ const MOCK_PARTY_OPENING_BALANCES = {
 
 const partyTag = (id, displayName) => ({ analyticValueId: id, displayName });
 const funderTag = (id, displayName) => ({ analyticValueId: id, displayName });
-const mockEntry = (id, journal, periodId, status, sourceEventType, sourceEventReference, postedAt, amount, party, funder) => ({
+const mockEntry = (
+  id,
+  journal,
+  periodId,
+  status,
+  sourceEventType,
+  sourceEventReference,
+  postedAt,
+  amount,
+  party,
+  funder,
+) => ({
   id: mockId("LedgerEntry", id),
   journal: { code: journal, name: journal },
   accountingPeriod: { id: periodId, status },
@@ -254,19 +365,151 @@ const mockEntry = (id, journal, periodId, status, sourceEventType, sourceEventRe
 });
 
 const MOCK_LEDGER_ENTRIES = [
-  mockEntry(1, "BANK", OPEN_PERIOD_ID, "open", "claim_payment", "CLM-2026-0001", "2026-07-24", 12500, partyTag(analyticId("HF-1"), "District Hospital"), funderTag(analyticId("GIZ"), "GIZ")),
-  mockEntry(2, "SALES", OPEN_PERIOD_ID, "open", "invoice", "INV-2026-0007", "2026-07-23", 7800, partyTag(analyticId("FAM-1"), "Family Doe"), funderTag(analyticId("WB"), "World Bank")),
-  mockEntry(3, "BANK", OPEN_PERIOD_ID, "open", "payroll_disbursement", "PAY-2026-0003", "2026-07-22", 9200, partyTag(analyticId("PPM-1"), "Payment Point Manager A"), funderTag(analyticId("GIZ"), "GIZ")),
-  mockEntry(4, "MISC", OPEN_PERIOD_ID, "open", "payment_point_reconciliation", "PPR-2026-0004", "2026-07-21", 4300, partyTag(analyticId("PPM-2"), "Payment Point Manager B"), funderTag(analyticId("WB"), "World Bank")),
-  mockEntry(5, "PURCHASES", OPEN_PERIOD_ID, "open", "correction", "COR-2026-0005", "2026-07-20", 2100, partyTag(analyticId("HF-2"), "Urban Clinic"), funderTag(analyticId("GIZ"), "GIZ")),
+  mockEntry(
+    1,
+    "BANK",
+    OPEN_PERIOD_ID,
+    "open",
+    "claim_payment",
+    "CLM-2026-0001",
+    "2026-07-24",
+    12500,
+    partyTag(analyticId("HF-1"), "District Hospital"),
+    funderTag(analyticId("GIZ"), "GIZ"),
+  ),
+  mockEntry(
+    2,
+    "SALES",
+    OPEN_PERIOD_ID,
+    "open",
+    "invoice",
+    "INV-2026-0007",
+    "2026-07-23",
+    7800,
+    partyTag(analyticId("FAM-1"), "Family Doe"),
+    funderTag(analyticId("WB"), "World Bank"),
+  ),
+  mockEntry(
+    3,
+    "BANK",
+    OPEN_PERIOD_ID,
+    "open",
+    "payroll_disbursement",
+    "PAY-2026-0003",
+    "2026-07-22",
+    9200,
+    partyTag(analyticId("PPM-1"), "Payment Point Manager A"),
+    funderTag(analyticId("GIZ"), "GIZ"),
+  ),
+  mockEntry(
+    4,
+    "MISC",
+    OPEN_PERIOD_ID,
+    "open",
+    "payment_point_reconciliation",
+    "PPR-2026-0004",
+    "2026-07-21",
+    4300,
+    partyTag(analyticId("PPM-2"), "Payment Point Manager B"),
+    funderTag(analyticId("WB"), "World Bank"),
+  ),
+  mockEntry(
+    5,
+    "PURCHASES",
+    OPEN_PERIOD_ID,
+    "open",
+    "correction",
+    "COR-2026-0005",
+    "2026-07-20",
+    2100,
+    partyTag(analyticId("HF-2"), "Urban Clinic"),
+    funderTag(analyticId("GIZ"), "GIZ"),
+  ),
   mockEntry(6, "MISC", OPEN_PERIOD_ID, "open", "closing_entry", "CLS-2026-0006", "2026-07-19", 500, null, null),
-  mockEntry(7, "BANK", CLOSED_PERIOD_ID, "closed", "claim_payment", "CLM-2026-0101", "2026-06-28", 6100, partyTag(analyticId("HF-1"), "District Hospital"), funderTag(analyticId("GIZ"), "GIZ")),
-  mockEntry(8, "SALES", CLOSED_PERIOD_ID, "closed", "invoice", "INV-2026-0102", "2026-06-27", 3200, partyTag(analyticId("FAM-2"), "Family Smith"), funderTag(analyticId("WB"), "World Bank")),
-  mockEntry(9, "BANK", OPEN_PERIOD_ID, "open", "claim_payment", "CLM-2026-0009", "2026-07-18", 1600, partyTag(analyticId("HF-3"), "Rural Health Center"), funderTag(analyticId("UNICEF"), "UNICEF")),
-  mockEntry(10, "SALES", OPEN_PERIOD_ID, "open", "invoice", "INV-2026-0010", "2026-07-17", 2700, partyTag(analyticId("FAM-1"), "Family Doe"), funderTag(analyticId("GIZ"), "GIZ")),
-  mockEntry(11, "BANK", OPEN_PERIOD_ID, "open", "claim_payment", "CLM-2026-0011", "2026-07-16", 3400, partyTag(analyticId("HF-1"), "District Hospital"), funderTag(analyticId("WB"), "World Bank")),
-  mockEntry(12, "PURCHASES", OPEN_PERIOD_ID, "open", "payroll_disbursement", "PAY-2026-0012", "2026-07-15", 1900, partyTag(analyticId("PPM-1"), "Payment Point Manager A"), funderTag(analyticId("UNICEF"), "UNICEF")),
-  mockEntry(13, "MISC", OPEN_PERIOD_ID, "open", "payment_point_reconciliation", "PPR-2026-0013", "2026-07-14", 800, partyTag(analyticId("PPM-2"), "Payment Point Manager B"), funderTag(analyticId("GIZ"), "GIZ")),
+  mockEntry(
+    7,
+    "BANK",
+    CLOSED_PERIOD_ID,
+    "closed",
+    "claim_payment",
+    "CLM-2026-0101",
+    "2026-06-28",
+    6100,
+    partyTag(analyticId("HF-1"), "District Hospital"),
+    funderTag(analyticId("GIZ"), "GIZ"),
+  ),
+  mockEntry(
+    8,
+    "SALES",
+    CLOSED_PERIOD_ID,
+    "closed",
+    "invoice",
+    "INV-2026-0102",
+    "2026-06-27",
+    3200,
+    partyTag(analyticId("FAM-2"), "Family Smith"),
+    funderTag(analyticId("WB"), "World Bank"),
+  ),
+  mockEntry(
+    9,
+    "BANK",
+    OPEN_PERIOD_ID,
+    "open",
+    "claim_payment",
+    "CLM-2026-0009",
+    "2026-07-18",
+    1600,
+    partyTag(analyticId("HF-3"), "Rural Health Center"),
+    funderTag(analyticId("UNICEF"), "UNICEF"),
+  ),
+  mockEntry(
+    10,
+    "SALES",
+    OPEN_PERIOD_ID,
+    "open",
+    "invoice",
+    "INV-2026-0010",
+    "2026-07-17",
+    2700,
+    partyTag(analyticId("FAM-1"), "Family Doe"),
+    funderTag(analyticId("GIZ"), "GIZ"),
+  ),
+  mockEntry(
+    11,
+    "BANK",
+    OPEN_PERIOD_ID,
+    "open",
+    "claim_payment",
+    "CLM-2026-0011",
+    "2026-07-16",
+    3400,
+    partyTag(analyticId("HF-1"), "District Hospital"),
+    funderTag(analyticId("WB"), "World Bank"),
+  ),
+  mockEntry(
+    12,
+    "PURCHASES",
+    OPEN_PERIOD_ID,
+    "open",
+    "payroll_disbursement",
+    "PAY-2026-0012",
+    "2026-07-15",
+    1900,
+    partyTag(analyticId("PPM-1"), "Payment Point Manager A"),
+    funderTag(analyticId("UNICEF"), "UNICEF"),
+  ),
+  mockEntry(
+    13,
+    "MISC",
+    OPEN_PERIOD_ID,
+    "open",
+    "payment_point_reconciliation",
+    "PPR-2026-0013",
+    "2026-07-14",
+    800,
+    partyTag(analyticId("PPM-2"), "Payment Point Manager B"),
+    funderTag(analyticId("GIZ"), "GIZ"),
+  ),
 ];
 
 const MOCK_ACCOUNTING_PERIODS = [
@@ -284,56 +527,16 @@ const MOCK_ACCOUNTING_PERIODS = [
   },
 ];
 
-const MOCK_PARTIES = [
-  {
-    analyticValueId: analyticId("HF-1"),
-    partyType: "health_facility",
-    displayName: "District Hospital",
-    externalReference: "HF-1",
-  },
-  {
-    analyticValueId: analyticId("HF-2"),
-    partyType: "health_facility",
-    displayName: "Urban Clinic",
-    externalReference: "HF-2",
-  },
-  {
-    analyticValueId: analyticId("HF-3"),
-    partyType: "health_facility",
-    displayName: "Rural Health Center",
-    externalReference: "HF-3",
-  },
-  {
-    analyticValueId: analyticId("FAM-1"),
-    partyType: "insuree_family",
-    displayName: "Family Doe",
-    externalReference: "FAM-1",
-  },
-  {
-    analyticValueId: analyticId("FAM-2"),
-    partyType: "insuree_family",
-    displayName: "Family Smith",
-    externalReference: "FAM-2",
-  },
-  {
-    analyticValueId: analyticId("PPM-1"),
-    partyType: "payment_point_manager",
-    displayName: "Payment Point Manager A",
-    externalReference: "PPM-1",
-  },
-  {
-    analyticValueId: analyticId("PPM-2"),
-    partyType: "payment_point_manager",
-    displayName: "Payment Point Manager B",
-    externalReference: "PPM-2",
-  },
-];
+// Mutable "server-side" copy of the accounting periods (DECODED ids, matching
+// the view-model ids the pickers and pages consume after the reducer's
+// decodeId pass). The US4 mock mutations below update it, and
+// fetchAccountingPeriodsMock returns the current snapshot so the UI reflects
+// every successful lifecycle action.
+let mockAccountingPeriods = MOCK_ACCOUNTING_PERIODS.map((period) => ({ ...period, id: decodeMockId(period.id) }));
 
-const MOCK_FUNDERS = [
-  { analyticValueId: analyticId("GIZ"), funderCode: "GIZ", displayName: "GIZ", externalReference: "GIZ" },
-  { analyticValueId: analyticId("WB"), funderCode: "WB", displayName: "World Bank", externalReference: "WB" },
-  { analyticValueId: analyticId("UNICEF"), funderCode: "UNICEF", displayName: "UNICEF", externalReference: "UNICEF" },
-];
+export const resetAccountingPeriodsMock = () => {
+  mockAccountingPeriods = MOCK_ACCOUNTING_PERIODS.map((period) => ({ ...period, id: decodeMockId(period.id) }));
+};
 
 // Carried-forward balances per funder so the aggregated totals and the
 // signed balance vary from one funder to the next during manual testing.
@@ -341,6 +544,141 @@ const MOCK_FUNDER_OPENING_BALANCES = {
   GIZ: 4700,
   WB: -1200,
   UNICEF: 300,
+};
+
+const MOCK_MANUAL_REVIEW_QUEUE = [
+  {
+    id: "review-1",
+    status: "pending",
+    createdAt: "2026-07-25T08:30:00Z",
+    rejectionReason: "Replication rejected by Odoo",
+    targetSystem: "odoo",
+    originalEntry: {
+      id: "1",
+      partyAnalyticValueId: analyticId("HF-1"),
+      accountingPeriodId: "1",
+    },
+    resolvedAt: null,
+    resolutionNote: null,
+    correctingEntryId: null,
+  },
+  {
+    id: "review-2",
+    status: "resolved",
+    createdAt: "2026-07-02T09:15:00Z",
+    rejectionReason: "Unconfirmed posting in Sage",
+    targetSystem: "sage",
+    originalEntry: {
+      id: "7",
+      partyAnalyticValueId: analyticId("HF-1"),
+      accountingPeriodId: "2",
+    },
+    resolvedAt: "2026-07-01T10:00:00Z",
+    resolutionNote: "Correction linked during month-end review",
+    correctingEntryId: "7",
+  },
+  {
+    id: "review-3",
+    status: "pending",
+    createdAt: "2026-07-28T14:20:00Z",
+    rejectionReason: "Replication rejected by Odoo",
+    targetSystem: "odoo",
+    originalEntry: {
+      id: "9",
+      partyAnalyticValueId: analyticId("HF-1"),
+      accountingPeriodId: "1",
+    },
+    resolvedAt: null,
+    resolutionNote: null,
+    correctingEntryId: null,
+  },
+  {
+    id: "review-4",
+    status: "resolved",
+    createdAt: "2026-07-20T11:45:00Z",
+    rejectionReason: "Unconfirmed posting in Sage",
+    targetSystem: "sage",
+    originalEntry: {
+      id: "15",
+      partyAnalyticValueId: analyticId("HF-1"),
+      accountingPeriodId: "2",
+    },
+    resolvedAt: null,
+    resolutionNote: "Awaiting manager approval",
+    correctingEntryId: null,
+  },
+  {
+    id: "review-5",
+    status: "pending",
+    createdAt: "2026-07-15T16:00:00Z",
+    rejectionReason: "Replication rejected by Odoo",
+    targetSystem: "odoo",
+    originalEntry: {
+      id: "23",
+      partyAnalyticValueId: analyticId("HF-1"),
+      accountingPeriodId: "1",
+    },
+    resolvedAt: null,
+    resolutionNote: null,
+    correctingEntryId: null,
+  },
+  {
+    id: "review-6",
+    status: "resolved",
+    createdAt: "2026-06-28T13:20:00Z",
+    rejectionReason: "Unconfirmed posting in Sage",
+    targetSystem: "sage",
+    originalEntry: {
+      id: "96",
+      partyAnalyticValueId: analyticId("HF-1"),
+      accountingPeriodId: "2",
+    },
+    resolvedAt: "2026-06-30T14:00:00Z",
+    resolutionNote: "Correction linked during month-end review",
+    correctingEntryId: "7",
+  },
+  {
+    id: "review-7",
+    status: "pending",
+    createdAt: "2026-08-01T07:30:00Z",
+    rejectionReason: "Replication rejected by Odoo",
+    targetSystem: "odoo",
+    originalEntry: {
+      id: "47",
+      partyAnalyticValueId: analyticId("HF-1"),
+      accountingPeriodId: "1",
+    },
+    resolvedAt: null,
+    resolutionNote: null,
+    correctingEntryId: null,
+  },
+  {
+    id: "review-8",
+    status: "resolved",
+    createdAt: "2026-07-10T10:15:00Z",
+    rejectionReason: "Unconfirmed posting in Sage",
+    targetSystem: "sage",
+    originalEntry: {
+      id: "102",
+      partyAnalyticValueId: analyticId("HF-1"),
+      accountingPeriodId: "2",
+    },
+    resolvedAt: "2026-07-12T09:00:00Z",
+    resolutionNote: "Correction linked during month-end review",
+    correctingEntryId: "7",
+  },
+];
+
+let mockManualReviewQueue = MOCK_MANUAL_REVIEW_QUEUE.map((item) => ({
+  ...item,
+  originalEntry: { ...item.originalEntry },
+}));
+
+export const resetManualReviewQueueMock = () => {
+  mockManualReviewQueue = MOCK_MANUAL_REVIEW_QUEUE.map((item) => ({
+    ...item,
+    originalEntry: { ...item.originalEntry },
+  }));
 };
 
 export function fetchLedgerEntriesMock(params = []) {
@@ -359,10 +697,7 @@ export function fetchLedgerEntriesMock(params = []) {
       entry.lines.some((line) => {
         const tag = line[`${tagType}Tag`];
         const search = value.toLowerCase();
-        return (
-          tag?.analyticValueId?.toLowerCase() === search ||
-          tag?.displayName?.toLowerCase().includes(search)
-        );
+        return tag?.analyticValueId?.toLowerCase() === search || tag?.displayName?.toLowerCase().includes(search);
       });
 
     const periodFilterId = explicitPeriod ?? OPEN_PERIOD_ID;
@@ -370,12 +705,17 @@ export function fetchLedgerEntriesMock(params = []) {
       periodFilterId === ALL_PERIODS_FILTER_VALUE
         ? null
         : periodFilterId === OPEN_PERIOD_ID || periodFilterId === CLOSED_PERIOD_ID
-          ? periodFilterId
-          : mockId("AccountingPeriod", periodFilterId);
-    const filteredEntries = MOCK_LEDGER_ENTRIES
-      .filter((entry) => !scopedPeriodFilterId || entry.accountingPeriod.id === scopedPeriodFilterId)
+        ? periodFilterId
+        : mockId("AccountingPeriod", periodFilterId);
+    const filteredEntries = MOCK_LEDGER_ENTRIES.filter(
+      (entry) => !scopedPeriodFilterId || entry.accountingPeriod.id === scopedPeriodFilterId,
+    )
       .filter((entry) => !getParam("journal") || entry.journal.code === getParam("journal"))
-      .filter((entry) => !getParam("sourceEventType") || entry.sourceEventType === getParam("sourceEventType"))
+      .filter(
+        (entry) =>
+          !getParam("sourceEventType") ||
+          String(entry.sourceEventType).toUpperCase() === String(getParam("sourceEventType")).toUpperCase(),
+      )
       .filter((entry) => matchesTag(entry, "party", getParam("party")))
       .filter((entry) => matchesTag(entry, "funder", getParam("funder")))
       .sort((a, b) => b.postedAt.localeCompare(a.postedAt));
@@ -409,9 +749,77 @@ export function fetchLedgerEntriesMock(params = []) {
 export function fetchAccountingPeriodsMock() {
   return (dispatch) => {
     dispatch({ type: `${ACTION_TYPE.ACCOUNTING_PERIODS}_REQ` });
+    // Dispatch the same Relay-connection shape the real backend returns so the
+    // reducer handles both paths uniformly (US4 stays mock-backed until its own
+    // integration ticket).
     dispatch({
       type: `${ACTION_TYPE.ACCOUNTING_PERIODS}_RESP`,
-      payload: { data: { accountingPeriods: MOCK_ACCOUNTING_PERIODS } },
+      payload: {
+        data: {
+          accountingPeriods: {
+            totalCount: mockAccountingPeriods.length,
+            edges: mockAccountingPeriods.map((period) => ({ node: period })),
+          },
+        },
+      },
+    });
+  };
+}
+
+export function fetchManualReviewQueueMock(status = null) {
+  return (dispatch) => {
+    dispatch({ type: `${ACTION_TYPE.MANUAL_REVIEW_QUEUE}_REQ` });
+    dispatch({
+      type: `${ACTION_TYPE.MANUAL_REVIEW_QUEUE}_RESP`,
+      payload: {
+        data: {
+          manualReviewQueue: status
+            ? mockManualReviewQueue.filter((item) => item.status === status)
+            : mockManualReviewQueue,
+        },
+      },
+    });
+  };
+}
+
+export function resolveManualReviewItemMock(reviewItemId, correctingTransactionId, resolutionNote) {
+  return (dispatch) => {
+    dispatch({ type: `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_REQ` });
+    const item = mockManualReviewQueue.find((candidate) => candidate.id === reviewItemId);
+    const candidate = MOCK_LEDGER_ENTRIES.find(
+      (entry) =>
+        decodeMockId(entry.id) === correctingTransactionId &&
+        entry.accountingPeriod.id === mockId("AccountingPeriod", item?.originalEntry?.accountingPeriodId) &&
+        entry.lines.some((line) => line.partyTag?.analyticValueId === item?.originalEntry?.partyAnalyticValueId),
+    );
+
+    if (!item || item.status !== "pending" || !candidate || !String(resolutionNote || "").trim()) {
+      dispatch({
+        type: `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_RESP`,
+        payload: {
+          data: {
+            resolveManualReviewItem: {
+              errors: [{ message: "A pending item requires a valid same-party, same-period correction and a note." }],
+            },
+          },
+        },
+      });
+      return;
+    }
+
+    const updated = {
+      ...item,
+      status: "resolved",
+      resolvedAt: "2026-08-10T10:00:00Z",
+      resolutionNote: String(resolutionNote).trim(),
+      correctingEntryId: correctingTransactionId,
+    };
+    mockManualReviewQueue = mockManualReviewQueue.map((candidateItem) =>
+      candidateItem.id === reviewItemId ? updated : candidateItem,
+    );
+    dispatch({
+      type: `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_RESP`,
+      payload: { data: { resolveManualReviewItem: { manualReviewQueueItem: updated, errors: [] } } },
     });
   };
 }
@@ -476,44 +884,6 @@ export function fetchPartyLedgerBalanceMock(analyticValueId, accountingPeriodId)
   };
 }
 
-export function searchPartyMock(searchTerm) {
-  return (dispatch) => {
-    const term = String(searchTerm || "").toLowerCase().trim();
-    const results = !term
-      ? MOCK_PARTIES
-      : MOCK_PARTIES.filter(
-          (party) =>
-            party.displayName.toLowerCase().includes(term) ||
-            party.analyticValueId.toLowerCase().includes(term) ||
-            party.externalReference.toLowerCase().includes(term),
-        );
-    dispatch({ type: `${ACTION_TYPE.PARTY_SEARCH}_REQ` });
-    dispatch({
-      type: `${ACTION_TYPE.PARTY_SEARCH}_RESP`,
-      payload: { data: { analyticValues: results } },
-    });
-  };
-}
-
-export function searchFunderMock(searchTerm) {
-  return (dispatch) => {
-    const term = String(searchTerm || "").toLowerCase().trim();
-    const results = !term
-      ? MOCK_FUNDERS
-      : MOCK_FUNDERS.filter(
-          (funder) =>
-            funder.displayName.toLowerCase().includes(term) ||
-            funder.analyticValueId.toLowerCase().includes(term) ||
-            funder.externalReference.toLowerCase().includes(term),
-        );
-    dispatch({ type: `${ACTION_TYPE.FUNDER_SEARCH}_REQ` });
-    dispatch({
-      type: `${ACTION_TYPE.FUNDER_SEARCH}_RESP`,
-      payload: { data: { analyticValues: results } },
-    });
-  };
-}
-
 /**
  * User Story 3 — mock counterpart of `fetchFunderActivityReport`. The
  * report is derived from `MOCK_LEDGER_ENTRIES` filtered by the selected
@@ -546,8 +916,7 @@ export function fetchFunderActivityReportMock(analyticValueId, periodRange = {})
     };
 
     const periodEntries = MOCK_LEDGER_ENTRIES.filter(
-      (entry) =>
-        inRange(entry) && entry.lines.some((line) => line.funderTag?.analyticValueId === analyticValueId),
+      (entry) => inRange(entry) && entry.lines.some((line) => line.funderTag?.analyticValueId === analyticValueId),
     );
 
     const totalsFor = (entries) => {
@@ -591,44 +960,255 @@ export function fetchFunderActivityReportMock(analyticValueId, periodRange = {})
   };
 }
 
+// --- User Story 4: Accounting period lifecycle mocks ----------------------
+// Stand-ins for the backend mutations. They enforce the chronological rules
+// (oldest-open-first lock, oldest-locked-first close, newest-closed-first
+// reopen, no new period while an unclosed one exists) and return the
+// rejection reason in `errors[].message` exactly like the backend would, so
+// FR-009's verbatim display can be exercised without a real server.
+// mockAccountingPeriods always holds DECODED ids, so only the query argument may
+// need decoding (a caller can still pass an encoded id such as OPEN_PERIOD_ID).
+const findMockPeriod = (id) =>
+  mockAccountingPeriods.find((period) => period.id === id || period.id === decodeMockId(id));
+
+function dispatchMockPeriodTransition({
+  dispatch,
+  accountingPeriodId,
+  actionType,
+  payloadKey,
+  actionLabel,
+  expectedStatus,
+  blockers,
+  updatedPeriod,
+}) {
+  const period = findMockPeriod(accountingPeriodId);
+  const errors = [];
+  if (!period) {
+    errors.push({ field: "accountingPeriodId", message: "Accounting period not found." });
+  } else if (period.status !== expectedStatus) {
+    errors.push({
+      field: "accountingPeriodId",
+      message: `Cannot ${actionLabel} period ${period.startDate} — ${period.endDate}: it is ${period.status}, not ${expectedStatus}.`,
+    });
+  } else if (blockers.length) {
+    errors.push({
+      field: "accountingPeriodId",
+      message: `Cannot ${actionLabel} period ${period.startDate} — ${period.endDate} while period ${blockers[0].startDate} — ${blockers[0].endDate} is ${blockers[0].status}.`,
+    });
+  }
+
+  dispatch({ type: `${actionType}_REQ` });
+  if (errors.length) {
+    dispatch({
+      type: `${actionType}_RESP`,
+      payload: { data: { [payloadKey]: { clientMutationId: null, accountingPeriod: null, errors } } },
+    });
+    return;
+  }
+  mockAccountingPeriods = mockAccountingPeriods.map((p) => (p.id === period.id ? updatedPeriod : p));
+  dispatch({
+    type: `${actionType}_RESP`,
+    payload: {
+      data: {
+        [payloadKey]: { clientMutationId: "mock-period-transition", accountingPeriod: updatedPeriod, errors: [] },
+      },
+    },
+  });
+}
+
+export function openAccountingPeriodMock(startDate, endDate) {
+  return (dispatch) => {
+    const errors = [];
+    const blocker = mockAccountingPeriods.find((period) => period.status === "open" || period.status === "locked");
+    if (blocker) {
+      errors.push({
+        field: "startDate",
+        message: `Cannot open a new period while ${blocker.startDate} — ${blocker.endDate} is still ${blocker.status}. Lock and close it first.`,
+      });
+    } else {
+      const sorted = [...mockAccountingPeriods].sort((a, b) => a.startDate.localeCompare(b.startDate));
+      const latest = sorted[sorted.length - 1];
+      if (latest && startDate <= latest.endDate) {
+        errors.push({
+          field: "startDate",
+          message: `A new period must start after the end of the latest period (${latest.endDate}).`,
+        });
+      }
+    }
+    if (!startDate || !endDate) {
+      errors.push({ field: "startDate", message: "Both start and end dates are required." });
+    } else if (startDate >= endDate) {
+      errors.push({ field: "endDate", message: "The period end date must be after its start date." });
+    }
+
+    dispatch({ type: `${ACTION_TYPE.OPEN_ACCOUNTING_PERIOD}_REQ` });
+    if (errors.length) {
+      dispatch({
+        type: `${ACTION_TYPE.OPEN_ACCOUNTING_PERIOD}_RESP`,
+        payload: {
+          data: { openAccountingPeriod: { clientMutationId: null, accountingPeriod: null, errors } },
+        },
+      });
+      return;
+    }
+    // mockAccountingPeriods ids are already DECODED: re-decoding them here (decodeMockId)
+    // would atob() plain numeric strings and yield NaN for any id >= 10, freezing the counter.
+    const nextId = String(mockAccountingPeriods.reduce((max, period) => Math.max(max, Number(period.id) || 0), 0) + 1);
+    const created = { id: nextId, startDate, endDate, status: "open" };
+    mockAccountingPeriods = [...mockAccountingPeriods, created];
+    dispatch({
+      type: `${ACTION_TYPE.OPEN_ACCOUNTING_PERIOD}_RESP`,
+      payload: {
+        data: { openAccountingPeriod: { clientMutationId: "mock-open-period", accountingPeriod: created, errors: [] } },
+      },
+    });
+  };
+}
+
+export function lockAccountingPeriodMock(accountingPeriodId) {
+  return (dispatch) => {
+    const period = findMockPeriod(accountingPeriodId);
+    const earliestOpen = [...mockAccountingPeriods]
+      .filter((p) => p.status === "open")
+      .sort((a, b) => a.startDate.localeCompare(b.startDate))[0];
+    const blockers = period && earliestOpen && earliestOpen.id !== period.id ? [earliestOpen] : [];
+    dispatchMockPeriodTransition({
+      dispatch,
+      accountingPeriodId,
+      actionType: ACTION_TYPE.LOCK_ACCOUNTING_PERIOD,
+      payloadKey: "lockAccountingPeriod",
+      actionLabel: "lock",
+      expectedStatus: "open",
+      blockers,
+      updatedPeriod: period ? { ...period, status: "locked", lockedAt: new Date().toISOString() } : null,
+    });
+  };
+}
+
+export function closeAccountingPeriodMock(accountingPeriodId) {
+  return (dispatch) => {
+    const period = findMockPeriod(accountingPeriodId);
+    const earliestLocked = [...mockAccountingPeriods]
+      .filter((p) => p.status === "locked")
+      .sort((a, b) => a.startDate.localeCompare(b.startDate))[0];
+    const blockers = period && earliestLocked && earliestLocked.id !== period.id ? [earliestLocked] : [];
+    dispatchMockPeriodTransition({
+      dispatch,
+      accountingPeriodId,
+      actionType: ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD,
+      payloadKey: "closeAccountingPeriod",
+      actionLabel: "close",
+      expectedStatus: "locked",
+      blockers,
+      updatedPeriod: period ? { ...period, status: "closed", closedAt: new Date().toISOString() } : null,
+    });
+  };
+}
+
+export function reopenAccountingPeriodMock(accountingPeriodId) {
+  return (dispatch) => {
+    const period = findMockPeriod(accountingPeriodId);
+    const closedPeriods = [...mockAccountingPeriods]
+      .filter((p) => p.status === "closed")
+      .sort((a, b) => a.startDate.localeCompare(b.startDate));
+    const latestClosed = closedPeriods[closedPeriods.length - 1];
+    const blockers = period && latestClosed && latestClosed.id !== period.id ? [latestClosed] : [];
+    dispatchMockPeriodTransition({
+      dispatch,
+      accountingPeriodId,
+      actionType: ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD,
+      payloadKey: "reopenAccountingPeriod",
+      actionLabel: "reopen",
+      expectedStatus: "closed",
+      blockers,
+      updatedPeriod: period ? { ...period, status: "open" } : null,
+    });
+  };
+}
+
 /**
- * Dispatches the LedgerEntries query (US1, FR-001). `filters` uses the
- * frontend view-model names from data-model.md's `LedgerEntryFilters`
- * (`accountingPeriodId`, `partyAnalyticValueId`, `funderAnalyticValueId`),
- * translated here to the backend's GraphQL argument names
- * (`accountingPeriod`, `party`, `funder`) per contracts/graphql-operations.md.
+ * Dispatches the real `ledgerEntries` query (US1, FR-001). `filters` uses the
+ * frontend view-model names (`accountingPeriodId`, `partyAnalyticValueId`,
+ * `funderAnalyticValueId`, `journal`, `sourceEventType`), translated to the
+ * backend's GraphQL arguments (`journal_Code`, `accountingPeriod_Code`,
+ * `party`/`funder` as raw UUIDs, `sourceEventType`).
  *
- * Per FR-001 / data-model.md's client-side validation rule, when
- * `filters.accountingPeriodId` is not explicitly set, this defaults to the
- * current open accounting period's id (read from `state.ledger.accountingPeriods`)
- * rather than sending an unscoped query.
+ * The backend has no `accounting_period__id` filter, so an explicit period is
+ * passed via its unique `code` (resolved from `state.ledger.accountingPeriods`).
+ * Per FR-001, when no period filter is set, this defaults to the current open
+ * period's code rather than sending an unscoped query.
  */
+const decodeUuid = (id) => {
+  if (!id) return null;
+  try {
+    return decodeId(id);
+  } catch {
+    return id;
+  }
+};
+
+// graphene-django exposes choice fields as enums: the filter argument expects
+// the CONSTANT_CASE member name (e.g. "CLAIM_PAYMENT"), while the frontend
+// view-model uses the lowercase Django value ("claim_payment").
+const toGrapheneEnum = (value) =>
+  value
+    ? String(value)
+        .toUpperCase()
+        .replace(/[^A-Z0-9]/g, "_")
+    : null;
+
 export function fetchLedgerEntries(filters = {}, pageInfo = {}) {
   return async (dispatch, getState) => {
+    const periods = getState().ledger?.accountingPeriods?.items || [];
+
+    // FR-001: the ledger query must always be scoped to an accounting period.
+    // If the requested period id is missing/stale, fall back to the current
+    // open period so we never send an unscoped query. If no period can be
+    // resolved at all, wait rather than requesting every entry (the page loads
+    // the periods at mount).
+    // FR-001: default to the current open period on first load. The user can
+    // however explicitly clear the filter ("Any") — data-model.md §107 — in
+    // which case the query is deliberately sent unscoped so every entry is
+    // listed, whatever its period.
+    const explicitlyCleared = filters.accountingPeriodId === null;
     let accountingPeriodId = filters.accountingPeriodId;
-    if (accountingPeriodId === undefined) {
-      const openPeriod = getState().ledger?.accountingPeriods?.items?.find((period) => period.status === "open");
+    if (!explicitlyCleared && (!accountingPeriodId || !periods.some((period) => period.id === accountingPeriodId))) {
+      const openPeriod = periods.find((period) => period.status === "open");
       accountingPeriodId = openPeriod?.id ?? null;
+    }
+
+    const accountingPeriodCode = accountingPeriodId
+      ? periods.find((period) => period.id === accountingPeriodId)?.code ?? null
+      : null;
+
+    if (!explicitlyCleared && (accountingPeriodId === null || accountingPeriodCode === null)) {
+      return;
     }
 
     const resolvedFilters = { ...filters, accountingPeriodId };
 
     const variables = {
       journal: filters.journal ?? null,
-      accountingPeriod: accountingPeriodId,
-      party: filters.partyAnalyticValueId ?? null,
-      funder: filters.funderAnalyticValueId ?? null,
-      sourceEventType: filters.sourceEventType ?? null,
+      accountingPeriodCode: explicitlyCleared ? null : accountingPeriodCode,
+      party: decodeUuid(filters.partyAnalyticValueId),
+      funder: decodeUuid(filters.funderAnalyticValueId),
+      sourceEventType: toGrapheneEnum(filters.sourceEventType),
       first: pageInfo.first ?? null,
       after: pageInfo.after ?? null,
+      before: pageInfo.before ?? null,
+      last: pageInfo.last ?? null,
     };
 
     return dispatch(
       graphqlWithVariables(
         LEDGER_ENTRIES_QUERY,
         variables,
-        [`${ACTION_TYPE.LEDGER_ENTRIES}_REQ`, `${ACTION_TYPE.LEDGER_ENTRIES}_RESP`, `${ACTION_TYPE.LEDGER_ENTRIES}_ERR`],
-        { filters: resolvedFilters },
+        [
+          `${ACTION_TYPE.LEDGER_ENTRIES}_REQ`,
+          `${ACTION_TYPE.LEDGER_ENTRIES}_RESP`,
+          `${ACTION_TYPE.LEDGER_ENTRIES}_ERR`,
+        ],
+        { filters: resolvedFilters, orderBy: pageInfo.orderBy ?? "-postedAt" },
       ),
     );
   };
@@ -638,18 +1218,20 @@ export function fetchLedgerEntries(filters = {}, pageInfo = {}) {
  * Dispatches the AccountingPeriods query (Foundational T015; shared by
  * AccountingPeriodPicker and the US1 default-period lookup).
  */
-export function fetchAccountingPeriods(status = null) {
-  const variables = { status };
-  return graphqlWithVariables(ACCOUNTING_PERIODS_QUERY, variables, [
+export function fetchAccountingPeriods() {
+  return graphqlWithVariables(ACCOUNTING_PERIODS_QUERY, {}, [
     `${ACTION_TYPE.ACCOUNTING_PERIODS}_REQ`,
     `${ACTION_TYPE.ACCOUNTING_PERIODS}_RESP`,
     `${ACTION_TYPE.ACCOUNTING_PERIODS}_ERR`,
   ]);
 }
 
-/** User Story 2 — unified party search across party types (research.md §6). */
+/** User Story 2 — party search over `analyticValue`. The backend only exposes
+ * exact `displayName` matching (no icontains / axis filter), so the picker
+ * fetches a bounded list and filters by axis client-side (keeps `partyType`
+ * results only). */
 export function searchParty(searchTerm) {
-  const variables = { search: searchTerm, tagType: "party" };
+  const variables = { search: searchTerm || null, first: 25 };
   return graphqlWithVariables(ANALYTIC_VALUES_QUERY, variables, [
     `${ACTION_TYPE.PARTY_SEARCH}_REQ`,
     `${ACTION_TYPE.PARTY_SEARCH}_RESP`,
@@ -657,9 +1239,34 @@ export function searchParty(searchTerm) {
   ]);
 }
 
+/** Reference query used by the LedgerJournalPicker (journals { name code }).
+    The optional `journalType` is a backend reference value — a JournalTypes
+    code such as "treasury" — sent as the `type_Code` filter; leaving it unset
+    fetches every journal. */
+export function fetchJournals(journalType) {
+  const variables = { first: 100 };
+  const operation = journalType ? JOURNALS_BY_TYPE_QUERY : JOURNALS_QUERY;
+  if (journalType) variables.typeCode = journalType;
+  return graphqlWithVariables(
+    operation,
+    variables,
+    [`${ACTION_TYPE.JOURNAL_SEARCH}_REQ`, `${ACTION_TYPE.JOURNAL_SEARCH}_RESP`, `${ACTION_TYPE.JOURNAL_SEARCH}_ERR`],
+    { journalType: journalType || null },
+  );
+}
+
 /** User Story 2 — signed running balance + period statement for one party. */
-export function fetchPartyLedgerBalance(analyticValueId, accountingPeriodId) {
-  const variables = { analyticValueId, accountingPeriod: accountingPeriodId };
+export function resetPartyLedgerBalance() {
+  return { type: `${ACTION_TYPE.PARTY_LEDGER_BALANCE_RESET}` };
+}
+
+export function fetchPartyLedgerBalance({
+  displayName = null,
+  periodCode = null,
+  first = DEFAULT_PAGE_SIZE,
+  after = null,
+} = {}) {
+  const variables = { displayName, periodCode, first, after };
   return graphqlWithVariables(PARTY_LEDGER_BALANCE_QUERY, variables, [
     `${ACTION_TYPE.PARTY_LEDGER_BALANCE}_REQ`,
     `${ACTION_TYPE.PARTY_LEDGER_BALANCE}_RESP`,
@@ -667,9 +1274,10 @@ export function fetchPartyLedgerBalance(analyticValueId, accountingPeriodId) {
   ]);
 }
 
-/** User Story 3 — unified funder search (same AnalyticValue index, tagType "funder"). */
+/** User Story 3 — funder search over `analyticValue` (keeps `funderCode`
+ * results only; exact `displayName` match, see searchParty). */
 export function searchFunder(searchTerm) {
-  const variables = { search: searchTerm, tagType: "funder" };
+  const variables = { search: searchTerm || null, first: 25 };
   return graphqlWithVariables(ANALYTIC_VALUES_QUERY, variables, [
     `${ACTION_TYPE.FUNDER_SEARCH}_REQ`,
     `${ACTION_TYPE.FUNDER_SEARCH}_RESP`,
@@ -678,12 +1286,8 @@ export function searchFunder(searchTerm) {
 }
 
 /** User Story 3 — aggregated funder activity, independent of any party filter. */
-export function fetchFunderActivityReport(analyticValueId, periodRange = {}) {
-  const variables = {
-    analyticValueId,
-    accountingPeriodStart: periodRange.start ?? null,
-    accountingPeriodEnd: periodRange.end ?? null,
-  };
+export function fetchFunderActivityReport(analyticValueId, accountingPeriodId) {
+  const variables = { analyticValueId, accountingPeriodId };
   return graphqlWithVariables(FUNDER_ACTIVITY_REPORT_QUERY, variables, [
     `${ACTION_TYPE.FUNDER_ACTIVITY_REPORT}_REQ`,
     `${ACTION_TYPE.FUNDER_ACTIVITY_REPORT}_RESP`,
@@ -691,44 +1295,205 @@ export function fetchFunderActivityReport(analyticValueId, periodRange = {}) {
   ]);
 }
 
-/** User Story 4 — open a new accounting period. */
-export function openAccountingPeriod(startDate, endDate) {
-  const variables = { startDate, endDate };
-  return graphqlWithVariables(OPEN_ACCOUNTING_PERIOD_MUTATION, variables, [
-    `${ACTION_TYPE.OPEN_ACCOUNTING_PERIOD}_REQ`,
-    `${ACTION_TYPE.OPEN_ACCOUNTING_PERIOD}_RESP`,
-    `${ACTION_TYPE.OPEN_ACCOUNTING_PERIOD}_ERR`,
-  ]);
+/** Shared helper: the openIMIS `input: {...}` mutation shape. */
+const periodMutationAction = (operationName, input, clientMutationLabel, actionType) => {
+  const mutation = formatMutation(operationName, input, clientMutationLabel);
+  return graphql(
+    mutation.payload,
+    [`${actionType}_REQ`, `${actionType}_RESP`, `${actionType}_ERR`],
+    // Passed as `meta` so the reducer can track the mutation (clientMutationId,
+    // label) and the JournalDrawer can display it.
+    { clientMutationId: mutation.clientMutationId, clientMutationLabel, requestedDateTime: new Date() },
+  );
+};
+
+/**
+ * openIMIS records every mutation in `core_Mutation_Log`, and this backend
+ * returns only the mutation ids in the GraphQL payload: a rejected write still
+ * answers with a "success" payload (the service errors are swallowed by
+ * OpenIMISMutation). The log is therefore the only reliable success signal, so
+ * every ledger mutation is confirmed against it *before* the page is told the
+ * write succeeded — otherwise the dialog closes on a silent failure.
+ */
+const MUTATION_LOG_QUERY = `
+  query LedgerMutationLog($clientMutationId: String) {
+    mutationLogs(clientMutationId: $clientMutationId) {
+      edges {
+        node { status error }
+      }
+    }
+  }
+`;
+
+/** `error` may hold a JSON list of {message, detail} or a plain string. */
+const mutationLogMessage = (raw) => {
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw);
+    const first = Array.isArray(parsed) ? parsed[0] : parsed;
+    return first?.message || first?.detail || String(raw);
+  } catch {
+    return String(raw);
+  }
+};
+
+/** core.models.MutationLog.STATUS_FAILED */
+const MUTATION_LOG_FAILED = 1;
+/** Retries allowed when `mutationLogs` does not return the row yet. */
+const MUTATION_LOG_EMPTY_ATTEMPTS = 4;
+
+/** Transport error or GraphQL errors reported by a mutation response. */
+const graphqlFailureMessage = (response) => {
+  if (!response) return null;
+  if (response.error) {
+    // Network failures carry a JS Error in `payload` (message), HTTP failures a
+    // `statusText`: fall back to the shared helper for the remaining shapes.
+    const payload = response.payload || {};
+    return (
+      payload.message || payload.statusText || formatServerError(payload)?.message || "The mutation could not be sent."
+    );
+  }
+  const errors = response.payload?.errors || response.payload?.response?.errors;
+  return errors?.length ? errors.map((error) => error.message).join("; ") : null;
+};
+
+/** Surfaces a failure through the regular `_ERR` channel of the page slice. */
+const notifyMutationFailure = (dispatch, actionType, message) =>
+  dispatch({
+    type: `${actionType}_ERR`,
+    // Shaped like an HTTP failure so the existing `_ERR` reducer cases
+    // (formatServerError) surface the message exactly as a network error would:
+    // `statusText` for the real helper, `message` for the test double.
+    payload: { status: 400, statusText: message, message, response: { errors: [{ message }] } },
+  });
+
+/**
+ * Polls `mutationLogs(clientMutationId)` until the log leaves the RECEIVED
+ * status, then either stamps the success (`_CONFIRMED`, which is what closes the
+ * dialogs and refreshes the lists) or dispatches the failure through the
+ * regular `_ERR` channel so the message reaches the user.
+ */
+export function confirmLedgerMutation(clientMutationId, actionType) {
+  return async (dispatch) => {
+    let node = null;
+    for (let attempt = 0; attempt < 10; attempt += 1) {
+      if (attempt) await new Promise((resolve) => setTimeout(resolve, 100 * attempt));
+      const response = await dispatch(
+        graphqlWithVariables(MUTATION_LOG_QUERY, { clientMutationId }, "LEDGER_MUTATION_LOG"),
+      );
+      const data = response?.payload?.data;
+      // A response without `data` cannot be polled any further (offline or
+      // mocked): give up instead of blocking the page for seconds.
+      if (!data) break;
+      node = data?.mutationLogs?.edges?.[0]?.node ?? null;
+      if (node && node.status !== 0) break;
+      // The log row is written before the mutation runs, so a missing row means
+      // a slow/partially committed write: retry a few times before giving up.
+      if (!node && attempt >= MUTATION_LOG_EMPTY_ATTEMPTS) break;
+    }
+    if (node?.status === MUTATION_LOG_FAILED) {
+      // Plain sentence: this message is rendered in the dialog, a translation
+      // key would be displayed verbatim.
+      const message = mutationLogMessage(node.error) || "The server rejected the mutation.";
+      notifyMutationFailure(dispatch, actionType, message);
+      return { ok: false, message };
+    }
+    if (!node || node.status === 0) {
+      // The write could not be verified: never report a success we cannot
+      // prove, otherwise a failed write would silently close the dialog.
+      const message = "The mutation could not be verified, please check the list before retrying.";
+      notifyMutationFailure(dispatch, actionType, message);
+      return { ok: false, message };
+    }
+    dispatch({ type: `${actionType}_CONFIRMED` });
+    return { ok: true };
+  };
 }
 
-/** User Story 4 — period lifecycle transitions. `errors[].message` is surfaced verbatim (FR-009). */
-export function lockAccountingPeriod(accountingPeriodId) {
-  return graphqlWithVariables(LOCK_ACCOUNTING_PERIOD_MUTATION, { accountingPeriodId }, [
-    `${ACTION_TYPE.LOCK_ACCOUNTING_PERIOD}_REQ`,
-    `${ACTION_TYPE.LOCK_ACCOUNTING_PERIOD}_RESP`,
-    `${ACTION_TYPE.LOCK_ACCOUNTING_PERIOD}_ERR`,
-  ]);
+/**
+ * Input line for an *optional* GraphQL field.
+ *
+ * The backend parses the document with graphql-core 2.3.2, whose parser rejects
+ * the `null` literal inside an input object ("Unexpected Name \"null\""), so an
+ * absent value must be **omitted** instead of being sent as `null`. Backend
+ * mutations read every field with `data.get(<field>, None)` and assign it
+ * unconditionally, which makes "omitted" equivalent to "null".
+ */
+const optionalField = (name, value) =>
+  value === null || value === undefined ? null : `${name}: ${JSON.stringify(value)}`;
+
+/** `graphql()` + mutation-log confirmation, shared by every ledger write. */
+const ledgerMutationAction = (operationName, input, clientMutationLabel, actionType) => {
+  const mutation = formatMutation(operationName, input, clientMutationLabel);
+  return async (dispatch) => {
+    const response = await dispatch(
+      graphql(mutation.payload, [`${actionType}_REQ`, `${actionType}_RESP`, `${actionType}_ERR`], {
+        clientMutationId: mutation.clientMutationId,
+        clientMutationLabel,
+        requestedDateTime: new Date(),
+      }),
+    );
+    // A rejected request never reaches the mutation log: report it straight away
+    // instead of polling a log row that does not exist.
+    const failure = graphqlFailureMessage(response);
+    if (failure) {
+      notifyMutationFailure(dispatch, actionType, failure);
+      return response;
+    }
+    const confirmation = await dispatch(confirmLedgerMutation(mutation.clientMutationId, actionType));
+    // The response alone never proves the write went through: expose the
+    // confirmation outcome so a caller cannot mistake a rejection for a success.
+    return confirmation.ok ? response : { ...(response || {}), error: true, confirmation };
+  };
+};
+
+/** User Story 4 — open a new accounting period (`openAccountingPeriod(input: {...})`). */
+export function openAccountingPeriod(startDate, endDate, clientMutationLabel = "Open accounting period") {
+  // The backend input requires a name and a code (both `String!`); derive them
+  // from the start date (YYYY-MM), which matches the existing periods.
+  const code = (startDate || "").slice(0, 7);
+  const input = [
+    `startDate: ${JSON.stringify(startDate)}`,
+    `endDate: ${JSON.stringify(endDate)}`,
+    `name: ${JSON.stringify(code)}`,
+    `code: ${JSON.stringify(code)}`,
+  ].join(" ");
+  return periodMutationAction("openAccountingPeriod", input, clientMutationLabel, ACTION_TYPE.OPEN_ACCOUNTING_PERIOD);
 }
 
-export function closeAccountingPeriod(accountingPeriodId) {
-  return graphqlWithVariables(CLOSE_ACCOUNTING_PERIOD_MUTATION, { accountingPeriodId }, [
-    `${ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD}_REQ`,
-    `${ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD}_RESP`,
-    `${ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD}_ERR`,
-  ]);
+/** User Story 4 — lock a period (`lockAccountingPeriod(input: { id })`). */
+export function lockAccountingPeriod(accountingPeriodId, clientMutationLabel = "Lock accounting period") {
+  return periodMutationAction(
+    "lockAccountingPeriod",
+    `id: ${JSON.stringify(accountingPeriodId)}`,
+    clientMutationLabel,
+    ACTION_TYPE.LOCK_ACCOUNTING_PERIOD,
+  );
 }
 
-export function reopenAccountingPeriod(accountingPeriodId) {
-  return graphqlWithVariables(REOPEN_ACCOUNTING_PERIOD_MUTATION, { accountingPeriodId }, [
-    `${ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD}_REQ`,
-    `${ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD}_RESP`,
-    `${ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD}_ERR`,
-  ]);
+/** User Story 4 — close a period (`closeAccountingPeriod(input: { id })`). */
+export function closeAccountingPeriod(accountingPeriodId, clientMutationLabel = "Close accounting period") {
+  return periodMutationAction(
+    "closeAccountingPeriod",
+    `id: ${JSON.stringify(accountingPeriodId)}`,
+    clientMutationLabel,
+    ACTION_TYPE.CLOSE_ACCOUNTING_PERIOD,
+  );
+}
+
+/** User Story 4 — reopen a period (`reopenAccountingPeriod(input: { id })`). */
+export function reopenAccountingPeriod(accountingPeriodId, clientMutationLabel = "Reopen accounting period") {
+  return periodMutationAction(
+    "reopenAccountingPeriod",
+    `id: ${JSON.stringify(accountingPeriodId)}`,
+    clientMutationLabel,
+    ACTION_TYPE.REOPEN_ACCOUNTING_PERIOD,
+  );
 }
 
 /** User Story 5 — flagged replication items awaiting manual resolution. */
-export function fetchManualReviewQueue(status = null) {
-  return graphqlWithVariables(MANUAL_REVIEW_QUEUE_QUERY, { status }, [
+export function fetchManualReviewQueue({ first = DEFAULT_PAGE_SIZE, after = null, status = null } = {}) {
+  return graphqlWithVariables(MANUAL_REVIEW_QUEUE_QUERY, { first, after, status }, [
     `${ACTION_TYPE.MANUAL_REVIEW_QUEUE}_REQ`,
     `${ACTION_TYPE.MANUAL_REVIEW_QUEUE}_RESP`,
     `${ACTION_TYPE.MANUAL_REVIEW_QUEUE}_ERR`,
@@ -741,29 +1506,55 @@ export function fetchManualReviewQueue(status = null) {
  * candidate per `utils/correctingEntryCandidates.js`; the original entry is
  * never edited, FR-012).
  */
-export function resolveManualReviewItem(reviewItemId, correctingTransactionId, resolutionNote) {
-  const variables = { reviewItemId, correctingTransactionId, resolutionNote };
-  return graphqlWithVariables(RESOLVE_MANUAL_REVIEW_ITEM_MUTATION, variables, [
-    `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_REQ`,
-    `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_RESP`,
-    `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_ERR`,
-  ]);
+export function resolveManualReviewItem(
+  replicationRecordId,
+  resolvedByTransactionId,
+  resolutionNote,
+  clientMutationLabel = "Resolve manual review item",
+) {
+  const input = [
+    `replicationRecordId: ${JSON.stringify(replicationRecordId)}`,
+    `resolvedByTransactionId: ${JSON.stringify(resolvedByTransactionId)}`,
+    `resolutionNote: ${JSON.stringify(resolutionNote ?? "")}`,
+  ].join(" ");
+  const mutation = formatMutation("resolveManualReview", input, clientMutationLabel);
+  return graphql(
+    mutation.payload,
+    [
+      `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_REQ`,
+      `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_RESP`,
+      `${ACTION_TYPE.RESOLVE_MANUAL_REVIEW_ITEM}_ERR`,
+    ],
+    { clientMutationId: mutation.clientMutationId, clientMutationLabel, requestedDateTime: new Date() },
+  );
 }
 
 /** User Story 6 — trigger an async export job; `format` is chosen per-trigger, never sourced from deployment config. */
-export function exportAccountingPeriod(accountingPeriodId, format) {
-  return graphqlWithVariables(EXPORT_ACCOUNTING_PERIOD_MUTATION, { accountingPeriodId, format }, [
-    `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_REQ`,
-    `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_RESP`,
-    `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_ERR`,
-  ]);
+export function exportAccountingPeriod(accountingPeriodId, format, clientMutationLabel = "Export accounting period") {
+  const clientMutationId =
+    globalThis.crypto?.randomUUID?.() ?? `export-${Date.now()}-${Math.random().toString(16).slice(2)}`;
+  return graphqlWithVariables(
+    EXPORT_ACCOUNTING_PERIOD_MUTATION,
+    { accountingPeriodId, format },
+    [
+      `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_REQ`,
+      `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_RESP`,
+      `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_ERR`,
+    ],
+    // `meta` so the reducer tracks the mutation and the JournalDrawer shows it.
+    { clientMutationId, clientMutationLabel, requestedDateTime: new Date(), accountingPeriodId },
+  );
 }
 
 function fetchExportSequences(accountingPeriodId, journal = null) {
   return graphqlWithVariables(
     EXPORT_SEQUENCES_QUERY,
     { accountingPeriod: accountingPeriodId, journal },
-    [`${ACTION_TYPE.EXPORT_SEQUENCES}_REQ`, `${ACTION_TYPE.EXPORT_SEQUENCES}_RESP`, `${ACTION_TYPE.EXPORT_SEQUENCES}_ERR`],
+    [
+      `${ACTION_TYPE.EXPORT_SEQUENCES}_REQ`,
+      `${ACTION_TYPE.EXPORT_SEQUENCES}_RESP`,
+      `${ACTION_TYPE.EXPORT_SEQUENCES}_ERR`,
+    ],
     { accountingPeriodId },
   );
 }
@@ -776,34 +1567,313 @@ function fetchExportSequences(accountingPeriodId, journal = null) {
  */
 export function pollExportJob(accountingPeriodId, intervalMs = EXPORT_JOB_POLL_INTERVAL_MS) {
   return (dispatch, getState) => {
+    let intervalId;
+    let stopped = false;
     const tick = async () => {
+      if (stopped) return;
       await dispatch(fetchExportSequences(accountingPeriodId));
+      if (stopped) return;
       const status = getState().ledger?.exportJobs?.byPeriodId?.[accountingPeriodId]?.status;
       if (status === "complete" || status === "failed") {
         clearInterval(intervalId);
       }
     };
+    intervalId = setInterval(tick, intervalMs);
     tick();
-    const intervalId = setInterval(tick, intervalMs);
-    return () => clearInterval(intervalId);
+    return () => {
+      stopped = true;
+      clearInterval(intervalId);
+    };
   };
 }
 
-/** User Story 7 — reference data for the deployment configuration form. */
-export function fetchLedgerDeploymentReferenceData() {
-  return graphqlWithVariables(LEDGER_DEPLOYMENT_REFERENCE_DATA_QUERY, {}, [
+/** Demo-only export flow. The real actions above remain unchanged. */
+export function exportAccountingPeriodMock(accountingPeriodId, format, provisional = true) {
+  return (dispatch) => {
+    const job = { accountingPeriodId, format, status: "in_progress", provisional };
+    dispatch({ type: `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_REQ` });
+    dispatch({
+      type: `${ACTION_TYPE.EXPORT_ACCOUNTING_PERIOD}_RESP`,
+      payload: { data: { exportAccountingPeriod: { exportJob: job } } },
+    });
+  };
+}
+
+/** Demo-only polling flow: complete the job after two visible progress ticks. */
+export function pollExportJobMock(
+  accountingPeriodId,
+  format = "generic",
+  provisional = true,
+  intervalMs = MOCK_EXPORT_POLL_INTERVAL_MS,
+) {
+  return (dispatch) => {
+    let ticks = 0;
+    let stopped = false;
+    const tick = () => {
+      if (stopped) return;
+      ticks += 1;
+      if (ticks < 3) return;
+      dispatch({
+        type: `${ACTION_TYPE.EXPORT_SEQUENCES}_RESP`,
+        payload: {
+          data: {
+            exportSequences: {
+              accountingPeriodId,
+              format,
+              status: "complete",
+              provisional,
+              downloadUrl: `data:text/csv;charset=utf-8,accountingPeriodId%2Cstatus%0A${accountingPeriodId}%2Ccomplete`,
+            },
+          },
+        },
+      });
+      clearInterval(intervalId);
+    };
+    const intervalId = setInterval(tick, intervalMs);
+    return () => {
+      stopped = true;
+      clearInterval(intervalId);
+    };
+  };
+}
+
+/** User Story 7 — current deployment configuration (most recent backend row). */
+export function fetchLedgerDeploymentConfiguration() {
+  return graphqlWithVariables(LEDGER_DEPLOYMENT_CONFIGURATION_QUERY, {}, [
     `${ACTION_TYPE.DEPLOYMENT_CONFIGURATION}_REQ`,
     `${ACTION_TYPE.DEPLOYMENT_CONFIGURATION}_RESP`,
     `${ACTION_TYPE.DEPLOYMENT_CONFIGURATION}_ERR`,
   ]);
 }
 
-/** User Story 7 — save deployment configuration; only dispatched post-acknowledgement on mode change (FR-018). */
-export function configureDeployment(operatingMode, externalSystem, currencyCode, retainedEarningsAccountId) {
-  const variables = { operatingMode, externalSystem, currencyCode, retainedEarningsAccountId };
-  return graphqlWithVariables(CONFIGURE_DEPLOYMENT_MUTATION, variables, [
-    `${ACTION_TYPE.CONFIGURE_DEPLOYMENT}_REQ`,
-    `${ACTION_TYPE.CONFIGURE_DEPLOYMENT}_RESP`,
-    `${ACTION_TYPE.CONFIGURE_DEPLOYMENT}_ERR`,
+/** Chart of accounts for the account pickers (deployment retained earnings, journal defaults). */
+export function fetchAccountOptions() {
+  return graphqlWithVariables(ACCOUNT_OPTIONS_QUERY, { first: 100 }, [
+    `${ACTION_TYPE.ACCOUNT_OPTIONS}_REQ`,
+    `${ACTION_TYPE.ACCOUNT_OPTIONS}_RESP`,
+    `${ACTION_TYPE.ACCOUNT_OPTIONS}_ERR`,
   ]);
+}
+
+/**
+ * User Story 7 — save the deployment configuration (FR-018). The backend input
+ * takes raw values (`local_only`/`replicated`, `odoo`/`sage`) while the query
+ * returns the corresponding GraphQL enum names, so the page only ever submits
+ * the raw values. `createDeploymentConfiguration` answers with the mutation ids
+ * only, so the submitted values are echoed back through the action meta.
+ */
+export function createDeploymentConfiguration({
+  operatingMode,
+  externalSystem,
+  currencyCode,
+  retainedEarningsAccount,
+  clientMutationLabel,
+}) {
+  const input = [
+    `operatingMode: ${JSON.stringify(operatingMode)}`,
+    externalSystem ? `externalSystem: ${JSON.stringify(externalSystem)}` : null,
+    `currencyCode: ${JSON.stringify(currencyCode)}`,
+    optionalField("retainedEarningsAccountId", retainedEarningsAccount?.uuid),
+  ]
+    .filter(Boolean)
+    .join(",\n          ");
+  const mutation = formatMutation("createDeploymentConfiguration", input, clientMutationLabel);
+  return graphql(
+    mutation.payload,
+    [
+      `${ACTION_TYPE.CREATE_DEPLOYMENT_CONFIGURATION}_REQ`,
+      `${ACTION_TYPE.CREATE_DEPLOYMENT_CONFIGURATION}_RESP`,
+      `${ACTION_TYPE.CREATE_DEPLOYMENT_CONFIGURATION}_ERR`,
+    ],
+    {
+      clientMutationId: mutation.clientMutationId,
+      clientMutationLabel,
+      requestedDateTime: new Date(),
+      deploymentConfiguration: {
+        operatingMode,
+        externalSystem: externalSystem || null,
+        currencyCode,
+        retainedEarningsAccount: retainedEarningsAccount ?? null,
+      },
+    },
+  );
+}
+
+/** Ticket 37990 — paginated journals list for the journals page. */
+export function fetchJournalsList(filters = {}, pageInfo = {}) {
+  const variables = {
+    first: pageInfo.first ?? null,
+    after: pageInfo.after ?? null,
+    before: pageInfo.before ?? null,
+    last: pageInfo.last ?? null,
+    name: filters.name ?? null,
+    code: filters.code ?? null,
+    typeId: filters.typeId ?? null,
+  };
+  return graphqlWithVariables(JOURNALS_LIST_QUERY, variables, [
+    `${ACTION_TYPE.JOURNALS}_REQ`,
+    `${ACTION_TYPE.JOURNALS}_RESP`,
+    `${ACTION_TYPE.JOURNALS}_ERR`,
+  ]);
+}
+
+/** Ticket 37990 — journal types (JournalTypes) used by the type picker. */
+export function fetchJournalTypes() {
+  return graphqlWithVariables(JOURNAL_TYPES_QUERY, { first: 100 }, [
+    `${ACTION_TYPE.JOURNAL_TYPES}_REQ`,
+    `${ACTION_TYPE.JOURNAL_TYPES}_RESP`,
+    `${ACTION_TYPE.JOURNAL_TYPES}_ERR`,
+  ]);
+}
+
+/**
+ * Ticket 37990 — create a journal. The backend `type` input is the JournalTypes
+ * uuid (not its code) and the default debit/credit accounts are account uuids;
+ * the response carries the mutation ids only, so callers refresh the list.
+ */
+export function createJournal({
+  name,
+  code,
+  journalType,
+  defaultDebitAccount,
+  defaultCreditAccount,
+  clientMutationLabel,
+}) {
+  const input = [
+    optionalField("name", name),
+    optionalField("code", code),
+    optionalField("type", journalType?.id),
+    optionalField("defaultDebitAccountId", defaultDebitAccount?.uuid),
+    optionalField("defaultCreditAccountId", defaultCreditAccount?.uuid),
+  ]
+    .filter(Boolean)
+    .join(",\n          ");
+  return ledgerMutationAction("createJournal", input, clientMutationLabel, ACTION_TYPE.CREATE_JOURNAL);
+}
+
+/**
+ * Ticket 37990 — update a journal. Same input as the creation plus the
+ * `journalUuid` of the journal to update (backend UpdateJournalInputType).
+ */
+export function updateJournal({
+  journalUuid,
+  name,
+  code,
+  journalType,
+  defaultDebitAccount,
+  defaultCreditAccount,
+  clientMutationLabel,
+}) {
+  const input = [
+    optionalField("journalUuid", journalUuid),
+    optionalField("name", name),
+    optionalField("code", code),
+    optionalField("type", journalType?.id),
+    optionalField("defaultDebitAccountId", defaultDebitAccount?.uuid),
+    optionalField("defaultCreditAccountId", defaultCreditAccount?.uuid),
+  ]
+    .filter(Boolean)
+    .join(",\n          ");
+  return ledgerMutationAction("updateJournal", input, clientMutationLabel, ACTION_TYPE.UPDATE_JOURNAL);
+}
+
+/**
+ * Ticket 37990 — delete a journal: the input is the journal uuid only (same
+ * naming pattern as updateJournal). Journals are soft-deleted server-side, so
+ * the mutations keep the ledger history intact.
+ */
+export function deleteJournal({ journalUuid, clientMutationLabel }) {
+  return ledgerMutationAction(
+    "deleteJournal",
+    [optionalField("journalUuid", journalUuid)].filter(Boolean).join(",\n          "),
+    clientMutationLabel,
+    ACTION_TYPE.DELETE_JOURNAL,
+  );
+}
+
+/** Ticket 37991 — paginated chart of accounts for the accounts page. */
+export function fetchAccounts(filters = {}, pageInfo = {}) {
+  const variables = {
+    first: pageInfo.first ?? null,
+    after: pageInfo.after ?? null,
+    before: pageInfo.before ?? null,
+    last: pageInfo.last ?? null,
+    code: filters.code ?? null,
+    fullCode: filters.fullCode ?? null,
+    type: filters.type ?? null,
+    isBankAccount: filters.isBankAccount ?? null,
+  };
+  return graphqlWithVariables(ACCOUNTS_QUERY, variables, [
+    `${ACTION_TYPE.ACCOUNTS}_REQ`,
+    `${ACTION_TYPE.ACCOUNTS}_RESP`,
+    `${ACTION_TYPE.ACCOUNTS}_ERR`,
+  ]);
+}
+
+/**
+ * Ticket 37991 — create a ledger account. `currencies` travels as a GraphQL
+ * `JSONString` (the backend parses it into the hordak JSON field), and the
+ * response carries the mutation ids only, so callers refresh the list
+ * afterwards.
+ */
+export function createAccount({ name, code, parentId = null, type, isBankAccount, currencies, clientMutationLabel }) {
+  const input = [
+    optionalField("name", name),
+    optionalField("code", code),
+    // `parentId` is optional: when there is no parent the field is omitted
+    // (the backend assigns `parent = parentId or None`).
+    optionalField("parentId", parentId),
+    optionalField("type", type),
+    `isBankAccount: ${isBankAccount ? "true" : "false"}`,
+    `currencies: ${formatCurrenciesGQLValue(currencies)}`,
+  ]
+    .filter(Boolean)
+    .join(",\n          ");
+  return ledgerMutationAction("createAccount", input, clientMutationLabel, ACTION_TYPE.CREATE_ACCOUNT);
+}
+
+/**
+ * Ticket 37991 — update a ledger account. Same input as the creation plus the
+ * `accountUuid` of the account to update (backend UpdateAccountInputType).
+ */
+export function updateAccount({
+  accountUuid,
+  name,
+  code,
+  parentId = null,
+  type,
+  isBankAccount,
+  currencies,
+  clientMutationLabel,
+}) {
+  const input = [
+    optionalField("accountUuid", accountUuid),
+    optionalField("name", name),
+    optionalField("code", code),
+    // The backend always assigns `parent = parentId or None`: omitting it on a
+    // child account would silently turn it into a root account, so the current
+    // parent is always sent back (the dialog keeps it read-only).
+    optionalField("parentId", parentId),
+    optionalField("type", type),
+    `isBankAccount: ${isBankAccount ? "true" : "false"}`,
+    `currencies: ${formatCurrenciesGQLValue(currencies)}`,
+  ]
+    .filter(Boolean)
+    .join(",\n          ");
+  return ledgerMutationAction("updateAccount", input, clientMutationLabel, ACTION_TYPE.UPDATE_ACCOUNT);
+}
+
+/**
+ * Ticket 37991 — delete a ledger account: the input is the account uuid only
+ * (same naming pattern as updateAccount). The backend owns the rules (an
+ * account still used by entries may be refused) and its message is surfaced
+ * verbatim.
+ */
+export function deleteAccount({ accountUuid, clientMutationLabel }) {
+  return ledgerMutationAction(
+    "deleteAccount",
+    [optionalField("accountUuid", accountUuid)].filter(Boolean).join(",\n          "),
+    clientMutationLabel,
+    ACTION_TYPE.DELETE_ACCOUNT,
+  );
 }

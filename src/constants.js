@@ -31,10 +31,13 @@ export const ACCOUNTING_PERIOD_STATUS = {
   CLOSED: "closed",
 };
 
-// Mirrors backend ManualReviewQueueItem.status (data-model.md)
+// Mirrors the backend `ExternalReplicationRecordStatus` enum (GraphQL names):
+// the queue exposes the replication record status, not a local one.
 export const MANUAL_REVIEW_STATUS = {
-  PENDING: "pending",
-  RESOLVED: "resolved",
+  PENDING: "PENDING",
+  SUCCEEDED: "SUCCEEDED",
+  REJECTED: "REJECTED",
+  UNCONFIRMED: "UNCONFIRMED",
 };
 
 // Mirrors backend ManualReviewQueueItem.targetSystem (data-model.md) — an
@@ -74,3 +77,41 @@ export const PERIOD_ACTION = {
 
 // Export job polling interval in ms (research.md §5)
 export const EXPORT_JOB_POLL_INTERVAL_MS = 3000;
+
+// Set to false when the ledger backend export API is available. The page keeps
+// the real export actions untouched and only swaps the demo process here.
+export const USE_MOCK_EXPORT = true;
+export const MOCK_EXPORT_POLL_INTERVAL_MS = 1000;
+
+// Mirrors backend DeploymentConfiguration.EXTERNAL_SYSTEMS (models.py).
+// The explicit list is constant by design: the backend validates the value on
+// save and exposes it both as an enum (`ODOO`/`SAGE`) and as a raw string
+// (`odoo`/`sage`) depending on the direction of the call.
+export const EXTERNAL_SYSTEM = {
+  ODOO: "odoo",
+  SAGE: "sage",
+};
+
+// Mirrors hordak AccountType (models.core.AccountType / AccountType enum in
+// the GraphQL schema): only root accounts carry a type.
+export const ACCOUNT_TYPE = {
+  ASSET: "AS",
+  LIABILITY: "LI",
+  INCOME: "IN",
+  EXPENSE: "EX",
+  EQUITY: "EQ",
+  TRADING: "TR",
+};
+
+// hordak's Account.code is a CharField(max_length=6) and the database rejects
+// anything longer (the mutation wrapper swallows the resulting database error),
+// so the form caps the input instead of failing silently.
+export const ACCOUNT_CODE_MAX_LENGTH = 6;
+
+// Deployment configuration is validated server-side: the retained earnings
+// account must not be an income or expense account.
+export const RETAINED_EARNINGS_EXCLUDED_ACCOUNT_TYPES = [ACCOUNT_TYPE.INCOME, ACCOUNT_TYPE.EXPENSE];
+
+// Fallback currency code used when the deployment configuration cannot be
+// loaded; the effective default always comes from the backend configuration.
+export const DEFAULT_CURRENCY_CODE = "XAF";

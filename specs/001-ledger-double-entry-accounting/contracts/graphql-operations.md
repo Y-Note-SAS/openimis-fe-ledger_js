@@ -1,36 +1,53 @@
 # Contract: GraphQL Operations Consumed by `@openimis/fe-ledger`
 
-Source of truth for these shapes: `openimis-be-ledger_py/specs/001-ledger-double-entry-accounting/{contracts/graphql-api.md,data-model.md}` (backend design contract — backend implementation is currently a stub; see research.md §2 for the cross-repo risk this implies). All operations below are dispatched via `@openimis/fe-core`'s `graphql()`/`graphqlWithVariables()`/`formatMutation()` helpers per research.md §1, not `@apollo/client`.
+Source of truth for these shapes: the REAL `openimis-be-ledger_py` schema (branch `feature-37591`, merged into its `develop`), which uses camelCased root fields (graphene-django auto-camelCases the Python snake_case names), graphene-django Relay connections (`edges { node { ... } }`), camelCased fields/filters and `UUID` resolver args. The earlier design contract (`contracts/graphql-api.md`) described the pre-stub schema and is no longer authoritative for the operations below. All operations are dispatched via `@openimis/fe-core`'s `graphql()`/`graphqlWithVariables()`/`formatMutation()` helpers per research.md §1, not `@apollo/client`.
 
 ## Queries
 
-### `ledgerEntries` — User Story 1
+### `ledgerEntries` — User Story 1 (real backend)
 ```graphql
 query LedgerEntries(
-  $journal: String, $accountingPeriod: ID, $party: ID, $funder: ID,
-  $sourceEventType: String, $first: Int, $after: String
+  $journal: String, $accountingPeriodCode: String, $party: UUID, $funder: UUID,
+  $sourceEventType: String, $first: Int, $after: String, $before: String, $last: Int, $orderBy: [String]
 ) {
   ledgerEntries(
-    journal: $journal, accountingPeriod: $accountingPeriod, party: $party,
-    funder: $funder, sourceEventType: $sourceEventType, first: $first, after: $after
+    journal_Code: $journal, accountingPeriod_Code: $accountingPeriodCode,
+    party: $party, funder: $funder, sourceEventType: $sourceEventType,
+    first: $first, after: $after, before: $before, last: $last, orderBy: $orderBy
   ) {
     totalCount
     pageInfo { hasNextPage hasPreviousPage startCursor endCursor }
     edges {
       node {
-        id journal { code name } accountingPeriod { id status }
+        id
+        journal { code name }
+        accountingPeriod { id status }
         sourceEventType sourceEventReference postedAt
-        lines: legs {
-          id account { code name } debit credit
-          partyTag { analyticValueId displayName }
-          funderTag { analyticValueId displayName }
-        }
       }
     }
   }
 }
 ```
-Dispatched by `actions.js#fetchLedgerEntries(filters, pageInfo)`; default `accountingPeriod` is the current open period's id when the user has not set a period filter (FR-001).
+Dispatched by `actions.js#fetchLedgerEntries(filters, pageInfo)`. Notes:
+- The backend has **no `accounting_period__id` filter**; an explicit period is passed via its unique `code` (resolved from `state.ledger.accountingPeriods`), and per FR-001 the default filter resolves to the current open period's code.
+- `party`/`funder` are raw `UUID`s (relay ids are decoded client-side).
+- `status` comes back as the `AccountingPeriodStatus` enum (`A_1`/`A_2`/`A_3`) and is normalized to `open|locked|closed` in the reducer; `sourceEventType` is a `LedgerEntryMetaSourceEventType` enum member, normalized back to lowercase.
+- **The deployed `LedgerEntryGQLType` does not expose `transaction`/legs**: the expandable line detail (accounts, debit/credit, party/funder tags) is not available until the backend exposes it (follow-up).
+
+### `analyticValue` — party/funder search (US1 pickers; also US2/US3)
+```graphql
+query AnalyticValues($search: String, $first: Int) {
+  analytic_value(displayName: $search, first: $first) {
+    totalCount
+    edges {
+      node {
+        id displayName partyType funderCode externalReference
+      }
+    }
+  }
+}
+```
+Dispatched by `actions.js#searchParty(searchTerm)` / `searchFunder(searchTerm)`. The backend only exposes **exact** `displayName` matching and **no axis filter**, so the pickers fetch a bounded list and keep rows by axis client-side (`partyType` set ⇒ party; `funderCode` set ⇒ funder). Partial-match search requires backend filter fields (`display_name__icontains`, `axis__code`) — to be raised with the backend.
 
 ### `partyLedgerBalance` — User Story 2
 ```graphql
@@ -60,14 +77,20 @@ query FunderActivityReport($analyticValueId: ID!, $accountingPeriodStart: ID, $a
 }
 ```
 
-### `accountingPeriods` — User Story 4
+### `accountingPeriods` — User Story 4 (real backend)
 ```graphql
-query AccountingPeriods($status: String) {
-  accountingPeriods(status: $status) {
-    id startDate endDate status closingTransactionId lockedAt closedAt closedBy
+query AccountingPeriods($status: Int) {
+  accounting_periods(status: $status) {
+    totalCount
+    edges {
+      node {
+        id startDate endDate name code status lockedAt closedAt
+      }
+    }
   }
 }
 ```
+`status` is an integer (1=open, 2=locked, 3=closed). The backend resolver requires the module's manage-periods permission (`131002`); with a reporting-only user the query fails — the US1 default-period lookup and the period pickers then surface no periods.
 
 ### `manualReviewQueue` — User Story 5
 ```graphql

@@ -8,7 +8,7 @@ export function formatSignedBalance(balance) {
     return { label: "0", legend: "settled" };
   }
   if (amount > 0) {
-    return { label: String(amount), legend: "owedByParty" };
+    return { label: `+${amount}`, legend: "owedByParty" };
   }
-  return { label: String(Math.abs(amount)), legend: "owedToParty" };
+  return { label: `-${Math.abs(amount)}`, legend: "owedToParty" };
 }

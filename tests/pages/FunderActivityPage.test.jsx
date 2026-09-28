@@ -10,19 +10,49 @@ import reducer, { ACTION_TYPE } from "../../src/reducer";
 import { RIGHT_LEDGER_REPORTING } from "../../src/constants";
 import FunderActivityPage from "../../src/pages/FunderActivityPage";
 
+const FUNDER_ID = btoa("AnalyticValue:GIZ");
+
+const { captured } = vi.hoisted(() => ({ captured: { queries: [] } }));
+
+// The backend answers `funderActivityReport(analyticValueId, accountingPeriodId)`
+// with a single aggregate: one row per (funder, period) pair.
+vi.mock("@openimis/fe-core", async (importOriginal) => {
+  const orig = await importOriginal();
+  const REPORT_BY_PERIOD = {
+    1: { debitAmount: 33400, creditAmount: 33400, balanceAmount: 4700 },
+    2: { debitAmount: 6100, creditAmount: 6100, balanceAmount: 4700 },
+  };
+  return {
+    ...orig,
+    graphqlWithVariables: (query, variables, types) => (dispatch) => {
+      captured.queries.push(variables);
+      dispatch({ type: types[0] });
+      dispatch({
+        type: types[1],
+        payload: { data: { funderActivityReport: REPORT_BY_PERIOD[variables?.accountingPeriodId] } },
+      });
+    },
+  };
+});
+
 vi.mock("../../src/pickers/FunderPicker", () => ({
   default: ({ onChange }) => (
-    <button type="button" onClick={() => onChange?.({ analyticValueId: btoa("AnalyticValue:GIZ"), displayName: "GIZ" })}>
+    <button type="button" onClick={() => onChange?.({ analyticValueId: FUNDER_ID, displayName: "GIZ" })}>
       select-giz
     </button>
   ),
 }));
 
 vi.mock("../../src/pickers/AccountingPeriodPicker", () => ({
-  default: ({ label, onChange }) => (
-    <button type="button" onClick={() => onChange?.(label === "ledger.funderActivityPage.periodStart" ? "1" : "2")}>
-      {label}
-    </button>
+  default: ({ onChange }) => (
+    <>
+      <button type="button" onClick={() => onChange?.("1")}>
+        select-period-1
+      </button>
+      <button type="button" onClick={() => onChange?.("2")}>
+        select-period-2
+      </button>
+    </>
   ),
 }));
 
@@ -42,10 +72,13 @@ const seedPeriods = (store) =>
     type: `${ACTION_TYPE.ACCOUNTING_PERIODS}_RESP`,
     payload: {
       data: {
-        accountingPeriods: [
-          { id: "1", startDate: "2026-07-01", endDate: "2026-07-31", status: "open" },
-          { id: "2", startDate: "2026-06-01", endDate: "2026-06-30", status: "closed" },
-        ],
+        accountingPeriods: {
+          totalCount: 2,
+          edges: [
+            { node: { id: "1", startDate: "2026-07-01", endDate: "2026-07-31", status: "open" } },
+            { node: { id: "2", startDate: "2026-06-01", endDate: "2026-06-30", status: "closed" } },
+          ],
+        },
       },
     },
   });
@@ -59,6 +92,8 @@ const renderPage = (store) =>
     </Provider>,
   );
 
+const selectFunder = (user) => user.click(screen.getByText("select-giz"));
+
 describe("FunderActivityPage", () => {
   it("renders the funder picker when the user has reporting rights", () => {
     renderPage(buildStore());
@@ -66,65 +101,59 @@ describe("FunderActivityPage", () => {
     expect(screen.getByText("select-giz")).toBeInTheDocument();
   });
 
-  it("renders the period range controls", () => {
+  it("only queries once both the funder and the accounting period are known", async () => {
+    const user = userEvent.setup();
+    captured.queries = [];
     renderPage(buildStore());
 
-    expect(screen.getByText("ledger.funderActivityPage.periodStart")).toBeInTheDocument();
-    expect(screen.getByText("ledger.funderActivityPage.periodEnd")).toBeInTheDocument();
+    expect(captured.queries).toHaveLength(0);
+
+    await selectFunder(user);
+    expect(captured.queries).toHaveLength(0);
+
+    // Both mutation arguments are required by the backend.
+    await user.click(screen.getByText("select-period-1"));
+    expect(captured.queries).toEqual([{ analyticValueId: FUNDER_ID, accountingPeriodId: "1" }]);
+    expect(await screen.findByText("ledger.funderActivityPage.totalsTitle")).toBeInTheDocument();
   });
 
-  it("renders aggregated totals and the category breakdown for the selected funder", async () => {
+  it("renders the aggregated totals of the selected funder and period", async () => {
     const user = userEvent.setup();
     renderPage(buildStore());
 
-    await user.click(screen.getByText("select-giz"));
+    await selectFunder(user);
+    await user.click(screen.getByText("select-period-1"));
 
-    expect(await screen.findByText("claim_payment")).toBeInTheDocument();
+    expect(await screen.findByText("ledger.funderActivityPage.totalsTitle")).toBeInTheDocument();
     expect(screen.getAllByText("33400").length).toBe(2); // debit + credit totals
     expect(screen.getByText("4700")).toBeInTheDocument(); // carried-forward balance
-    expect(screen.getAllByText("18600").length).toBe(2); // claim_payment debit + credit
-    expect(screen.getByText("payment_point_reconciliation")).toBeInTheDocument();
-    expect(screen.getAllByText("800").length).toBe(2);
   });
 
-  it("displays the covered dates in the range caption", async () => {
+  it("refetches the aggregate and updates the caption when the period changes", async () => {
     const user = userEvent.setup();
+    captured.queries = [];
     const store = buildStore();
     seedPeriods(store);
     renderPage(store);
 
-    await user.click(screen.getByText("select-giz"));
-    await screen.findByText("claim_payment");
+    await selectFunder(user);
+    await user.click(screen.getByText("select-period-1"));
+    expect(await screen.findByText(/2026-07-01 — 2026-07-31/)).toBeInTheDocument();
 
-    // End only: the report covers June.
-    await user.click(screen.getByText("ledger.funderActivityPage.periodEnd"));
+    // Restrict the report to the closed period (June): the aggregate changes.
+    await user.click(screen.getByText("select-period-2"));
+
+    expect(captured.queries).toEqual([
+      { analyticValueId: FUNDER_ID, accountingPeriodId: "1" },
+      { analyticValueId: FUNDER_ID, accountingPeriodId: "2" },
+    ]);
     expect(await screen.findByText(/2026-06-01 — 2026-06-30/)).toBeInTheDocument();
-
-    // Both bounds (July start / June end): the caption is normalised to the
-    // covered chronological span, matching the inclusive range of the report.
-    await user.click(screen.getByText("ledger.funderActivityPage.periodStart"));
-    expect(screen.getByText(/2026-06-01 — 2026-07-31/)).toBeInTheDocument();
-  });
-
-  it("refetches the report when the period range changes", async () => {
-    const user = userEvent.setup();
-    renderPage(buildStore());
-
-    await user.click(screen.getByText("select-giz"));
-    await screen.findByText("claim_payment");
-
-    // Restrict the range to the closed period (June) and check the data changes.
-    await user.click(screen.getByText("ledger.funderActivityPage.periodEnd"));
-
-    expect((await screen.findAllByText("6100")).length).toBe(4); // totals + single category row
-    expect(screen.queryByText("18600")).not.toBeInTheDocument();
-    expect(screen.queryByText("payment_point_reconciliation")).not.toBeInTheDocument();
+    expect(screen.getAllByText("6100").length).toBe(2);
     expect(screen.getByText("4700")).toBeInTheDocument();
   });
 
   it("shows an access denied message without the reporting right", () => {
-    const store = buildStore({ rights: [] });
-    renderPage(store);
+    renderPage(buildStore({ rights: [] }));
 
     expect(screen.getByText("ledger.accessDenied")).toBeInTheDocument();
   });
